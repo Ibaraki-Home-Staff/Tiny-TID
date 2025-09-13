@@ -1,0 +1,1744 @@
+import { loadComponents } from '/assets/js/components.js';
+
+// Init
+loadComponents();
+
+const paramsView = document.getElementById('paramsView');
+const trainsContainer = document.getElementById('trainsContainer');
+const upContainer = document.querySelector('#trainsUp .train-items');
+const downContainer = document.querySelector('#trainsDown .train-items');
+const updatedAtEl = document.getElementById('updatedAt');
+const settingsPanel = document.getElementById('settingsPanel');
+
+// Debug helpers (enable with ?debug=1 or localStorage tid:debug=1)
+const __dbgParam = new URLSearchParams(window.location.search).get('debug');
+const TID_DEBUG = (__dbgParam === '1') || (localStorage.getItem('tid:debug') === '1');
+function dbg(){ try{ if(TID_DEBUG) console.log('[TID]', ...arguments); }catch{} }
+function warn(){ try{ console.warn('[TID]', ...arguments); }catch{} }
+
+
+
+const sp = new URLSearchParams(window.location.search);
+const area = sp.get('area') || '';
+const line = sp.get('line') || '';
+const dir = sp.get('dir');
+const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
+paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 方向: ${dirLabel}`;
+
+(async () => {
+  if(!line){
+    upContainer.textContent = '路線が未指定です';
+    downContainer.textContent = '';
+    return;
+  }
+  try{
+    // Load optional type color mapping (assets/color.txt)
+    try{ await loadTypeColorMap(); }catch{}
+    try{ await loadYomiageMap(); }catch{}
+    // 1) Try to use localStorage cache only (no network)
+    let indexes = buildIndexesFromCache(area, line);
+    // 2) As last resort, fetch this line's stations only (no area-wide prefetch)
+    if(!indexes){
+      const stations = await fetchStations(line);
+      indexes = buildStationIndexes(stations);
+    }
+    populateStationFilter(indexes);
+    initAlarmControls();
+    initTTSControls();
+    initDelayControls();
+    const trains = await fetchTrains(line);
+    setUpdatedAt(trains?.update);
+    renderTrains(indexes, trains, dir);
+    try{ await updateTrafficInfo(area, line); }catch(e){ dbg('traffic info failed', e); }
+    // If area cache is not present, prefetch entire area in background to enable cross-line name resolution
+    try{
+      const areaCached = loadAreaStationsCache(area);
+      if(!areaCached && area){
+        buildGlobalStationsForArea(area).then(() => { try{ refreshTrains(); }catch{} });
+      }
+    }catch{}
+    startAutoRefresh();
+  }catch(err){
+    console.error('列車情報の取得に失敗', err);
+    upContainer.textContent = '取得に失敗しました';
+    downContainer.textContent = '';
+  }
+})();
+
+// Persist settings panel open/close state
+if(settingsPanel){
+  try{
+    const key = 'tid:settings:open';
+    const saved = localStorage.getItem(key);
+    if(saved === '0') settingsPanel.removeAttribute('open');
+    settingsPanel.addEventListener('toggle', () => {
+      try{ localStorage.setItem(key, settingsPanel.open ? '1' : '0'); }catch{}
+    });
+  }catch{}
+}
+
+function apiBase(){
+  return (window.TID_API_BASE && String(window.TID_API_BASE)) || '/api/v3/';
+}
+
+// Optional: type color mapping from assets/color.txt
+const TYPE_COLOR_MAP = new Map(); // displayType -> css class
+function typeColorNameToClass(name){
+  const n = String(name||'').trim();
+  switch(n){
+    case '赤': return 'type-text-red';
+    case '青': return 'type-text-blue';
+    case '青灰': return 'type-text-bluegray';
+    case '橙': return 'type-text-orange';
+    case '緑': return 'type-text-green';
+    case 'エメラルドグリーン': return 'type-text-emerald';
+    default: return '';
+  }
+}
+function resolveColorMapUrls(){
+  const urls = [];
+  try{
+    // URLパラメータ優先（例: ?colormap=/assets/custom.txt）
+    const sp2 = new URLSearchParams(window.location.search);
+    const fromQuery = sp2.get('colormap') || sp2.get('color');
+    if(fromQuery) urls.push(String(fromQuery));
+  }catch{}
+  try{
+    // TID.htmlの<meta name="tid:colorUrl" content="..."> を参照
+    const meta = document.querySelector('meta[name="tid:colorUrl"]');
+    const fromMeta = meta && meta.getAttribute('content');
+    if(fromMeta) urls.push(String(fromMeta));
+  }catch{}
+  // 既定パス
+  urls.push('/assets/color.txt','/color.txt');
+  return urls;
+}
+async function loadTypeColorMap(){
+  const urls = resolveColorMapUrls();
+  for(const u of urls){
+    try{
+      const res = await fetch(u, { cache: 'no-store' });
+      if(!res.ok) continue;
+      const text = await res.text();
+      parseTypeColorText(text);
+      try{ dbg('color map loaded', { url: u, size: TYPE_COLOR_MAP.size }); }catch{}
+      return;
+    }catch{}
+  }
+  try{ dbg('color map not found; using defaults'); }catch{}
+}
+function parseTypeColorText(text){
+  try{
+    TYPE_COLOR_MAP.clear();
+    const lines = String(text||'').split(/\r?\n/);
+    for(const ln of lines){
+      const line = ln.trim();
+      if(!line || line.startsWith('#')) continue;
+      const parts = line.split(',');
+      if(parts.length < 2) continue;
+      const type = parts[0].trim();
+      const color = parts[1].trim();
+      const cls = typeColorNameToClass(color);
+      if(type && cls) TYPE_COLOR_MAP.set(type, cls);
+    }
+    try{ dbg('parsed color map', Object.fromEntries(TYPE_COLOR_MAP)); }catch{}
+  }catch{}
+}
+function configuredTypeTextClass(typeLabel){
+  if(!typeLabel) return '';
+  const t = String(typeLabel).trim();
+  // exact match first
+  const exact = TYPE_COLOR_MAP.get(t);
+  if(exact) return exact;
+  // fallback: substring match (e.g., 大和路快速 vs 大和路快)
+  for(const [key, cls] of TYPE_COLOR_MAP.entries()){
+    if(!key) continue;
+    if(t.includes(key) || key.includes(t)) return cls;
+  }
+  return '';
+}
+
+// Optional: yomiage mapping (exact match) for type and destination
+const YOMI_MAP = new Map(); // label -> reading
+function resolveYomiUrls(){
+  const urls = [];
+  try{
+    const sp2 = new URLSearchParams(window.location.search);
+    const fromQuery = sp2.get('yomiage') || sp2.get('yomi');
+    if(fromQuery) urls.push(String(fromQuery));
+  }catch{}
+  try{
+    const meta = document.querySelector('meta[name="tid:yomiUrl"]');
+    const fromMeta = meta && meta.getAttribute('content');
+    if(fromMeta) urls.push(String(fromMeta));
+  }catch{}
+  urls.push('/assets/yomiage.txt','/yomiage.txt');
+  return urls;
+}
+async function loadYomiageMap(){
+  const urls = resolveYomiUrls();
+  for(const u of urls){
+    try{
+      const res = await fetch(u, { cache: 'no-store' });
+      if(!res.ok) continue;
+      const text = await res.text();
+      parseYomiageText(text);
+      try{ dbg('yomiage map loaded', { url: u, size: YOMI_MAP.size }); }catch{}
+      return;
+    }catch{}
+  }
+  try{ dbg('yomiage map not found; using defaults'); }catch{}
+}
+function parseYomiageText(text){
+  try{
+    YOMI_MAP.clear();
+    const lines = String(text||'').split(/\r?\n/);
+    for(const ln of lines){
+      const s = ln.trim();
+      if(!s || s.startsWith('#')) continue;
+      const parts = s.split(',');
+      if(parts.length < 2) continue;
+      const key = parts[0].trim();
+      const val = parts[1].trim();
+      if(key && val) YOMI_MAP.set(key, val);
+    }
+    try{ dbg('parsed yomiage map', Object.fromEntries(YOMI_MAP)); }catch{}
+  }catch{}
+}
+function yomiFor(text){
+  if(text == null) return '';
+  const t = String(text).trim();
+  return YOMI_MAP.get(t) || t;
+}
+
+// TTS (Web Speech API) controls
+function ttsVoiceKey(){ return 'tid:tts:voice'; }
+function getJapaneseVoices(){
+  try{
+    const synth = window.speechSynthesis;
+    if(!synth || !synth.getVoices) return [];
+    const list = synth.getVoices() || [];
+    return list.filter(v => /^ja([-_]|$)/i.test(v.lang) || /japanese/i.test(v.name));
+  }catch{ return []; }
+}
+function speakText(text){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+    const voice = getSelectedVoice();
+    const u = new SpeechSynthesisUtterance(String(text||''));
+    if(voice){ u.voice = voice; u.lang = voice.lang || 'ja-JP'; }
+    else { u.lang = 'ja-JP'; }
+    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+    synth.speak(u);
+  }catch{}
+}
+
+// Delay highlight and periodic TTS
+function delayThresholdKey(){ return 'tid:delay:threshold'; }
+function getDelayThreshold(){
+  try{
+    const v = Number(localStorage.getItem(delayThresholdKey()));
+    if(Number.isFinite(v) && v >= 0) return Math.floor(v);
+  }catch{}
+  return 4; // default 4 minutes
+}
+function initDelayControls(){
+  const el = document.getElementById('delayThreshold');
+  if(!el) return;
+  try{
+    const v = getDelayThreshold();
+    el.value = String(v);
+    el.addEventListener('change', () => {
+      let n = Number(el.value);
+      if(!Number.isFinite(n) || n < 0) n = 4;
+      try{ localStorage.setItem(delayThresholdKey(), String(Math.floor(n))); }catch{}
+      refreshTrains();
+    });
+  }catch{}
+}
+
+const delayAnnouncedAt = new Map(); // key -> timestamp
+const DELAY_TTS_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+function buildDelayTtsMessage(t, indexes){
+  try{
+    const segs = [];
+    const no = (t && t.no) ? String(t.no).trim() : '';
+    if(no) segs.push(no);
+    let type = (t && t.displayType) ? String(t.displayType).trim() : '';
+    type = yomiFor(type);
+    const nick = getNickname(t);
+    if(type){
+      if(nick){ segs.push(`${type}${nick}`); }
+      else { segs.push(`${type}列車`); }
+    }
+    let dest = getDestText(t, indexes, 'tts.dest');
+    if(dest){
+      dest = yomiFor(String(dest).trim());
+      if(dest && !dest.endsWith('行き')) dest = `${dest}行き`;
+      segs.push(dest);
+    }
+    const delay = (t && typeof t.delayMinutes === 'number') ? t.delayMinutes : null;
+    if(delay && delay > 0){ segs.push(`約${delay}分遅延`); }
+    return segs.filter(Boolean).join('、');
+  }catch{ return ''; }
+}
+
+function handleDelayAnnouncements(list, indexes){
+  const threshold = getDelayThreshold();
+  const now = Date.now();
+  for(const t of list){
+    const delay = (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0;
+    if(delay < threshold) continue;
+    const key = `delay:${line}:${t.no||'?'}:${t.direction}`;
+    const last = delayAnnouncedAt.get(key) || 0;
+    if(now - last < DELAY_TTS_INTERVAL_MS) continue;
+    const msg = buildDelayTtsMessage(t, indexes);
+    if(msg){ speakText(msg); delayAnnouncedAt.set(key, now); }
+  }
+}
+
+function buildTtsMessage(t, targetCode, indexes){
+  try{
+    const segs = [];
+    const no = (t && t.no) ? String(t.no).trim() : '';
+    if(no) segs.push(no);
+    let type = (t && t.displayType) ? String(t.displayType).trim() : '';
+    type = yomiFor(type);
+    const nick = getNickname(t);
+    if(type){
+      if(nick){
+        // 種別 + 愛称（例: 特急サンダーバード49号）
+        segs.push(`${type}${nick}`);
+      }else{
+        // 愛称なし → 「種別＋列車」（例: 普通列車）
+        segs.push(`${type}列車`);
+      }
+    }
+    // destination
+    let dest = getDestText(t, indexes, 'tts.dest');
+    if(dest){
+      dest = yomiFor(String(dest).trim());
+      if(dest && !dest.endsWith('行き')) dest = `${dest}行き`;
+      segs.push(dest);
+    }
+    const stationName = indexes.byCode.get(String(targetCode))?.name || String(targetCode);
+    segs.push(`${yomiFor(stationName)}に接近`);
+    const delay = (t && typeof t.delayMinutes === 'number') ? t.delayMinutes : null;
+    if(delay && delay > 0){
+      segs.push(`約${delay}分遅延`);
+    }
+    return segs.filter(Boolean).join('、');
+  }catch{
+    const stationName = indexes.byCode.get(String(targetCode))?.name || String(targetCode);
+    const no = (t && t.no) ? String(t.no) : '列車';
+    return `${no}、${stationName}に接近`;
+  }
+}
+function getSelectedVoice(){
+  try{
+    const name = localStorage.getItem(ttsVoiceKey()) || document.getElementById('ttsVoice')?.value || '';
+    const voices = getJapaneseVoices();
+    return voices.find(v => v.name === name) || voices[0] || null;
+  }catch{ return null; }
+}
+function populateTTSSelect(){
+  const sel = document.getElementById('ttsVoice');
+  if(!sel) return;
+  const voices = getJapaneseVoices();
+  sel.innerHTML = '';
+  if(!voices.length){
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '日本語音声が見つかりません';
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '（未選択）';
+  sel.appendChild(none);
+  const saved = localStorage.getItem(ttsVoiceKey()) || '';
+  for(const v of voices){
+    const opt = document.createElement('option');
+    opt.value = v.name;
+    opt.textContent = `${v.name} (${v.lang})`;
+    if(saved && saved === v.name) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+// Traffic info (area-level)
+async function fetchTrafficInfo(area){
+  const url = `${apiBase()}area_${area}_trafficinfo.json`;
+  try{
+    const res = await fetch(url, { cache: 'no-store' });
+    if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  }catch(err){
+    const fallbacks = [
+      `/assets/data/area_${area}_trafficinfo.json`,
+      `/area_${area}_trafficinfo.json`
+    ];
+    for(const f of fallbacks){
+      try{
+        const r = await fetch(f, { cache: 'no-store' });
+        if(r.ok) return await r.json();
+      }catch{}
+    }
+    throw err;
+  }
+}
+
+function renderTrafficInfo(area, line, data){
+  try{
+    const box = document.getElementById('trafficInfo');
+    if(!box){ return; }
+    box.innerHTML = '';
+    if(!data || !data.lines || typeof data.lines !== 'object'){ return; }
+    const entry = data.lines[line];
+    if(!entry){ return; }
+    const section = entry.section;
+    let sectionText = '';
+    if(typeof section === 'string') sectionText = section;
+    else if(section && typeof section === 'object'){
+      const from = section.from || section.start || '';
+      const to = section.to || section.end || '';
+      if(from || to) sectionText = `${from || ''} ~ ${to || ''}`.trim();
+    }
+    const cause = entry.cause || '';
+    const status = entry.status || '';
+    const url = entry.url || '';
+    const text = `${sectionText ? sectionText + ': ' : ''}${cause ? (cause + ' により ') : ''}${status}`.trim();
+    if(!text){ return; }
+    const p = document.createElement('p');
+    p.className = 'traffic-line-info';
+    if(url){
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = text;
+      p.appendChild(a);
+    }else{
+      p.textContent = text;
+    }
+    box.appendChild(p);
+  }catch(err){ dbg('renderTrafficInfo error', err); }
+}
+
+async function updateTrafficInfo(area, line){
+  if(!area || !line) return;
+  try{
+    const data = await fetchTrafficInfo(area);
+    renderTrafficInfo(area, line, data);
+  }catch(err){ dbg('traffic fetch fail', err); }
+}
+function initTTSControls(){
+  const sel = document.getElementById('ttsVoice');
+  const btn = document.getElementById('ttsTestBtn');
+  if(!sel) return;
+  try{
+    populateTTSSelect();
+    // Some browsers populate voices asynchronously
+    if('speechSynthesis' in window){
+      window.speechSynthesis.onvoiceschanged = () => {
+        const saved = localStorage.getItem(ttsVoiceKey()) || '';
+        populateTTSSelect();
+        if(saved){
+          const s = document.getElementById('ttsVoice');
+          if(s && Array.from(s.options).some(o=>o.value===saved)) s.value = saved;
+        }
+      };
+    }
+    sel.addEventListener('change', ()=>{
+      try{ localStorage.setItem(ttsVoiceKey(), sel.value || ''); }catch{}
+    });
+    // Restore saved
+    const saved = localStorage.getItem(ttsVoiceKey());
+    if(saved && Array.from(sel.options).some(o=>o.value===saved)) sel.value = saved;
+
+    // Test playback button
+    if(btn){
+      if(!('speechSynthesis' in window)){
+        btn.disabled = true; btn.textContent = '音声未対応';
+      }else{
+        btn.addEventListener('click', () => {
+          try{
+            const synth = window.speechSynthesis;
+            if(synth.speaking || synth.pending){
+              synth.cancel();
+              btn.textContent = 'テスト再生';
+              return;
+            }
+            const voice = getSelectedVoice();
+            if(!voice){ btn.textContent = '音声未検出'; return; }
+            const u = new SpeechSynthesisUtterance('4049M、特急サンダーバード49号、大阪行き、千里丘に接近');
+            u.voice = voice; u.lang = voice.lang || 'ja-JP';
+            u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+            u.onend = () => { try{ btn.textContent = 'テスト再生'; }catch{} };
+            u.onerror = () => { try{ btn.textContent = 'テスト再生'; }catch{} };
+            btn.textContent = '停止';
+            synth.speak(u);
+          }catch(e){ btn.textContent = 'エラー'; }
+        });
+      }
+    }
+  }catch{}
+}
+
+// Alarm preferences and runtime state
+const alarmNotified = { up: new Set(), down: new Set() };
+let audioCtx = null;
+function selectedStationCode(){
+  return (document.getElementById('stationFilter')?.value || '').trim();
+}
+function alarmKey(dir, st){
+  const code = (st != null ? String(st) : selectedStationCode()) || '_none';
+  return `tid:alarm:${line}:${code}:${dir}`;
+}
+function alarmDisableKey(dir, st){
+  const code = (st != null ? String(st) : selectedStationCode()) || '_none';
+  return `tid:alarm:disable:${line}:${code}:${dir}`;
+}
+function alarmTargetKey(dir, st){
+  const code = (st != null ? String(st) : selectedStationCode()) || '_none';
+  return `tid:alarm:target:${line}:${code}:${dir}`;
+}
+function readAlarmPrefs(dir, st){
+  try{
+    const raw = localStorage.getItem(alarmKey(dir, st));
+    const arr = raw ? JSON.parse(raw) : [];
+    if(Array.isArray(arr)) return new Set(arr);
+  }catch{}
+  return new Set();
+}
+function saveAlarmPrefs(dir, values, st){
+  try{ localStorage.setItem(alarmKey(dir, st), JSON.stringify(Array.from(values||[]))); }catch{}
+}
+function readAlarmDisable(dir, st){
+  try{
+    const v = localStorage.getItem(alarmDisableKey(dir, st));
+    if(v === null) return true; // default: disabled
+    return v === '1';
+  }catch{ return true; }
+}
+function saveAlarmDisable(dir, v, st){
+  try{ localStorage.setItem(alarmDisableKey(dir, st), v ? '1' : '0'); }catch{}
+}
+function readAlarmTargets(dir, st){
+  try{
+    const raw = localStorage.getItem(alarmTargetKey(dir, st));
+    const obj = raw ? JSON.parse(raw) : {};
+    return (obj && typeof obj === 'object') ? obj : {};
+  }catch{ return {}; }
+}
+function saveAlarmTarget(dir, st, catKey, stationCode){
+  try{
+    const obj = readAlarmTargets(dir, st);
+    obj[catKey] = String(stationCode||'');
+    localStorage.setItem(alarmTargetKey(dir, st), JSON.stringify(obj));
+  }catch{}
+}
+function setDisabledForDir(dir, disabled){
+  const sel = dir === 'up' ? '[data-alarm-up]' : '[data-alarm-down]';
+  const boxes = document.querySelectorAll(sel);
+  boxes.forEach(b => {
+    b.disabled = !!disabled;
+    const p = b.parentElement;
+    if(p && p.style){ p.style.opacity = disabled ? '0.5' : ''; }
+  });
+  // Also disable dropdowns in the fieldset
+  const fs = document.getElementById(dir === 'up' ? 'alarmUpBox' : 'alarmDownBox');
+  if(fs){
+    fs.querySelectorAll('select').forEach(s => { s.disabled = !!disabled || s.options.length === 0 || s.value === ''; });
+  }
+}
+function initAlarmControls(){
+  const upDis = document.getElementById('alarmUpDisable');
+  const dnDis = document.getElementById('alarmDownDisable');
+  if(upDis){
+    upDis.checked = readAlarmDisable('up', selectedStationCode());
+    setDisabledForDir('up', upDis.checked);
+    upDis.onchange = ()=>{ saveAlarmDisable('up', upDis.checked, selectedStationCode()); setDisabledForDir('up', upDis.checked); };
+  }
+  if(dnDis){
+    dnDis.checked = readAlarmDisable('down', selectedStationCode());
+    setDisabledForDir('down', dnDis.checked);
+    dnDis.onchange = ()=>{ saveAlarmDisable('down', dnDis.checked, selectedStationCode()); setDisabledForDir('down', dnDis.checked); };
+  }
+}
+function getCategoryLabel(cat){
+  switch(Number(cat)){
+    case 0: return '普通';
+    case 1: return '新快速';
+    case 2: return '快速';
+    case 3: return '区間快速';
+    case 4: return '直通快速';
+    case 5: return '特急';
+    case 6: return '急行';
+    case 7: return '寝台';
+    case 8: return 'SL';
+    case 9: return '観光';
+    case 10: return '瑞風';
+    default: return `種別${cat}`;
+  }
+}
+function renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhancedList){
+  const upBox = document.getElementById('alarmUpOptions');
+  const downBox = document.getElementById('alarmDownOptions');
+  const row = document.getElementById('alarmRow');
+  const upFs = document.getElementById('alarmUpBox');
+  const dnFs = document.getElementById('alarmDownBox');
+  if(!upBox || !downBox || !row) return;
+  // Hide entire row when station is not selected
+  if(!selectedCode){
+    row.style.display = 'none';
+    upBox.innerHTML = '';
+    downBox.innerHTML = '';
+    return;
+  }
+  row.style.display = 'flex';
+  // Show/hide fieldsets by current direction filter
+  if(dirParam === 'up'){
+    if(upFs) upFs.style.display = '';
+    if(dnFs) dnFs.style.display = 'none';
+  }else if(dirParam === 'down'){
+    if(upFs) upFs.style.display = 'none';
+    if(dnFs) dnFs.style.display = '';
+  }else{
+    if(upFs) upFs.style.display = '';
+    if(dnFs) dnFs.style.display = '';
+  }
+  upBox.innerHTML = '';
+  downBox.innerHTML = '';
+  const selected = selectedCode && indexes?.byCode?.get(selectedCode);
+  const cats = allowedCats instanceof Set ? Array.from(allowedCats) : [];
+  // Build checkboxes for allowed stop categories (based on station filter)
+  function nextStations(indexes, code, dirLabel, count){
+    const order = indexes.order || [];
+    const idx = order.indexOf(String(code));
+    const out = [];
+    if(idx < 0) return out;
+    if(dirLabel === 'up'){
+      for(let k=1;k<=count;k++){ if(idx+k < order.length) out.push(order[idx+k]); }
+    }else{
+      for(let k=1;k<=count;k++){ if(idx-k >= 0) out.push(order[idx-k]); }
+    }
+    return out;
+  }
+  const build = (container, attr, saved, dirLabel) => {
+    // Station-based categories
+    cats.sort((a,b)=>Number(a)-Number(b)).forEach(cat => {
+      const label = getCategoryLabel(cat);
+      const wrap = document.createElement('label');
+      Object.assign(wrap.style, {
+        display:'flex', alignItems:'center', gap:'0.75rem',
+        padding:'0.9rem 1.1rem', margin:'0.35rem 0',
+        border:'1px solid #e0e0e0', borderRadius:'0.5rem',
+        fontSize:'1.15rem', minHeight:'52px', cursor:'pointer'
+      });
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.setAttribute(attr,''); input.value = `cat:${cat}`;
+      if(saved.has(`cat:${cat}`)) input.checked = true;
+      input.style.transform = 'scale(1.35)';
+      input.style.transformOrigin = 'left center';
+      wrap.appendChild(input);
+      const text = document.createElement('span'); text.textContent = label; wrap.appendChild(text);
+      // Target station dropdown（絞り込み駅は除外。進行方向側のみ）
+      const sel = document.createElement('select');
+      sel.style.marginLeft = 'auto';
+      sel.style.fontSize = '1rem';
+      sel.style.padding = '.4rem .6rem';
+      sel.style.minWidth = '11rem';
+      const options = [];
+      const makeOpt = (code, label) => { const o = document.createElement('option'); o.value = code; o.textContent = label; return o; };
+      const nameOf = (code) => {
+        const st = indexes.byCode.get(String(code));
+        return st?.name || String(code);
+      };
+      const ahead = nextStations(indexes, selectedCode, dirLabel, 3);
+      if(ahead.length){
+        ahead.forEach(code => options.push(makeOpt(code, nameOf(code))));
+      }else{
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = '候補なし';
+        sel.disabled = true;
+        options.push(o);
+      }
+      options.forEach(o => sel.appendChild(o));
+      // restore saved target
+      const dirKey = (dirLabel === 'up') ? 'up' : 'down';
+      const targets = readAlarmTargets(dirKey, selectedCode);
+      const catKey = `cat:${cat}`;
+      if(targets[catKey] && Array.from(sel.options).some(o => o.value === targets[catKey])){
+        sel.value = targets[catKey];
+      }
+      sel.addEventListener('change', () => saveAlarmTarget(dirKey, selectedCode, catKey, sel.value));
+      wrap.appendChild(sel);
+      
+      container.appendChild(wrap);
+    });
+    // Pass option + target dropdown
+    const wrapPass = document.createElement('label');
+    Object.assign(wrapPass.style, {
+      display:'flex', alignItems:'center', gap:'0.75rem',
+      padding:'0.9rem 1.1rem', margin:'0.35rem 0',
+      border:'1px solid #e0e0e0', borderRadius:'0.5rem',
+      fontSize:'1.15rem', minHeight:'52px', cursor:'pointer'
+    });
+    const pass = document.createElement('input'); pass.type = 'checkbox'; pass.setAttribute(attr,''); pass.value = 'pass';
+    pass.style.transform = 'scale(1.35)';
+    pass.style.transformOrigin = 'left center';
+    if(saved.has('pass')) pass.checked = true; 
+    wrapPass.appendChild(pass); 
+    wrapPass.appendChild(document.createTextNode('通過'));
+    const selPass = document.createElement('select');
+    selPass.style.marginLeft = 'auto'; selPass.style.fontSize = '1rem'; selPass.style.padding = '.4rem .6rem'; selPass.style.minWidth = '11rem';
+    const aheadPass = nextStations(indexes, selectedCode, dirLabel, 3);
+    if(aheadPass.length){
+      aheadPass.forEach(code => { const o = document.createElement('option'); o.value = code; o.textContent = indexes.byCode.get(String(code))?.name || String(code); selPass.appendChild(o); });
+    }else{
+      const o = document.createElement('option'); o.value = ''; o.textContent = '候補なし'; selPass.disabled = true; selPass.appendChild(o);
+    }
+    const dirKey2 = (dirLabel === 'up') ? 'up' : 'down';
+    const targets2 = readAlarmTargets(dirKey2, selectedCode);
+    if(targets2['pass'] && Array.from(selPass.options).some(o => o.value === targets2['pass'])){ selPass.value = targets2['pass']; }
+    selPass.addEventListener('change', () => saveAlarmTarget(dirKey2, selectedCode, 'pass', selPass.value));
+    wrapPass.appendChild(selPass);
+    // Auto-disable pass alarm when pass display is hidden
+    const passSetting = (document.getElementById('passFilter')?.value || 'hide');
+    if(passSetting !== 'show'){
+      pass.checked = false;
+      pass.disabled = true;
+      selPass.disabled = true;
+      wrapPass.style.opacity = '0.5';
+    }
+    container.appendChild(wrapPass);
+  };
+  const savedUp = readAlarmPrefs('up', selectedCode);
+  const savedDown = readAlarmPrefs('down', selectedCode);
+  build(upBox, 'data-alarm-up', savedUp, 'up');
+  build(downBox, 'data-alarm-down', savedDown, 'down');
+  const saveScope = (dir, selector) => {
+    const boxes = Array.from(document.querySelectorAll(selector));
+    const vals = new Set(boxes.filter(b => b.checked).map(b => b.value));
+    saveAlarmPrefs(dir, vals, selectedCode);
+  };
+  document.getElementById('alarmUpBox')?.addEventListener('change', () => saveScope('up', '[data-alarm-up]'));
+  document.getElementById('alarmDownBox')?.addEventListener('change', () => saveScope('down', '[data-alarm-down]'));
+  // Apply disabled state to inputs after render
+  setDisabledForDir('up', readAlarmDisable('up', selectedCode));
+  setDisabledForDir('down', readAlarmDisable('down', selectedCode));
+}
+function getPrefsForDir(dir){
+  const st = selectedStationCode();
+  const disabled = readAlarmDisable(dir === 0 ? 'up' : 'down', st);
+  if(disabled) return new Set();
+  const sel = dir === 0 ? '[data-alarm-up]' : '[data-alarm-down]';
+  const boxes = Array.from(document.querySelectorAll(sel));
+  const vals = new Set(boxes.filter(b => b.checked).map(b => b.value));
+  return vals;
+}
+function playBeep(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.27);
+  }catch(err){ dbg('beep failed', err); }
+}
+function notifyOnce(dirStr, key, message){
+  const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
+  if(set.has(key)) return false;
+  set.add(key);
+  playBeep();
+  try{ if(message) speakText(message); }catch{}
+  return true;
+}
+
+// Global station index for the whole area(s) (code -> name)
+const globalStationsByCode = new Map();
+const AREA_LIST = ['kinki','hokuriku','okayama','hiroshima','sanin'];
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // ~30 days
+
+function areaCacheKey(a){ return `tid:areaStations:${a}`; }
+function areaCrossKey(a){ return `tid:cross:${a}`; }
+
+function loadAreaStationsCache(a){
+  try{
+    const raw = localStorage.getItem(areaCacheKey(a));
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    if(!obj || !obj.updatedAt || !obj.stations) return null;
+    const age = Date.now() - Number(obj.updatedAt);
+    if(age > CACHE_TTL_MS) return null;
+    return obj; // { updatedAt, stations: { code: {name, stopTrains?} }, lines?: { lineId: [codes] } }
+  }catch{ return null; }
+}
+
+  function saveAreaStationsCache(a, data){
+    try{
+      const payload = {
+        updatedAt: Date.now(),
+        stations: data.stations || {},
+        lines: data.lines || {},
+        lineStations: data.lineStations || {}
+      };
+      localStorage.setItem(areaCacheKey(a), JSON.stringify(payload));
+    }catch{ /* ignore quota */ }
+  }
+
+  function loadAreaCrossCache(a){
+    try{
+      const raw = localStorage.getItem(areaCrossKey(a));
+      if(!raw) return null;
+      const obj = JSON.parse(raw);
+      if(!obj || !obj.updatedAt || !obj.lines) return null;
+      const age = Date.now() - Number(obj.updatedAt);
+      if(age > CACHE_TTL_MS) return null;
+      return obj; // { updatedAt, lines: { lineId: { '0400_0401': 'hokurikubiwako', ... } } }
+    }catch{ return null; }
+  }
+
+  function saveAreaCrossCache(a, data){
+    try{
+      const payload = { updatedAt: Date.now(), lines: data.lines || {} };
+      localStorage.setItem(areaCrossKey(a), JSON.stringify(payload));
+    }catch{}
+  }
+
+  function pairKey(a,b){ const x=String(a), y=String(b); return x<y ? `${x}_${y}` : `${y}_${x}`; }
+
+  function getCrossPreferredLine(a, userLine, codeA, codeB){
+    const obj = loadAreaCrossCache(a);
+    if(!obj || !obj.lines) return null;
+    const table = obj.lines[userLine];
+    if(!table) return null;
+    return table[pairKey(codeA, codeB)] || null;
+  }
+
+  function setCrossPreferredLine(a, userLine, codeA, codeB, chosenLine){
+    try{
+      const obj = loadAreaCrossCache(a) || { updatedAt: Date.now(), lines: {} };
+      if(!obj.lines[userLine]) obj.lines[userLine] = {};
+      obj.lines[userLine][pairKey(codeA, codeB)] = String(chosenLine);
+      saveAreaCrossCache(a, obj);
+      dbg('cross pair cached', { area: a, userLine, pair: pairKey(codeA, codeB), chosenLine });
+    }catch{}
+  }
+
+// line orders cache in-memory
+const globalLineOrders = new Map(); // lineId -> [codes]
+
+async function buildGlobalStationsForArea(a, { force = false } = {}){
+  if(!a) return; // fallback to per-line only
+  // try cache first
+  if(!force){
+    const cached = loadAreaStationsCache(a);
+    if(cached){
+      const stations = cached.stations || {};
+      for(const [code, v] of Object.entries(stations)){
+        const name = typeof v === 'string' ? v : v?.name;
+        if(name){
+          globalStationsByCode.set(String(code), String(name));
+        }
+      }
+      const lines = cached.lines || {};
+      for(const [lid, arr] of Object.entries(lines)){
+        if(Array.isArray(arr)) globalLineOrders.set(lid, arr.map(String));
+      }
+      return;
+    }
+  }
+  try{
+    const master = await fetchAreaMaster(a);
+    const lineIds = Object.keys(master?.lines || {});
+    if(!lineIds.length) return;
+    const results = await Promise.allSettled(
+      lineIds.map(l => fetchStations(l).then(data => ({ lineId: l, data })))
+    );
+      const toCacheStations = {};
+      const toCacheLines = {};
+      const toCacheLineStations = {};
+    for(const r of results){
+      if(r.status !== 'fulfilled') continue;
+      const { lineId, data } = r.value;
+        const list = Array.isArray(data?.stations) ? data.stations : [];
+        const orderCodes = [];
+        const perLine = {};
+      for(const s of list){
+        const info = s?.info || {};
+        const code = info?.code;
+        const name = info?.name;
+        if(code){
+          const c = String(code);
+            if(name){
+              const n = String(name);
+              globalStationsByCode.set(c, n);
+              const stopTrains = Array.isArray(info?.stopTrains) ? info.stopTrains.slice() : undefined;
+              const transferLines = extractTransferLinesFromInfo(info);
+              toCacheStations[c] = { name: n, stopTrains };
+              perLine[c] = { name: n, stopTrains, transferLines };
+            }
+            orderCodes.push(c);
+          }
+        }
+        if(lineId && orderCodes.length){
+          globalLineOrders.set(lineId, orderCodes);
+          toCacheLines[lineId] = orderCodes;
+          toCacheLineStations[lineId] = perLine;
+        }
+      }
+      saveAreaStationsCache(a, { stations: toCacheStations, lines: toCacheLines, lineStations: toCacheLineStations });
+  }catch(err){
+    // best-effort; ignore
+    console.warn('エリア駅名の構築に失敗', err);
+  }
+}
+
+// Warm global maps from localStorage cache only (no network)
+function warmAreaFromCache(a){
+  const cached = loadAreaStationsCache(a);
+  if(!cached) return;
+  for(const [code, v] of Object.entries(cached.stations || {})){
+    const name = typeof v === 'string' ? v : v?.name;
+    if(name) globalStationsByCode.set(String(code), String(name));
+  }
+  for(const [lid, arr] of Object.entries(cached.lines || {})){
+    if(Array.isArray(arr)) globalLineOrders.set(lid, arr.map(String));
+  }
+}
+
+// Only warm from cache to avoid unexpected network fetches for other areas
+(function warmAllAreasFromCache(){
+  try{
+    AREA_LIST.forEach(a => warmAreaFromCache(a));
+  }catch{ /* ignore */ }
+})();
+
+async function fetchAreaMaster(area){
+  const url = `${apiBase()}area_${area}_master.json`;
+  try{
+    const res = await fetch(url, { cache: 'no-store' });
+    if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  }catch(err){
+    // local fallbacks for development only
+    const fallbacks = [
+      `/assets/data/area_${area}_master.json`,
+      `/area_${area}_master.json`
+    ];
+    for(const f of fallbacks){
+      try{
+        const r = await fetch(f, { cache: 'no-store' });
+        if(r.ok) return await r.json();
+      }catch{}
+    }
+    throw err;
+  }
+}
+
+async function fetchStations(line){
+  const url = `${apiBase()}${line}_st.json`;
+  try{
+    const res = await fetch(url, { cache: 'no-store' });
+    if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  }catch(err){
+    // Local fallbacks for development only
+    const fallbacks = [
+      `/assets/data/${line}_st.json`,
+      `/${line}_st.json`
+    ];
+    for(const f of fallbacks){
+      try{
+        const r = await fetch(f, { cache: 'no-store' });
+        if(r.ok) return await r.json();
+      }catch{ /* try next */ }
+    }
+    throw err;
+  }
+}
+
+function buildStationIndexes(data){
+  const byCode = new Map();
+  const list = Array.isArray(data?.stations) ? data.stations : [];
+  list.forEach((s, idx) => {
+    const info = s?.info || {};
+    const code = info?.code;
+    if(code){
+      byCode.set(String(code), {
+        index: idx,
+        name: String(info?.name || ''),
+        code: String(code),
+        stopTrains: Array.isArray(info?.stopTrains) ? info.stopTrains.slice() : null,
+        transferLines: extractTransferLinesFromInfo(info)
+      });
+    }
+  });
+  const order = list.map(s => String(s?.info?.code || ''));
+  return { byCode, order };
+}
+
+function extractTransferLinesFromInfo(info){
+  const out = new Set();
+  const arr = Array.isArray(info?.transfer) ? info.transfer : [];
+  for(const t of arr){
+    const link = t && t.link;
+    const code = t && t.code;
+    if(typeof link === 'string' && link) out.add(link);
+    else if(typeof code === 'string' && code) out.add(code);
+  }
+  return Array.from(out);
+}
+
+function buildIndexesFromCache(area, line){
+  const cached = loadAreaStationsCache(area);
+  if(!cached || !cached.stations) return null;
+  let order = (cached.lines && cached.lines[line]) || globalLineOrders.get(line) || null;
+  if(!Array.isArray(order) || !order.length){
+    const codes = Object.keys(cached.stations || {});
+    if(!codes.length) return null;
+    order = codes.sort();
+    dbg('cache order fallback', { area, line, count: order.length });
+  }
+  const byCode = new Map();
+  order.forEach((code, idx) => {
+    const rec = (cached.lineStations && cached.lineStations[line] && cached.lineStations[line][code])
+      || cached.stations[code] || {};
+    const name = rec?.name || globalStationsByCode.get(code) || code;
+    const stopTrains = Array.isArray(rec?.stopTrains) ? rec.stopTrains : [];
+    byCode.set(String(code), { index: idx, name: String(name), code: String(code), stopTrains });
+  });
+  dbg('buildIndexesFromCache OK', { area, line, size: byCode.size });
+  return { byCode, order: order.map(String) };
+}
+
+function populateStationFilter(indexes){
+  const sel = document.getElementById('stationFilter');
+  if(!sel) return;
+  // clear
+  sel.length = 1;
+  for(const code of indexes.order){
+    const st = indexes.byCode.get(code);
+    if(!st) continue;
+    const opt = document.createElement('option');
+    opt.value = st.code;
+    opt.textContent = st.name || st.code;
+    sel.appendChild(opt);
+  }
+  // restore saved selection per line
+  const savedStation = localStorage.getItem(stationKey(line));
+  if(savedStation && Array.from(sel.options).some(o => o.value === savedStation)){
+    sel.value = savedStation;
+  }
+  sel.addEventListener('change', () => {
+    localStorage.setItem(stationKey(line), sel.value || '');
+    // retrigger render by refetching latest trains
+    try{ alarmNotified.up.clear(); alarmNotified.down.clear(); }catch{}
+    refreshTrains();
+  });
+  const passSel = document.getElementById('passFilter');
+  if(passSel){
+    const savedPass = localStorage.getItem(passKey(line));
+    if(savedPass === 'show' || savedPass === 'hide'){
+      passSel.value = savedPass;
+    }
+    passSel.addEventListener('change', () => refreshTrains());
+    passSel.addEventListener('change', () => {
+      localStorage.setItem(passKey(line), passSel.value);
+    });
+  }
+  const refreshBtn = document.getElementById('refreshStationsBtn');
+  if(refreshBtn){
+    refreshBtn.addEventListener('click', async () => {
+      try{
+        refreshBtn.disabled = true;
+        const oldText = refreshBtn.textContent;
+        refreshBtn.textContent = '更新中…';
+        clearAreaStationsCache(area);
+        clearAreaCrossCache(area);
+        await buildGlobalStationsForArea(area, { force: true });
+        await refreshTrains();
+        refreshBtn.textContent = oldText;
+      }finally{
+        refreshBtn.disabled = false;
+      }
+    });
+  }
+}
+
+async function refreshTrains(){
+  if(refreshing) return;
+  refreshing = true;
+  try{
+    let indexes = buildIndexesFromCache(area, line);
+    if(!indexes){
+      const stations = await fetchStations(line);
+      indexes = buildStationIndexes(stations);
+    }
+    const trains = await fetchTrains(line);
+    setUpdatedAt(trains?.update);
+    populateStationFilter(indexes);
+    renderTrains(indexes, trains, dir);
+    try{ await updateTrafficInfo(area, line); }catch{}
+  }catch(err){
+    console.error('再取得に失敗', err);
+  }finally{
+    refreshing = false;
+  }
+}
+
+let refreshTimer = null;
+let refreshing = false;
+let visBound = false;
+function startAutoRefresh(){
+  stopAutoRefresh();
+  refreshTimer = setInterval(() => {
+    // 10秒ごとに最新の列車一覧を取得
+    refreshTrains();
+  }, 10000);
+  // ページが非表示の場合はスキップ（簡易節約）
+  if(!visBound){
+    document.addEventListener('visibilitychange', () => {
+      if(document.hidden) return;
+      // 復帰時に即時更新（読み上げ判定も実行）
+      refreshTrains();
+    });
+    visBound = true;
+  }
+}
+function stopAutoRefresh(){
+  if(refreshTimer){
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+function setUpdatedAt(iso){
+  if(!updatedAtEl) return;
+  if(!iso){ updatedAtEl.textContent = ''; return; }
+  updatedAtEl.textContent = formatJST(iso);
+}
+
+  function formatJST(iso){
+  try{
+    const dt = new Date(iso);
+    if(isNaN(dt.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).formatToParts(dt);
+    const get = (t) => parts.find(p => p.type === t)?.value || '';
+    return `${get('year')}年${get('month')}月${get('day')}日 ${get('hour')}時${get('minute')}分${get('second')}秒更新`;
+  }catch{ return ''; }
+}
+
+async function fetchTrains(line){
+  const url = `${apiBase()}${line}.json`;
+  try{
+    const res = await fetch(url, { cache: 'no-store' });
+    if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  }catch(err){
+    const fallbacks = [
+      `/assets/data/${line}.json`,
+      `/${line}.json`
+    ];
+    for(const f of fallbacks){
+      try{
+        const r = await fetch(f, { cache: 'no-store' });
+        if(r.ok) return await r.json();
+      }catch{}
+    }
+    throw err;
+  }
+}
+
+function renderTrains(indexes, trainsData, dirParam){
+  const items = Array.isArray(trainsData?.trains) ? trainsData.trains : [];
+  const selectedCode = (document.getElementById('stationFilter')?.value || '').trim();
+  const allowedCats = stationAllowedCategories(indexes.byCode.get(selectedCode));
+  const passSetting = (document.getElementById('passFilter')?.value || 'hide');
+  const enhanced = items
+    .map(t => normalizeTrain(t))
+    .map(t => enhanceTrain(t, indexes.byCode));
+  const parsed = enhanced.filter(t => filterByStationSetting(t, allowedCats, passSetting));
+  // If a station is selected, hide trains that have already passed the station
+  const stationIdx = selectedCode ? indexes.byCode.get(selectedCode)?.index : null;
+  const hidePassed = (arr, dir) => {
+    if(stationIdx == null) return arr;
+    return arr.filter(t => {
+      if(typeof t.posIndex !== 'number') return true;
+      if(dir === 0) {
+        // 上り: 既に通過（駅より小さい位置）は除外
+        return t.posIndex >= stationIdx;
+      } else {
+        // 下り: 既に通過（駅より大きい位置）は除外
+        return t.posIndex <= stationIdx;
+      }
+    });
+  };
+  // Update heading to reflect filter state
+  const heading = document.getElementById('trainsHeading');
+  if(heading){
+    if(selectedCode){
+      const st = indexes.byCode.get(selectedCode);
+      const name = st?.name || selectedCode;
+      heading.textContent = `列車一覧（駅で絞り込み: ${name}）`;
+    }else{
+      heading.textContent = '列車一覧（絞り込み無し）';
+    }
+  }
+  const up = hidePassed(parsed.filter(t => t.direction === 0).sort((a,b)=>a.posIndex-b.posIndex), 0);
+  const down = hidePassed(parsed.filter(t => t.direction === 1).sort((a,b)=>b.posIndex-a.posIndex), 1);
+
+  // Render alarm type options (per-direction) based on selected station and current direction filter
+  try{ renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhanced); }catch(e){ dbg('alarm render failed', e); }
+  try{ handleApproachAlarms(indexes, enhanced, selectedCode, stationIdx, allowedCats, dirParam); }catch(e){ dbg('alarm check failed', e); }
+  try{
+    const shown = dirParam === 'up' ? up : dirParam === 'down' ? down : up.concat(down);
+    handleDelayAnnouncements(shown, indexes);
+  }catch(e){ dbg('delay tts failed', e); }
+
+  // Reset columns
+  upContainer.parentElement.style.display = '';
+  downContainer.parentElement.style.display = '';
+
+  if(dirParam === 'up'){
+    renderTrainListJP(upContainer, up, indexes);
+    downContainer.parentElement.style.display = 'none';
+    trainsContainer?.classList.add('single');
+  }else if(dirParam === 'down'){
+    renderTrainListJP(downContainer, down, indexes);
+    upContainer.parentElement.style.display = 'none';
+    trainsContainer?.classList.add('single');
+  }else{
+    renderTrainListJP(upContainer, up, indexes);
+    renderTrainListJP(downContainer, down, indexes);
+    trainsContainer?.classList.remove('single');
+  }
+}
+
+function renderTrainListJP(container, list, indexes){
+  if(!container) return;
+  container.innerHTML = '';
+  if(!list.length){
+    container.textContent = '該当なし';
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'train-table';
+  const colgroup = document.createElement('colgroup');
+  for(let i=0;i<7;i++){ colgroup.appendChild(document.createElement('col')); }
+  table.appendChild(colgroup);
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr>'+
+    '<th>列番</th>'+
+    '<th>種別</th>'+
+    '<th>愛称</th>'+
+    '<th>両数</th>'+
+    '<th>行先</th>'+
+    '<th>位置</th>'+
+    '<th>遅延</th>'+
+  '</tr>';
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for(const t of list){
+    const tr = document.createElement('tr');
+    const threshold = getDelayThreshold();
+    const delayText = (typeof t.delayMinutes === 'number' && t.delayMinutes > 0)
+      ? (t.delayMinutes >= threshold
+          ? `<span class="delay-bad" style="color:var(--color-danger,#c00);font-weight:700;">${t.delayMinutes}分</span>`
+          : `${t.delayMinutes}分`)
+      : '';
+    const typeLabel = (t.displayType || '').trim();
+    const __mapCls = configuredTypeTextClass(typeLabel);
+    const __cat = trainCategoryFromDisplayType(t.displayType);
+    const __cls = __mapCls || typeTextClass(__cat);
+    const TYPE_HTML = __cls ? `<span class=\"${__cls}\">${escapeHtml(typeLabel)}</span>` : `${escapeHtml(typeLabel)}`;
+    const posPart = t.stopped
+      ? `${escapeHtml(t.atName || '')}`
+      : (() => {
+          const from = t.direction === 0 ? t.nextName : t.atName; // 上りは右→左
+          const to = t.direction === 0 ? t.atName : t.nextName;
+          return `${escapeHtml(from || '')} → ${escapeHtml(to || '')}`;
+        })();
+    const destText = escapeHtml(getDestText(t, indexes, 'dest'));
+    const carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : '';
+    tr.innerHTML = `
+      <td>${escapeHtml(t.no || '')}</td>
+      <td>${TYPE_HTML}</td>
+      <td>${escapeHtml(getNickname(t))}</td>
+      <td>${carsText}</td>
+      <td>${destText}</td>
+      <td>${posPart}</td>
+      <td>${delayText}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function typeBadgeClass(cat){
+  switch(Number(cat)){
+    case 5: // 特急
+    case 6: // 急行
+    case 7: // 寝台
+    case 8: // SL
+    case 9: // 観光
+      return 'type-red';
+    case 1: // 新快速
+      return 'type-blue';
+    case 4: // 直通快速
+      return 'type-bluegray'; // ご要望により変更可（橙にする場合は type-orange）
+    case 2: // 快速
+      return 'type-orange';
+    case 3: // 区間快速
+      return 'type-green';
+    case 10: // 瑞風
+      return 'type-emerald';
+    case 0: // 普通
+      return 'type-white';
+    default:
+      return 'type-white';
+  }
+}
+
+function typeTextClass(cat){
+  switch(Number(cat)){
+    case 5: // 特急
+    case 6: // 急行
+    case 7: // 寝台
+    case 8: // SL
+    case 9: // 観光
+      return 'type-text-red';
+    case 1: // 新快速
+      return 'type-text-blue';
+    case 4: // 直通快速
+      return 'type-text-bluegray';
+    case 2: // 快速
+      return 'type-text-orange';
+    case 3: // 区間快速
+      return 'type-text-green';
+    case 10: // 瑞風
+      return 'type-text-emerald';
+    case 0: // 普通（デフォルト色を使う）
+    default:
+      return '';
+  }
+}
+
+function normalizeTrain(t){
+  try{
+    const obj = { ...t };
+    const label = String(obj.displayType || '').trim();
+    if(/新快[○◯〇]/.test(label)){
+      // 種別を「新快速」に正規化し、愛称に Aシート を付与
+      obj.displayType = '新快速';
+      const nick = getNickname(obj);
+      if(!/Aシート/i.test(nick)){
+        obj.nickname = nick ? `${nick} Aシート` : 'Aシート';
+      }
+    }
+    if(/う区快[○◯〇]/.test(label)){
+      // 種別を「区間快速」に正規化し、愛称に うれしート を付与
+      obj.displayType = '区間快速';
+      const nick2 = getNickname(obj);
+      if(!/うれしート/i.test(nick2)){
+        obj.nickname = nick2 ? `${nick2} うれしート` : 'うれしート';
+      }
+    }
+    return obj;
+  }catch{ return t; }
+}
+
+function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCats, dirParam){
+  if(!selectedCode || stationIdx == null) return;
+  const byCode = indexes.byCode;
+  for(const t of list){
+    if(typeof t.direction !== 'number') continue;
+    if(dirParam === 'up' && t.direction !== 0) continue;
+    if(dirParam === 'down' && t.direction !== 1) continue;
+    const dir = t.direction;
+    const prefs = getPrefsForDir(dir);
+    // If pass display is hidden, automatically disable pass alarm
+    try{
+      const passSetting = (document.getElementById('passFilter')?.value || 'hide');
+      if(passSetting !== 'show') prefs.delete('pass');
+    }catch{}
+    if(!prefs || prefs.size === 0) continue;
+    const a = byCode.get(String(t.atCode||''));
+    const b = t.nextCode ? byCode.get(String(t.nextCode||'')) : null;
+    const aIdx = a?.index; const bIdx = b?.index;
+    // Determine targets for stop and pass cases
+    const cat = trainCategoryFromDisplayType(t.displayType);
+    const st = selectedStationCode();
+    const targets = readAlarmTargets(dir === 0 ? 'up' : 'down', st);
+    const catKey = `cat:${cat}`;
+    const ahead = (function(){
+      const order = indexes.order || [];
+      const idx = order.indexOf(String(selectedCode));
+      const out = [];
+      if(idx >= 0){
+        if(dir === 0){ for(let k=1;k<=3;k++){ if(idx+k < order.length) out.push(order[idx+k]); } }
+        else { for(let k=1;k<=3;k++){ if(idx-k >= 0) out.push(order[idx-k]); } }
+      }
+      return out;
+    })();
+    const fallbackTarget = ahead[0] || null;
+    let alerted = false;
+    // 1) Stop case
+    if(prefs.has(`cat:${cat}`)){
+      const targetCode = targets[catKey] || fallbackTarget;
+      if(targetCode){
+        const targetIdx = indexes.byCode.get(String(targetCode))?.index;
+        if(typeof targetIdx === 'number'){
+          let crosses = false;
+          if(t.stopped){
+            crosses = String(t.atCode||'') === String(targetCode);
+          }else if(typeof aIdx === 'number' && typeof bIdx === 'number'){
+            crosses = dir === 0 ? ((aIdx < targetIdx) && (bIdx >= targetIdx))
+                                : ((aIdx > targetIdx) && (bIdx <= targetIdx));
+          }
+          if(crosses){
+            const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
+            const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
+            if(stopsHere){
+              const key = `${t.no||'?'}:${dir}:${targetCode}`;
+              const msg = buildTtsMessage(t, targetCode, indexes);
+              notifyOnce(dir === 0 ? 'up' : 'down', key, msg);
+              alerted = true;
+            }
+          }
+        }
+      }
+    }
+    // 2) Pass case (only if not alerted)
+    if(!alerted && prefs.has('pass')){
+      const targetCode = targets['pass'] || fallbackTarget;
+      if(targetCode){
+        const targetIdx = indexes.byCode.get(String(targetCode))?.index;
+        if(typeof targetIdx === 'number'){
+          let crosses = false;
+          if(t.stopped){
+            crosses = String(t.atCode||'') === String(targetCode);
+          }else if(typeof aIdx === 'number' && typeof bIdx === 'number'){
+            crosses = dir === 0 ? ((aIdx < targetIdx) && (bIdx >= targetIdx))
+                                : ((aIdx > targetIdx) && (bIdx <= targetIdx));
+          }
+          if(crosses){
+            const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
+            const stopsHere2 = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
+            if(!stopsHere2){
+              const key = `${t.no||'?'}:${dir}:${targetCode}`;
+              const msg = buildTtsMessage(t, targetCode, indexes);
+              notifyOnce(dir === 0 ? 'up' : 'down', key, msg);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function stationKey(line){
+  return `tid:station:${line}`;
+}
+function passKey(line){
+  return `tid:pass:${line}`;
+}
+
+function stationAllowedCategories(st){
+  if(!st || !Array.isArray(st.stopTrains)) return null; // no filter
+  // ユーザー定義リストに基づくカテゴリ: 0=普通（補完）,1=新快速,2=快速,...
+  const set = new Set(st.stopTrains.map(n => Number(n)));
+  // 「普通」対策: displayTypeが「普通」の列車を許可するため、0を含める
+  set.add(0);
+  return set;
+}
+
+function trainCategoryFromDisplayType(dt){
+  const s = String(dt||'');
+  if(/新快速/.test(s)) return 1;
+  if(/区間快速/.test(s)) return 3;
+  if(/直通快速/.test(s)) return 4;
+  if(/快速/.test(s)) return 2;
+  if(/特急/.test(s)) return 5;
+  if(/急行/.test(s)) return 6;
+  if(/寝台/.test(s)) return 7;
+  if(/\bSL\b/.test(s)) return 8;
+  if(/観光/.test(s)) return 9;
+  if(/瑞風/.test(s)) return 10;
+  if(/普通/.test(s)) return 0;
+  return -1;
+}
+
+function filterByStationSetting(train, allowed, passSetting){
+  if(!allowed) return true; // no station filter → 全件
+  const cat = trainCategoryFromDisplayType(train.displayType);
+  const stopsHere = (cat !== -1 && allowed.has(cat)) || (cat === -1); // 不明は停車扱い
+  if(passSetting === 'show') return true; // 通過も表示
+  return stopsHere; // 非表示なら停車のみ
+}
+
+function enhanceTrain(t, byCode){
+  const { atCode, nextCode, stopped } = parsePos(t.pos);
+  const a = byCode.get(atCode);
+  const b = nextCode ? byCode.get(nextCode) : null;
+  let posIndex = a ? a.index : 0;
+  if(!stopped && a && b){
+    posIndex = (a.index + b.index) / 2;
+  }
+  const atName = a?.name || getStationNameByPriority(atCode, { byCode }, 'pos.at', nextCode) || atCode || '';
+  const nextName = b?.name || (nextCode ? (getStationNameByPriority(nextCode, { byCode }, 'pos.next', atCode) || nextCode) : '') || '';
+  return {
+    ...t,
+    atCode, nextCode, stopped, posIndex, atName, nextName
+  };
+}
+
+function parsePos(pos){
+  const [left, right] = String(pos||'').split('_');
+  if(right === '####' || !right){
+    return { atCode: left, nextCode: null, stopped: true };
+  }
+  return { atCode: left, nextCode: right, stopped: false };
+}
+
+function renderTrainList(container, list, indexes){
+  if(!container) return;
+  container.innerHTML = '';
+  if(!list.length){
+    container.textContent = '該当なし';
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'train-table';
+  const colgroup = document.createElement('colgroup');
+  for(let i=0;i<7;i++){ colgroup.appendChild(document.createElement('col')); }
+  table.appendChild(colgroup);
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr>'+
+    '<th>車番</th>'+
+    '<th>種別</th>'+
+    '<th>名称</th>'+
+    '<th>両数</th>'+
+    '<th>行先</th>'+
+    '<th>走行区間</th>'+
+    '<th>遅延</th>'+
+  '</tr>';
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for(const t of list){
+    const tr = document.createElement('tr');
+    const threshold = getDelayThreshold();
+    const delayText = (typeof t.delayMinutes === 'number' && t.delayMinutes > 0)
+      ? (t.delayMinutes >= threshold
+          ? `<span class=\"delay-bad\" style=\"color:var(--color-danger,#c00);font-weight:700;\">${t.delayMinutes}分</span>`
+          : `${t.delayMinutes}分`)
+      : '';
+    const typeLabel = (t.displayType || '').trim();
+    const __cls = configuredTypeTextClass(typeLabel);
+    const TYPE_HTML = __cls ? `<span class=\"${__cls}\">${escapeHtml(typeLabel)}</span>` : `${escapeHtml(typeLabel)}`;
+    const posPart = t.stopped
+      ? `${escapeHtml(t.atName || '')}`
+      : (() => {
+          const from = t.direction === 0 ? t.nextName : t.atName; // 上りは左右反転
+          const to = t.direction === 0 ? t.atName : t.nextName;
+          return `${escapeHtml(from || '')} -> ${escapeHtml(to || '')}`;
+        })();
+        const destText = escapeHtml(getDestText(t, indexes, 'dest'));
+    const carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : '';
+    tr.innerHTML = `
+      <td>${escapeHtml(t.no || '')}</td>
+      <td>${typeHtml}</td>
+      <td>${escapeHtml(getNickname(t))}</td>
+      <td>${carsText}</td>
+      <td>${destText}</td>
+      <td>${posPart}</td>
+      <td>${delayText}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function escapeHtml(str){
+  return String(str||'').replace(/[&<>\"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[s]));
+}
+
+function getDestText(t, indexes, tag){
+  const d = t && t.dest;
+  if(d == null) return '';
+  if(typeof d === 'string') return d;
+  if(typeof d === 'object'){
+    const code = d.code != null ? String(d.code) : '';
+    const text = d.text || d.name || '';
+    if(text && String(text).trim()) return String(text);
+    if(code){
+      const name = getStationNameByPriority(code, indexes, tag || 'dest');
+      if(name) return name;
+      return code;
+    }
+    return '';
+  }
+  return String(d);
+}
+
+function getStationNameByPriority(code, indexes, tag, neighborCode){
+  const c = String(code);
+  // 1) current line indexes
+  if(indexes && indexes.byCode && indexes.byCode.has(c)){
+    const hit = String(indexes.byCode.get(c)?.name || '');
+    dbg('station hit [line]', { tag, line, area, code: c, name: hit });
+    return hit;
+  }
+  // 2) current area cache
+  const areaObj = loadAreaStationsCache(area);
+  if(areaObj){
+    // Prefer line-specific map if present
+    const ls = areaObj.lineStations && areaObj.lineStations[line];
+    if(ls && ls[c]){
+      const v = ls[c];
+      const hit = typeof v === 'string' ? v : String(v?.name || '');
+      dbg('station hit [area-line]', { tag, line, area, code: c, name: hit });
+      return hit;
+    }
+    // Neighbor-aware disambiguation within current area (prefer transfer-linked lines)
+    if(neighborCode){
+      const neighbor = String(neighborCode);
+      const linesMap = areaObj.lineStations || {};
+      const orders = areaObj.lines || {};
+      // Try previously cached cross-line choice first
+      const pref = getCrossPreferredLine(area, line, c, neighbor);
+      if(pref && linesMap[pref]){
+        const perLineP = linesMap[pref] || {};
+        const orderP = orders[pref] || [];
+        if(perLineP[c] && Array.isArray(orderP) && orderP.includes(neighbor)){
+          const vP = perLineP[c];
+          const hit = typeof vP === 'string' ? vP : String(vP?.name || '');
+          dbg('station hit [area-line-crosscache]', { tag, area, lineId: pref, code: c, neighbor, name: hit });
+          return hit;
+        }
+      }
+      // Try neighbor's transfer-linked lines first
+      const neighborRec = (linesMap[line] && linesMap[line][neighbor]) || null;
+      const tLines = Array.isArray(neighborRec?.transferLines) ? neighborRec.transferLines : [];
+      for(const tl of tLines){
+        const order = orders[tl] || [];
+        if(Array.isArray(order) && order.includes(neighbor)){
+          const perLine2 = linesMap[tl] || {};
+          const v2 = perLine2[c];
+          if(v2){
+            const hit = typeof v2 === 'string' ? v2 : String(v2?.name || '');
+            dbg('station hit [area-line-transfer]', { tag, area, lineId: tl, neighbor, code: c, name: hit });
+            setCrossPreferredLine(area, line, c, neighbor, tl);
+            return hit;
+          }
+        }
+      }
+      // Then any line in area that also contains neighbor
+      for(const lid of Object.keys(linesMap)){
+        const perLine = linesMap[lid] || {};
+        const order = orders[lid] || [];
+        if(perLine[c] && Array.isArray(order) && order.includes(neighbor)){
+          const v = perLine[c];
+          const hit = typeof v === 'string' ? v : String(v?.name || '');
+          dbg('station hit [area-line-neighbor]', { tag, area, lineId: lid, code: c, neighbor, name: hit });
+          setCrossPreferredLine(area, line, c, neighbor, lid);
+          return hit;
+        }
+      }
+    }
+    if(areaObj.stations && areaObj.stations[c]){
+      const v = areaObj.stations[c];
+      const hit = typeof v === 'string' ? v : String(v?.name || '');
+      dbg('station hit [area-flat]', { tag, area, code: c, name: hit });
+      return hit;
+    }
+  }
+  // 3) all cached areas
+  for(const a of AREA_LIST){
+    const obj = loadAreaStationsCache(a);
+    if(!obj) continue;
+    const lso = obj.lineStations;
+    if(lso){
+      const orders = obj.lines || {};
+      // If neighbor is known, try lines containing the neighbor first
+      if(neighborCode){
+        const neighbor = String(neighborCode);
+        for(const lid of Object.keys(lso)){
+          const perLine = lso[lid] || {};
+          const order = orders[lid] || [];
+          if(perLine[c] && Array.isArray(order) && order.includes(neighbor)){
+            const v = perLine[c];
+            const hit = typeof v === 'string' ? v : String(v?.name || '');
+            dbg('station hit [other-area-line-neighbor]', { tag, area: a, lineId: lid, code: c, neighbor, name: hit });
+            return hit;
+          }
+        }
+      }
+      // Fallback: any line that contains the code
+      for(const lid of Object.keys(lso)){
+        const v = lso[lid] && lso[lid][c];
+        if(v){
+          const hit = typeof v === 'string' ? v : String(v?.name || '');
+          dbg('station hit [other-area-line]', { tag, area: a, lineId: lid, code: c, name: hit });
+          return hit;
+        }
+      }
+    }
+    if(obj.stations && obj.stations[c]){
+      const v = obj.stations[c];
+      const hit = typeof v === 'string' ? v : String(v?.name || '');
+      dbg('station hit [other-area-flat]', { tag, area: a, code: c, name: hit });
+      return hit;
+    }
+  }
+  // 4) fallback to global map
+  if(globalStationsByCode.has(c)){
+    const hit = String(globalStationsByCode.get(c));
+    dbg('station hit [global]', { tag, code: c, name: hit });
+    return hit;
+  }
+  warn('station miss', { tag, line, area, code: c });
+  return '';
+}
+
+function clearAreaStationsCache(a){
+  try{ localStorage.removeItem(areaCacheKey(a)); }catch{}
+}
+
+function clearAreaCrossCache(a){
+  try{ localStorage.removeItem(areaCrossKey(a)); }catch{}
+}
+
+function guessLineIdFromStations(data){
+  // Fallback heuristic: Some station payloads may include line hint; otherwise cannot infer reliably
+  // Return null; caller will skip storing order if unknown.
+  return (data && data.lineId) ? String(data.lineId) : null;
+}
+
+function getNickname(t){
+  const n = t && t.nickname;
+  if(n == null) return '';
+  return String(n || '').trim();
+}
+
+
+
+
+
