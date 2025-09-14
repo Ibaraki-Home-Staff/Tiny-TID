@@ -14,6 +14,7 @@ const audioOverlay = document.getElementById('audioUnlockOverlay');
 const audioOverlayBtn = document.getElementById('audioUnlockBtn');
 const audioOverlayHint = document.getElementById('audioUnlockHint');
 const audioOverlayLater = document.getElementById('audioUnlockLater');
+const audioOverlayClose = document.getElementById('audioUnlockClose');
 
 // Debug helpers (enable with ?debug=1 or localStorage tid:debug=1)
 const __dbgParam = new URLSearchParams(window.location.search).get('debug');
@@ -802,6 +803,7 @@ function setupAudioUnlockOverlay(){
   try{
     if(audioOverlayBtn){ audioOverlayBtn.addEventListener('click', () => { bindAudioUnlockOnce(); /* click triggers unlock */ }); }
     if(audioOverlayLater){ audioOverlayLater.addEventListener('click', () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} }); }
+    if(audioOverlayClose){ audioOverlayClose.addEventListener('click', () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} }); }
     document.addEventListener('tid:audiounlocked', hide, { once: true });
   }catch{}
 }
