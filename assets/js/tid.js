@@ -13,6 +13,7 @@ const settingsPanel = document.getElementById('settingsPanel');
 const audioOverlay = document.getElementById('audioUnlockOverlay');
 const audioOverlayBtn = document.getElementById('audioUnlockBtn');
 const audioOverlayHint = document.getElementById('audioUnlockHint');
+const audioOverlayLater = document.getElementById('audioUnlockLater');
 
 // Debug helpers (enable with ?debug=1 or localStorage tid:debug=1)
 const __dbgParam = new URLSearchParams(window.location.search).get('debug');
@@ -797,13 +798,10 @@ function setupAudioUnlockOverlay(){
     if(audioOverlayHint){ audioOverlayHint.textContent = text; }
   }catch{}
   show();
-  // Bind unlock attempt to button and any click on the overlay
+  // Bind unlock attempt to button; do not hijack background clicks (non-modal floating)
   try{
     if(audioOverlayBtn){ audioOverlayBtn.addEventListener('click', () => { bindAudioUnlockOnce(); /* click triggers unlock */ }); }
-    audioOverlay.addEventListener('click', (e) => {
-      // Avoid closing on panel clicks; only on background or button
-      if(e.target === audioOverlay){ bindAudioUnlockOnce(); }
-    });
+    if(audioOverlayLater){ audioOverlayLater.addEventListener('click', () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} }); }
     document.addEventListener('tid:audiounlocked', hide, { once: true });
   }catch{}
 }
