@@ -528,7 +528,7 @@ function initTTSControls(){
       if(!('speechSynthesis' in window)){
         btn.disabled = true; btn.textContent = '音声未対応';
       }else{
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
           try{
             bindAudioUnlockOnce();
             const synth = window.speechSynthesis;
@@ -537,16 +537,11 @@ function initTTSControls(){
               btn.textContent = 'テスト再生';
               return;
             }
-            audioUnlocked = true; // Clicking the test button is a clear user gesture
-            const voice = getSelectedVoice();
-            if(!voice){ btn.textContent = '音声未検出'; return; }
-            const u = new SpeechSynthesisUtterance('4049M、特急サンダーバード49号、大阪行き、千里丘に接近');
-            u.voice = voice; u.lang = voice.lang || 'ja-JP';
-            u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-            u.onend = () => { try{ btn.textContent = 'テスト再生'; }catch{} };
-            u.onerror = () => { try{ btn.textContent = 'テスト再生'; }catch{} };
+            audioUnlocked = true; // clear user gesture
             btn.textContent = '停止';
-            synth.speak(u);
+            // Use the same stabilized path as alarms for iOS reliability
+            await speakTextAsync('4049M、特急サンダーバード49号、大阪行き、千里丘に接近');
+            btn.textContent = 'テスト再生';
           }catch(e){ btn.textContent = 'エラー'; }
         });
       }
