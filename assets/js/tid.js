@@ -1,4 +1,5 @@
 import { loadComponents } from '/assets/js/components.js';
+import { U_TOKEN_TYPE_MAP } from '/assets/js/tid-rules.js';
 
 // Init
 loadComponents();
@@ -46,6 +47,7 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
     initAlarmControls();
     initTTSControls();
     initDelayControls();
+    initBackgroundControls();
     const trains = await fetchTrains(line);
     setUpdatedAt(trains?.update);
     renderTrains(indexes, trains, dir);
@@ -295,7 +297,10 @@ function handleDelayAnnouncements(list, indexes){
     const last = delayAnnouncedAt.get(key) || 0;
     if(now - last < DELAY_TTS_INTERVAL_MS) continue;
     const msg = buildDelayTtsMessage(t, indexes);
-    if(msg){ speakText(msg); delayAnnouncedAt.set(key, now); }
+    if(msg){
+      delayAnnouncedAt.set(key, now);
+      queueDelayTts(msg, key);
+    }
   }
 }
 
@@ -396,35 +401,79 @@ async function fetchTrafficInfo(area){
 function renderTrafficInfo(area, line, data){
   try{
     const box = document.getElementById('trafficInfo');
-    if(!box){ return; }
+    if(!box) return;
     box.innerHTML = '';
-    if(!data || !data.lines || typeof data.lines !== 'object'){ return; }
-    const entry = data.lines[line];
-    if(!entry){ return; }
-    const section = entry.section;
-    let sectionText = '';
-    if(typeof section === 'string') sectionText = section;
-    else if(section && typeof section === 'object'){
-      const from = section.from || section.start || '';
-      const to = section.to || section.end || '';
-      if(from || to) sectionText = `${from || ''} ~ ${to || ''}`.trim();
+
+    if(!data || typeof data !== 'object') return;
+
+    const lineItems = [];
+    const expressItems = [];
+
+    // Collect line info
+    if(data.lines && typeof data.lines === 'object'){
+      const entry = data.lines[line];
+      if(entry){
+        const section = entry.section;
+        let sectionText = '';
+        if(typeof section === 'string') sectionText = section;
+        else if(section && typeof section === 'object'){
+          const from = section.from || section.start || '';
+          const to = section.to || section.end || '';
+          if(from || to) sectionText = `${from || ''} ~ ${to || ''}`.trim();
+        }
+        const cause = entry.cause || '';
+        const status = entry.status || '';
+        const url = entry.url || '';
+        const text = `${sectionText ? sectionText + ': ' : ''}${cause ? (cause + ' により ') : ''}${status}`.trim();
+        if(text) lineItems.push({ text, url });
+      }
     }
-    const cause = entry.cause || '';
-    const status = entry.status || '';
-    const url = entry.url || '';
-    const text = `${sectionText ? sectionText + ': ' : ''}${cause ? (cause + ' により ') : ''}${status}`.trim();
-    if(!text){ return; }
-    const p = document.createElement('p');
-    p.className = 'traffic-line-info';
-    if(url){
-      const a = document.createElement('a');
-      a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-      a.textContent = text;
-      p.appendChild(a);
-    }else{
-      p.textContent = text;
+
+    // Collect express info
+    if(data.express && typeof data.express === 'object'){
+      const e = data.express[line];
+      if(e){
+        const name = e.name || '';
+        const cause = e.cause || '';
+        const status = e.status || '';
+        const url = e.url || '';
+        const text = `${name ? '特急 ' + name + ': ' : ''}${cause ? (cause + ' により ') : ''}${status}`.trim();
+        if(text) expressItems.push({ text, url });
+      }
     }
-    box.appendChild(p);
+
+    // Nothing to show
+    if(!lineItems.length && !expressItems.length) return;
+
+    // Helper: build a section
+    const buildSection = (title, items, kind) => {
+      const sec = document.createElement('section');
+      sec.className = 'traffic-section';
+      const h = document.createElement('div');
+      h.className = `traffic-section__header ${kind === 'express' ? 'traffic-section__header--express' : 'traffic-section__header--line'}`;
+      h.textContent = title;
+      const ul = document.createElement('ul');
+      ul.className = 'traffic-list';
+      for(const it of items){
+        const li = document.createElement('li');
+        li.className = `traffic-item ${kind === 'express' ? 'traffic-item--express' : 'traffic-item--line'}`;
+        if(it.url){
+          const a = document.createElement('a');
+          a.href = it.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.textContent = it.text;
+          li.appendChild(a);
+        }else{
+          li.textContent = it.text;
+        }
+        ul.appendChild(li);
+      }
+      sec.appendChild(h);
+      sec.appendChild(ul);
+      box.appendChild(sec);
+    };
+
+    if(lineItems.length) buildSection('路線の運行情報', lineItems, 'line');
+    if(expressItems.length) buildSection('特急の運行情報', expressItems, 'express');
   }catch(err){ dbg('renderTrafficInfo error', err); }
 }
 
@@ -440,6 +489,7 @@ function initTTSControls(){
   const btn = document.getElementById('ttsTestBtn');
   if(!sel) return;
   try{
+    bindAudioUnlockOnce();
     populateTTSSelect();
     // Some browsers populate voices asynchronously
     if('speechSynthesis' in window){
@@ -466,12 +516,14 @@ function initTTSControls(){
       }else{
         btn.addEventListener('click', () => {
           try{
+            bindAudioUnlockOnce();
             const synth = window.speechSynthesis;
             if(synth.speaking || synth.pending){
               synth.cancel();
               btn.textContent = 'テスト再生';
               return;
             }
+            audioUnlocked = true; // Clicking the test button is a clear user gesture
             const voice = getSelectedVoice();
             if(!voice){ btn.textContent = '音声未検出'; return; }
             const u = new SpeechSynthesisUtterance('4049M、特急サンダーバード49号、大阪行き、千里丘に接近');
@@ -491,6 +543,180 @@ function initTTSControls(){
 // Alarm preferences and runtime state
 const alarmNotified = { up: new Set(), down: new Set() };
 let audioCtx = null;
+let audioUnlocked = false;
+let audioUnlockBound = false;
+const pendingAudioQueue = [];
+const pendingAudioKeys = new Set();
+const alarmPlayQueue = [];
+let alarmPlaying = false;
+const BEEP_DURATION_MS = 280; // duration of the approach alarm beep (fallback)
+const ALARM_SOUND_URL = '/assets/sound/alarm.mp3';
+
+// Background notification and wake lock preferences
+function bgNotifyKey(){ return 'tid:bgnotify'; }
+function wakeLockKey(){ return 'tid:wakelock'; }
+function isBgNotifyEnabled(){
+  try{ return localStorage.getItem(bgNotifyKey()) === '1'; }catch{ return false; }
+}
+let screenWakeLock = null;
+async function enableWakeLock(){
+  try{
+    if(!('wakeLock' in navigator)) return false;
+    screenWakeLock = await navigator.wakeLock.request('screen');
+    screenWakeLock.addEventListener('release', () => { /* no-op */ });
+    return true;
+  }catch{ return false; }
+}
+async function disableWakeLock(){
+  try{ if(screenWakeLock){ await screenWakeLock.release(); screenWakeLock = null; } }catch{}
+}
+async function tryReacquireWakeLock(){
+  try{
+    if(localStorage.getItem(wakeLockKey()) === '1' && document.visibilityState === 'visible'){
+      if(!screenWakeLock) await enableWakeLock();
+    }
+  }catch{}
+}
+function initBackgroundControls(){
+  try{
+    const ncb = document.getElementById('bgNotifyEnable');
+    const wcb = document.getElementById('wakeLockEnable');
+    if(ncb){
+      ncb.checked = isBgNotifyEnabled();
+      ncb.addEventListener('change', async () => {
+        try{
+          if(ncb.checked){
+            if('Notification' in window){
+              let perm = Notification.permission;
+              if(perm !== 'granted'){
+                try{ perm = await Notification.requestPermission(); }catch{}
+              }
+              if(perm === 'granted'){
+                localStorage.setItem(bgNotifyKey(), '1');
+              }else{
+                ncb.checked = false; localStorage.setItem(bgNotifyKey(), '0');
+              }
+            }else{
+              ncb.checked = false; localStorage.setItem(bgNotifyKey(), '0');
+            }
+          }else{
+            localStorage.setItem(bgNotifyKey(), '0');
+          }
+        }catch{}
+      });
+    }
+    if(wcb){
+      const saved = localStorage.getItem(wakeLockKey()) === '1';
+      wcb.checked = saved;
+      if(saved) enableWakeLock();
+      wcb.addEventListener('change', async () => {
+        try{
+          if(wcb.checked){
+            localStorage.setItem(wakeLockKey(), '1');
+            await enableWakeLock();
+          }else{
+            localStorage.setItem(wakeLockKey(), '0');
+            await disableWakeLock();
+          }
+        }catch{}
+      });
+      // Reacquire on visibility change
+      document.addEventListener('visibilitychange', tryReacquireWakeLock);
+    }
+  }catch{}
+}
+function notifyIfBackground(message, tag){
+  try{
+    if(!document.hidden) return;
+    if(!isBgNotifyEnabled()) return;
+    if(!('Notification' in window) || Notification.permission !== 'granted') return;
+    const opts = { body: String(message||''), tag: String(tag||''), renotify: true, icon: '/assets/img/placeholder.svg' };
+    new Notification('列車接近', opts);
+  }catch{}
+}
+
+// Time-window suppression for approach alarms (per line + station filter + train no)
+const approachAnnouncedAt = new Map(); // key -> timestamp
+const APPROACH_SUPPRESS_MS = 3 * 60 * 1000; // 3 minutes
+function approachKey(trainNo, selectedCode){
+  const no = (trainNo != null && String(trainNo).trim()) ? String(trainNo).trim() : '?';
+  const st = (selectedCode != null && String(selectedCode).trim()) ? String(selectedCode).trim() : '_none';
+  return `approach:${line}:${st}:${no}`;
+}
+function approachRecentlyAnnounced(trainNo, selectedCode){
+  try{
+    const k = approachKey(trainNo, selectedCode);
+    const last = approachAnnouncedAt.get(k) || 0;
+    return (Date.now() - last) < APPROACH_SUPPRESS_MS;
+  }catch{ return false; }
+}
+function markApproachAnnounced(trainNo, selectedCode){
+  try{ approachAnnouncedAt.set(approachKey(trainNo, selectedCode), Date.now()); }catch{}
+}
+
+// Low-priority TTS queue for delay announcements (preemptable by alarms)
+const delayTtsQueue = [];
+const delayTtsKeys = new Set();
+let delayTtsPlaying = false;
+function queueDelayTts(message, key){
+  try{
+    const k = String(key||'');
+    if(k && delayTtsKeys.has(k)) return;
+    delayTtsQueue.push({ message, key: k });
+    if(k) delayTtsKeys.add(k);
+    if(!delayTtsPlaying){
+      try{ drainDelayTts(); }catch{}
+    }
+  }catch{}
+}
+async function drainDelayTts(){
+  if(delayTtsPlaying) return;
+  delayTtsPlaying = true;
+  try{
+    while(delayTtsQueue.length){
+      if(alarmPlaying) break;
+      const it = delayTtsQueue[0];
+      await speakTextAsync(it.message);
+      delayTtsQueue.shift();
+      if(it.key) delayTtsKeys.delete(it.key);
+    }
+  }finally{
+    delayTtsPlaying = false;
+  }
+}
+function preemptDelayTts(){
+  try{ if('speechSynthesis' in window){ window.speechSynthesis.cancel(); } }catch{}
+}
+
+function bindAudioUnlockOnce(){
+  if(audioUnlockBound) return;
+  audioUnlockBound = true;
+  const unlock = () => {
+    try{
+      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
+      audioUnlocked = true;
+      document.removeEventListener('pointerdown', unlock);
+      document.removeEventListener('keydown', unlock);
+      document.removeEventListener('touchstart', unlock);
+      dbg('audio unlocked');
+      // process any pending alarms that were queued while locked
+      try{
+        while(pendingAudioQueue.length){
+          const it = pendingAudioQueue.shift();
+          if(!it) continue;
+          pendingAudioKeys.delete(it.key);
+          try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message); })(); }catch{}
+        }
+      }catch{}
+    }catch{}
+  };
+  try{
+    document.addEventListener('pointerdown', unlock, { once: true, passive: true });
+    document.addEventListener('keydown', unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true, passive: true });
+  }catch{}
+}
 function selectedStationCode(){
   return (document.getElementById('stationFilter')?.value || '').trim();
 }
@@ -708,13 +934,22 @@ function renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhanc
     if(targets2['pass'] && Array.from(selPass.options).some(o => o.value === targets2['pass'])){ selPass.value = targets2['pass']; }
     selPass.addEventListener('change', () => saveAlarmTarget(dirKey2, selectedCode, 'pass', selPass.value));
     wrapPass.appendChild(selPass);
-    // Auto-disable pass alarm when pass display is hidden
+    // Auto-disable pass alarm when pass display is hidden (gray out but keep selection)
     const passSetting = (document.getElementById('passFilter')?.value || 'hide');
     if(passSetting !== 'show'){
-      pass.checked = false;
       pass.disabled = true;
       selPass.disabled = true;
       wrapPass.style.opacity = '0.5';
+      wrapPass.style.color = 'var(--color-muted)';
+      wrapPass.style.pointerEvents = 'none';
+      wrapPass.title = '設定「通過列車の表示」が非表示のため、一時的に無効です';
+    }else{
+      pass.disabled = false;
+      selPass.disabled = selPass.options.length === 0 || selPass.value === '';
+      wrapPass.style.opacity = '';
+      wrapPass.style.color = '';
+      wrapPass.style.pointerEvents = '';
+      wrapPass.removeAttribute('title');
     }
     container.appendChild(wrapPass);
   };
@@ -742,26 +977,110 @@ function getPrefsForDir(dir){
   const vals = new Set(boxes.filter(b => b.checked).map(b => b.value));
   return vals;
 }
+async function playAlarmSound(){
+  try{
+    if(!audioUnlocked){ bindAudioUnlockOnce(); return 0; }
+    const el = new Audio(ALARM_SOUND_URL);
+    el.preload = 'auto';
+    el.crossOrigin = 'anonymous';
+    el.volume = 1.0;
+    return await new Promise((resolve) => {
+      let settled = false;
+      const done = (ms) => { if(!settled){ settled = true; resolve(Number.isFinite(ms)? ms : 0); } };
+      el.addEventListener('ended', () => {
+        const durMs = (typeof el.duration === 'number' && isFinite(el.duration)) ? Math.round(el.duration*1000) : 0;
+        done(durMs);
+      }, { once: true });
+      el.addEventListener('error', () => done(0), { once: true });
+      try{ el.play().catch(()=> done(0)); }catch{ done(0); }
+      setTimeout(() => done(0), 5000); // safety timeout
+    });
+  }catch(e){ dbg('alarm audio failed', e); return 0; }
+}
+
 function playBeep(){
   try{
+    // Avoid attempting to start/resume audio before user gesture
+    if(!audioUnlocked){ bindAudioUnlockOnce(); return 0; }
     audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume();
+    if(audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume().catch(()=>{});
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
-    o.type = 'sine'; o.frequency.value = 880;
+    o.type = 'sine';
+    o.frequency.value = 880; // A5
     g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.22, audioCtx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + (BEEP_DURATION_MS/1000)-0.02);
     o.connect(g).connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime + 0.27);
+    o.start();
+    o.stop(audioCtx.currentTime + (BEEP_DURATION_MS/1000));
   }catch(err){ dbg('beep failed', err); }
+  return BEEP_DURATION_MS;
+}
+async function speakTextAsync(text){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+    const voice = getSelectedVoice();
+    return await new Promise((resolve) => {
+      try{
+        const u = new SpeechSynthesisUtterance(String(text||''));
+        if(voice){ u.voice = voice; u.lang = voice.lang || 'ja-JP'; }
+        else { u.lang = 'ja-JP'; }
+        u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        synth.speak(u);
+      }catch{ resolve(); }
+    });
+  }catch{}
+}
+
+async function drainAlarmQueue(){
+  if(alarmPlaying) return;
+  alarmPlaying = true;
+  try{
+    // Preempt any ongoing low-priority delay TTS
+    preemptDelayTts();
+    while(alarmPlayQueue.length){
+      const it = alarmPlayQueue.shift();
+      if(!it) continue;
+      // Play alarm sound (mp3), fallback to beep
+      let ms = await playAlarmSound();
+      if(ms <= 0){
+        ms = playBeep();
+        if(ms > 0){ await new Promise(r => setTimeout(r, ms)); }
+      }
+      if(it.message){ await speakTextAsync(it.message); }
+      try{ if(typeof it.onDone === 'function') it.onDone(); }catch{}
+    }
+  }finally{
+    alarmPlaying = false;
+    // Resume low-priority TTS after alarms
+    try{ drainDelayTts(); }catch{}
+  }
+}
+
+function doAlarmBeepAndSpeak(dirStr, key, message){
+  const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
+  if(set.has(key)) return false;
+  alarmPlayQueue.push({ message, onDone: () => set.add(key) });
+  // Kick the queue
+  try{ drainAlarmQueue(); }catch{}
+  return true;
 }
 function notifyOnce(dirStr, key, message){
   const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
   if(set.has(key)) return false;
-  set.add(key);
-  playBeep();
-  try{ if(message) speakText(message); }catch{}
+  if(!audioUnlocked){
+    bindAudioUnlockOnce();
+    if(!pendingAudioKeys.has(key)){
+      pendingAudioKeys.add(key);
+      pendingAudioQueue.push({ dirStr, key, message });
+    }
+    return false;
+  }
+  try{ (async()=>{ await doAlarmBeepAndSpeak(dirStr, key, message); })(); }catch{}
   return true;
 }
 
@@ -1176,6 +1495,8 @@ function renderTrains(indexes, trainsData, dirParam){
   const parsed = enhanced.filter(t => filterByStationSetting(t, allowedCats, passSetting));
   // If a station is selected, hide trains that have already passed the station
   const stationIdx = selectedCode ? indexes.byCode.get(selectedCode)?.index : null;
+  // PRIORITY: run approach alarm checks before any other UI/announcements
+  try{ handleApproachAlarms(indexes, enhanced, selectedCode, stationIdx, allowedCats, dirParam); }catch(e){ dbg('alarm check failed', e); }
   const hidePassed = (arr, dir) => {
     if(stationIdx == null) return arr;
     return arr.filter(t => {
@@ -1205,7 +1526,7 @@ function renderTrains(indexes, trainsData, dirParam){
 
   // Render alarm type options (per-direction) based on selected station and current direction filter
   try{ renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhanced); }catch(e){ dbg('alarm render failed', e); }
-  try{ handleApproachAlarms(indexes, enhanced, selectedCode, stationIdx, allowedCats, dirParam); }catch(e){ dbg('alarm check failed', e); }
+  // run low-priority delay announcements after alarm checks
   try{
     const shown = dirParam === 'up' ? up : dirParam === 'down' ? down : up.concat(down);
     handleDelayAnnouncements(shown, indexes);
@@ -1344,22 +1665,32 @@ function normalizeTrain(t){
   try{
     const obj = { ...t };
     const label = String(obj.displayType || '').trim();
+
+    // 既存ロジックを維持: 新快○ → 新快速 + Aシート
     if(/新快[○◯〇]/.test(label)){
-      // 種別を「新快速」に正規化し、愛称に Aシート を付与
       obj.displayType = '新快速';
       const nick = getNickname(obj);
       if(!/Aシート/i.test(nick)){
         obj.nickname = nick ? `${nick} Aシート` : 'Aシート';
       }
     }
-    if(/う区快[○◯〇]/.test(label)){
-      // 種別を「区間快速」に正規化し、愛称に うれしート を付与
-      obj.displayType = '区間快速';
-      const nick2 = getNickname(obj);
-      if(!/うれしート/i.test(nick2)){
-        obj.nickname = nick2 ? `${nick2} うれしート` : 'うれしート';
+
+    // 可変マップに基づく「う{token}○」→ displayType 正規化 + 愛称（うれしート）付与
+    try{
+      const m = label.match(/^う[\s　]*([^\s○◯〇]+)[\s　]*[○◯〇]$/);
+      if(m){
+        const token = m[1];
+        const mapped = U_TOKEN_TYPE_MAP ? U_TOKEN_TYPE_MAP[token] : undefined;
+        if(mapped){
+          obj.displayType = String(mapped);
+          const current = getNickname(obj);
+          if(!/うれしート/i.test(current)){
+            obj.nickname = current ? `${current} うれしート` : 'うれしート';
+          }
+        }
       }
-    }
+    }catch{}
+
     return obj;
   }catch{ return t; }
 }
@@ -1381,7 +1712,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     if(!prefs || prefs.size === 0) continue;
     const a = byCode.get(String(t.atCode||''));
     const b = t.nextCode ? byCode.get(String(t.nextCode||'')) : null;
-    const aIdx = a?.index; const bIdx = b?.index;
+    const aIdx = a?.index; const bIdx = b?.index; // kept for potential future use
     // Determine targets for stop and pass cases
     const cat = trainCategoryFromDisplayType(t.displayType);
     const st = selectedStationCode();
@@ -1403,53 +1734,45 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     if(prefs.has(`cat:${cat}`)){
       const targetCode = targets[catKey] || fallbackTarget;
       if(targetCode){
-        const targetIdx = indexes.byCode.get(String(targetCode))?.index;
-        if(typeof targetIdx === 'number'){
-          let crosses = false;
-          if(t.stopped){
-            crosses = String(t.atCode||'') === String(targetCode);
-          }else if(typeof aIdx === 'number' && typeof bIdx === 'number'){
-            crosses = dir === 0 ? ((aIdx < targetIdx) && (bIdx >= targetIdx))
-                                : ((aIdx > targetIdx) && (bIdx <= targetIdx));
-          }
-          if(crosses){
+          // Trigger only at the target or when leaving the target toward the selected station:
+          //  - stopped: atCode === target
+          //  - moving: atCode === target (segment: target -> next)
+          const here = String(t.atCode||'');
+          if(here === String(targetCode)){
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(stopsHere){
+              // Suppress duplicates for same line + station filter + train no within 3 minutes
+              if(approachRecentlyAnnounced(t.no, selectedCode)) { alerted = true; return; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
+              markApproachAnnounced(t.no, selectedCode);
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg);
+              notifyIfBackground(msg, approachKey(t.no, selectedCode));
               alerted = true;
             }
           }
         }
       }
-    }
     // 2) Pass case (only if not alerted)
     if(!alerted && prefs.has('pass')){
       const targetCode = targets['pass'] || fallbackTarget;
       if(targetCode){
-        const targetIdx = indexes.byCode.get(String(targetCode))?.index;
-        if(typeof targetIdx === 'number'){
-          let crosses = false;
-          if(t.stopped){
-            crosses = String(t.atCode||'') === String(targetCode);
-          }else if(typeof aIdx === 'number' && typeof bIdx === 'number'){
-            crosses = dir === 0 ? ((aIdx < targetIdx) && (bIdx >= targetIdx))
-                                : ((aIdx > targetIdx) && (bIdx <= targetIdx));
-          }
-          if(crosses){
+        const here = String(t.atCode||'');
+        if(here === String(targetCode)){
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere2 = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(!stopsHere2){
+              if(approachRecentlyAnnounced(t.no, selectedCode)) { return; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
+              markApproachAnnounced(t.no, selectedCode);
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg);
+              notifyIfBackground(msg, approachKey(t.no, selectedCode));
             }
           }
         }
       }
-    }
   }
 }
 

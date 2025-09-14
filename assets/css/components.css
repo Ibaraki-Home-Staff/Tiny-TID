@@ -47,3 +47,15 @@
 .type-text-orange{ color:#ef6c00; font-weight:700; }
 .type-text-green{ color:#2e7d32; font-weight:700; }
 .type-text-emerald{ color:#009b77; font-weight:700; }
+
+/* Traffic info sections */
+.traffic-info{ margin:.75rem 0 1.25rem; display:grid; gap:.75rem; }
+.traffic-section{ border:1px solid #2a2d32; border-radius:10px; background:var(--color-surface); overflow:hidden; }
+.traffic-section__header{ font-weight:700; padding:.55rem .8rem; letter-spacing:.2px; }
+.traffic-section__header--line{ color:#f59e0b; background:color-mix(in oklab, #f59e0b 18%, transparent); border-bottom:1px solid #3b3f46; }
+.traffic-section__header--express{ color:#ef4444; background:color-mix(in oklab, #ef4444 18%, transparent); border-bottom:1px solid #3b3f46; }
+.traffic-list{ list-style:none; padding:.5rem .75rem .7rem; margin:0; display:grid; gap:.5rem; }
+.traffic-item{ padding:.6rem .7rem; border-radius:8px; border:1px solid #2f3339; box-shadow:0 1px 0 rgba(0,0,0,.12) inset; }
+.traffic-item--line{ border-left:6px solid #f59e0b; background:color-mix(in oklab, #f59e0b 12%, transparent); }
+.traffic-item--express{ border-left:6px solid #ef4444; background:color-mix(in oklab, #ef4444 12%, transparent); }
+.traffic-item a{ color:inherit; text-decoration:underline; font-weight:600; }

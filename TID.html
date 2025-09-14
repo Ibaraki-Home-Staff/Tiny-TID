@@ -6,6 +6,7 @@
     <title>Tiny-TID - 列車走行位置</title>
     <base href="/" />
     <link rel="icon" href="/assets/img/placeholder.svg">
+    <link rel="manifest" href="/manifest.webmanifest">
     <!-- 種別色マップ（color.txt）の場所を指定 -->
     <meta name="tid:colorUrl" content="/assets/color.txt">
     <!-- 読み上げ補正マップ（yomiage.txt）の場所を指定 -->
@@ -47,6 +48,17 @@
             <div>
               <label for="delayThreshold" style="display:block; margin-bottom:.35rem;">遅延の強調表示（分）</label>
               <input id="delayThreshold" type="number" min="0" step="1" value="4" style="width:90px" />
+            </div>
+            <div>
+              <label style="display:block; margin-bottom:.35rem;">バックグラウンド</label>
+              <label style="display:flex; align-items:center; gap:.5rem;">
+                <input type="checkbox" id="bgNotifyEnable" />
+                通知で接近を知らせる（非表示時）
+              </label>
+              <label style="display:flex; align-items:center; gap:.5rem; margin-top:.25rem;">
+                <input type="checkbox" id="wakeLockEnable" />
+                画面スリープを防止（実験的）
+              </label>
             </div>
           </div>
           <div id="alarmRow" style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-top:.75rem;">
@@ -95,6 +107,7 @@
       </p>
     </main>
     <!--<footer data-include="footer"></footer> -->
+    <script type="module" src="/assets/js/pwa.js"></script>
     <script type="module" src="/assets/js/tid.js"></script>
   </body>
   </html>
