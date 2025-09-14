@@ -57,8 +57,14 @@ async function subscribePush(reg){
 (async function init(){
   const reg = await registerServiceWorker();
   if(!reg) return;
-  const ok = await ensureNotificationPermission();
-  if(!ok) return;
-  try{ await subscribePush(reg); }catch{}
+  // Avoid prompting on page load. Respect user's in-app toggle instead.
+  try{
+    const bg = (localStorage.getItem('tid:bgnotify') === '1');
+    if(!bg) return;
+  }catch{}
+  // If already granted, proceed to subscribe silently. Otherwise do nothing here;
+  // the UI toggle in TID page handles prompting.
+  if('Notification' in window && Notification.permission === 'granted'){
+    try{ await subscribePush(reg); }catch{}
+  }
 })();
-
