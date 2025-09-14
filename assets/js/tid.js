@@ -78,9 +78,19 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
 // Persist settings panel open/close state
 if(settingsPanel){
   try{
-    const saved = String(getSetting('ui.settingsOpen','1'));
-    // Apply state deterministically using the property (more reliable across browsers)
-    settingsPanel.open = (saved !== '0');
+    const applySettingsOpenFromStorage = () => {
+      const saved = String(getSetting('ui.settingsOpen','1'));
+      const wantOpen = (saved !== '0');
+      try{
+        settingsPanel.open = wantOpen; // property first
+        if(wantOpen){ settingsPanel.setAttribute('open',''); }
+        else{ settingsPanel.removeAttribute('open'); }
+      }catch{}
+    };
+    // Apply immediately and once more after paint to override default markup
+    applySettingsOpenFromStorage();
+    try{ requestAnimationFrame(() => { applySettingsOpenFromStorage(); }); }catch{}
+    try{ window.addEventListener('load', applySettingsOpenFromStorage, { once: true }); }catch{}
     settingsPanel.addEventListener('toggle', () => {
       try{ setSetting('ui.settingsOpen', settingsPanel.open ? '1' : '0'); }catch{}
     });
@@ -233,6 +243,7 @@ function getJapaneseVoices(){
 }
 function speakText(text){
   try{
+    if(!audioUnlocked) return;
     if(!('speechSynthesis' in window)) return;
     const synth = window.speechSynthesis;
     const voice = getSelectedVoice();
@@ -755,7 +766,7 @@ function bindAudioUnlockOnce(){
       audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
       if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
       audioUnlocked = true;
-      try{ setSetting('ui.audioUnlocked','1'); localStorage.setItem('tid:audio:unlocked','1'); }catch{}
+      try{ setSetting('ui.audioUnlocked','1'); localStorage.setItem('tid:audio:unlocked','1'); sessionStorage.setItem('tid:audio:session','1'); }catch{}
       document.removeEventListener('pointerdown', unlock);
       document.removeEventListener('keydown', unlock);
       document.removeEventListener('touchstart', unlock);
@@ -769,7 +780,7 @@ function bindAudioUnlockOnce(){
           const it = pendingAudioQueue.shift();
           if(!it) continue;
           pendingAudioKeys.delete(it.key);
-          try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message); })(); }catch{}
+          try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay); })(); }catch{}
         }
       }catch{}
       // iOS Safari: once unlocked, re-run train refresh and drain any pending delay TTS
@@ -791,9 +802,8 @@ function setupAudioUnlockOverlay(){
   if(!supported){ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); return; }
   const hide = () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} };
   const show = () => { try{ audioOverlay.classList.remove('is-hidden'); audioOverlay.removeAttribute('aria-hidden'); }catch{} };
-  // Hide if previously unlocked in this browser
-  try{ if(getSetting('ui.audioUnlocked','0') === '1' || localStorage.getItem('tid:audio:unlocked') === '1'){ audioUnlocked = true; } }catch{}
-  if(audioUnlocked){ hide(); return; }
+  // Session-based gating: show each session until user explicitly enables
+  try{ if(sessionStorage.getItem('tid:audio:session') === '1'){ hide(); return; } }catch{}
   // Environment hint
   try{
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator && window.navigator.standalone === true);
@@ -1157,6 +1167,7 @@ function playBeep(){
 }
 async function speakTextAsync(text){
   try{
+    if(!audioUnlocked) return;
     if(!('speechSynthesis' in window)) return;
     const synth = window.speechSynthesis;
     const voice = getSelectedVoice();
@@ -1210,26 +1221,26 @@ async function drainAlarmQueue(){
   }
 }
 
-function doAlarmBeepAndSpeak(dirStr, key, message){
+function doAlarmBeepAndSpeak(dirStr, key, message, afterPlay){
   const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
   if(set.has(key)) return false;
-  alarmPlayQueue.push({ message, onDone: () => set.add(key) });
+  alarmPlayQueue.push({ message, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
   // Kick the queue
   try{ drainAlarmQueue(); }catch{}
   return true;
 }
-function notifyOnce(dirStr, key, message){
+function notifyOnce(dirStr, key, message, afterPlay){
   const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
   if(set.has(key)) return false;
   if(!audioUnlocked){
     bindAudioUnlockOnce();
     if(!pendingAudioKeys.has(key)){
       pendingAudioKeys.add(key);
-      pendingAudioQueue.push({ dirStr, key, message });
+      pendingAudioQueue.push({ dirStr, key, message, afterPlay });
     }
     return false;
   }
-  try{ (async()=>{ await doAlarmBeepAndSpeak(dirStr, key, message); })(); }catch{}
+  try{ (async()=>{ await doAlarmBeepAndSpeak(dirStr, key, message, afterPlay); })(); }catch{}
   return true;
 }
 
@@ -1938,8 +1949,8 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               if(approachRecentlyAnnounced(t.no, selectedCode)) { alerted = true; return; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
-              markApproachAnnounced(t.no, selectedCode);
-              notifyOnce(dir === 0 ? 'up' : 'down', key, msg);
+              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode); }catch{} };
+              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay);
               notifyIfBackground(msg, approachKey(t.no, selectedCode));
               alerted = true;
             }
@@ -1963,8 +1974,8 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               if(approachRecentlyAnnounced(t.no, selectedCode)) { return; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
-              markApproachAnnounced(t.no, selectedCode);
-              notifyOnce(dir === 0 ? 'up' : 'down', key, msg);
+              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode); }catch{} };
+              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay);
               notifyIfBackground(msg, approachKey(t.no, selectedCode));
             }
           }
