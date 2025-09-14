@@ -79,7 +79,8 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
 if(settingsPanel){
   try{
     const saved = String(getSetting('ui.settingsOpen','1'));
-    if(saved === '0') settingsPanel.removeAttribute('open');
+    // Apply state deterministically using the property (more reliable across browsers)
+    settingsPanel.open = (saved !== '0');
     settingsPanel.addEventListener('toggle', () => {
       try{ setSetting('ui.settingsOpen', settingsPanel.open ? '1' : '0'); }catch{}
     });
@@ -1166,13 +1167,22 @@ async function speakTextAsync(text){
     const voice = getSelectedVoice();
     return await new Promise((resolve) => {
       try{
-        const u = new SpeechSynthesisUtterance(String(text||''));
-        if(voice){ u.voice = voice; u.lang = voice.lang || 'ja-JP'; }
-        else { u.lang = 'ja-JP'; }
-        u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
-        u.onend = () => resolve();
-        u.onerror = () => resolve();
-        synth.speak(u);
+        // iOS Safari reliability tweaks
+        try{ synth.cancel(); }catch{}
+        try{ if(synth.paused && synth.resume) synth.resume(); }catch{}
+        const startSpeak = () => {
+          try{
+            const u = new SpeechSynthesisUtterance(String(text||''));
+            if(voice){ u.voice = voice; u.lang = voice.lang || 'ja-JP'; }
+            else { u.lang = 'ja-JP'; }
+            u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+            u.onend = () => resolve();
+            u.onerror = () => resolve();
+            synth.speak(u);
+          }catch{ resolve(); }
+        };
+        // slight defer after cancel/resume to prevent being swallowed on iOS
+        setTimeout(startSpeak, 30);
       }catch{ resolve(); }
     });
   }catch{}
@@ -1193,6 +1203,8 @@ async function drainAlarmQueue(){
         ms = playBeep();
         if(ms > 0){ await new Promise(r => setTimeout(r, ms)); }
       }
+      // Stabilize gap before TTS on iOS
+      try{ await new Promise(r => setTimeout(r, 140)); }catch{}
       if(it.message){ await speakTextAsync(it.message); }
       try{ if(typeof it.onDone === 'function') it.onDone(); }catch{}
     }
