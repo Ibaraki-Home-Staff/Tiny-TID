@@ -10,6 +10,8 @@ const upContainer = document.querySelector('#trainsUp .train-items');
 const downContainer = document.querySelector('#trainsDown .train-items');
 const updatedAtEl = document.getElementById('updatedAt');
 const settingsPanel = document.getElementById('settingsPanel');
+const audioOverlay = document.getElementById('audioUnlockOverlay');
+const audioOverlayBtn = document.getElementById('audioUnlockBtn');
 
 // Debug helpers (enable with ?debug=1 or localStorage tid:debug=1)
 const __dbgParam = new URLSearchParams(window.location.search).get('debug');
@@ -27,6 +29,7 @@ const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
 paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 方向: ${dirLabel}`;
 
 (async () => {
+  try{ setupAudioUnlockOverlay(); }catch{}
   if(!line){
     upContainer.textContent = '路線が未指定です';
     downContainer.textContent = '';
@@ -288,6 +291,12 @@ function buildDelayTtsMessage(t, indexes){
 }
 
 function handleDelayAnnouncements(list, indexes){
+  // iOS Safari等の自動再生制限: ユーザー操作でアンロック済みでない場合は何もしない
+  // （初回ロード時に読み上げ“失敗”として抑制フラグだけ付くのを防ぐ）
+  if(!audioUnlocked){
+    try{ bindAudioUnlockOnce(); }catch{}
+    return;
+  }
   const threshold = getDelayThreshold();
   const now = Date.now();
   for(const t of list){
@@ -298,7 +307,6 @@ function handleDelayAnnouncements(list, indexes){
     if(now - last < DELAY_TTS_INTERVAL_MS) continue;
     const msg = buildDelayTtsMessage(t, indexes);
     if(msg){
-      delayAnnouncedAt.set(key, now);
       queueDelayTts(msg, key);
     }
   }
@@ -551,6 +559,40 @@ const alarmPlayQueue = [];
 let alarmPlaying = false;
 const BEEP_DURATION_MS = 280; // duration of the approach alarm beep (fallback)
 const ALARM_SOUND_URL = '/assets/sound/alarm.mp3';
+let alarmAudioEl = null;
+let alarmAudioPrimed = false;
+
+function ensureAlarmAudioEl(){
+  if(alarmAudioEl) return alarmAudioEl;
+  try{
+    const el = document.createElement('audio');
+    el.src = ALARM_SOUND_URL;
+    el.preload = 'auto';
+    el.controls = false;
+    el.loop = false;
+    el.style.display = 'none';
+    el.setAttribute('aria-hidden','true');
+    // iOS Safari 互換のため（無害）
+    try{ el.setAttribute('playsinline',''); el.setAttribute('webkit-playsinline',''); }catch{}
+    document.body.appendChild(el);
+    alarmAudioEl = el;
+  }catch{}
+  return alarmAudioEl;
+}
+
+async function primeAlarmAudio(){
+  try{
+    const el = ensureAlarmAudioEl();
+    if(!el || alarmAudioPrimed === true) return true;
+    // iOS: ユーザー操作内で一度再生→即停止で以後の再生を許可させる
+    await el.play();
+    // 短時間で停止
+    try{ await new Promise(r => setTimeout(r, 10)); }catch{}
+    try{ el.pause(); el.currentTime = 0; }catch{}
+    alarmAudioPrimed = true;
+    return true;
+  }catch{ return false; }
+}
 
 // Background notification and wake lock preferences
 function bgNotifyKey(){ return 'tid:bgnotify'; }
@@ -678,14 +720,24 @@ async function drainDelayTts(){
       const it = delayTtsQueue[0];
       await speakTextAsync(it.message);
       delayTtsQueue.shift();
-      if(it.key) delayTtsKeys.delete(it.key);
+      if(it.key){
+        delayTtsKeys.delete(it.key);
+        try{ delayAnnouncedAt.set(it.key, Date.now()); }catch{}
+      }
     }
   }finally{
     delayTtsPlaying = false;
   }
 }
 function preemptDelayTts(){
-  try{ if('speechSynthesis' in window){ window.speechSynthesis.cancel(); } }catch{}
+  try{
+    if('speechSynthesis' in window){ window.speechSynthesis.cancel(); }
+  }catch{}
+  // Also reset TTS test button UI if it was showing "停止"
+  try{
+    const btn = document.getElementById('ttsTestBtn');
+    if(btn){ btn.textContent = 'テスト再生'; }
+  }catch{}
 }
 
 function bindAudioUnlockOnce(){
@@ -700,6 +752,9 @@ function bindAudioUnlockOnce(){
       document.removeEventListener('keydown', unlock);
       document.removeEventListener('touchstart', unlock);
       dbg('audio unlocked');
+      try{ document.dispatchEvent(new CustomEvent('tid:audiounlocked')); }catch{}
+      // Prime HTMLAudio element for iOS so alarm mp3 can play
+      try{ primeAlarmAudio(); }catch{}
       // process any pending alarms that were queued while locked
       try{
         while(pendingAudioQueue.length){
@@ -709,12 +764,35 @@ function bindAudioUnlockOnce(){
           try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message); })(); }catch{}
         }
       }catch{}
+      // iOS Safari: once unlocked, re-run train refresh and drain any pending delay TTS
+      try{ refreshTrains(); }catch{}
+      try{ drainDelayTts(); }catch{}
     }catch{}
   };
   try{
     document.addEventListener('pointerdown', unlock, { once: true, passive: true });
     document.addEventListener('keydown', unlock, { once: true });
     document.addEventListener('touchstart', unlock, { once: true, passive: true });
+  }catch{}
+}
+
+function setupAudioUnlockOverlay(){
+  // Show overlay until first user gesture unlocks audio/TTS
+  if(!audioOverlay) return;
+  const supported = ('speechSynthesis' in window) || ('AudioContext' in window) || ('webkitAudioContext' in window);
+  if(!supported){ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); return; }
+  const hide = () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} };
+  const show = () => { try{ audioOverlay.classList.remove('is-hidden'); audioOverlay.removeAttribute('aria-hidden'); }catch{} };
+  if(audioUnlocked){ hide(); return; }
+  show();
+  // Bind unlock attempt to button and any click on the overlay
+  try{
+    if(audioOverlayBtn){ audioOverlayBtn.addEventListener('click', () => { bindAudioUnlockOnce(); /* click triggers unlock */ }); }
+    audioOverlay.addEventListener('click', (e) => {
+      // Avoid closing on panel clicks; only on background or button
+      if(e.target === audioOverlay){ bindAudioUnlockOnce(); }
+    });
+    document.addEventListener('tid:audiounlocked', hide, { once: true });
   }catch{}
 }
 function selectedStationCode(){
@@ -980,20 +1058,36 @@ function getPrefsForDir(dir){
 async function playAlarmSound(){
   try{
     if(!audioUnlocked){ bindAudioUnlockOnce(); return 0; }
-    const el = new Audio(ALARM_SOUND_URL);
-    el.preload = 'auto';
-    el.crossOrigin = 'anonymous';
+    const el = ensureAlarmAudioEl();
+    if(!el){ return 0; }
+    // try prime (best-effort)
+    try{ await primeAlarmAudio(); }catch{}
+    el.currentTime = 0;
     el.volume = 1.0;
     return await new Promise((resolve) => {
       let settled = false;
       const done = (ms) => { if(!settled){ settled = true; resolve(Number.isFinite(ms)? ms : 0); } };
-      el.addEventListener('ended', () => {
+      const onEnded = () => {
         const durMs = (typeof el.duration === 'number' && isFinite(el.duration)) ? Math.round(el.duration*1000) : 0;
+        cleanup();
         done(durMs);
-      }, { once: true });
-      el.addEventListener('error', () => done(0), { once: true });
-      try{ el.play().catch(()=> done(0)); }catch{ done(0); }
-      setTimeout(() => done(0), 5000); // safety timeout
+      };
+      const onError = () => { cleanup(); done(0); };
+      const cleanup = () => {
+        try{ el.removeEventListener('ended', onEnded); }catch{}
+        try{ el.removeEventListener('error', onError); }catch{}
+      };
+      try{
+        el.addEventListener('ended', onEnded, { once: true });
+        el.addEventListener('error', onError, { once: true });
+        // If already playing something, restart
+        try{ if(!el.paused){ el.pause(); el.currentTime = 0; } }catch{}
+        const p = el.play();
+        if(p && typeof p.then === 'function'){
+          p.catch(()=> { cleanup(); done(0); });
+        }
+      }catch{ cleanup(); done(0); }
+      setTimeout(() => { cleanup(); done(0); }, 6000); // safety timeout
     });
   }catch(e){ dbg('alarm audio failed', e); return 0; }
 }
@@ -1734,11 +1828,17 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     if(prefs.has(`cat:${cat}`)){
       const targetCode = targets[catKey] || fallbackTarget;
       if(targetCode){
-          // Trigger only at the target or when leaving the target toward the selected station:
+          // Direction-aware trigger:
           //  - stopped: atCode === target
-          //  - moving: atCode === target (segment: target -> next)
+          //  - moving: up(dir=0) -> nextCode === target (segment A_target : moving toward selected side)
+          //            down(dir=1) -> atCode === target  (segment target_B)
           const here = String(t.atCode||'');
-          if(here === String(targetCode)){
+          const nxt = t.nextCode != null ? String(t.nextCode) : '';
+          const isStoppedAtTarget = t.stopped && here === String(targetCode);
+          const isMovingOnTarget = (!t.stopped) && (
+            (dir === 0 ? (nxt === String(targetCode)) : (here === String(targetCode)))
+          );
+          if(isStoppedAtTarget || isMovingOnTarget){
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(stopsHere){
@@ -1759,7 +1859,12 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
       const targetCode = targets['pass'] || fallbackTarget;
       if(targetCode){
         const here = String(t.atCode||'');
-        if(here === String(targetCode)){
+        const nxt = t.nextCode != null ? String(t.nextCode) : '';
+        const isStoppedAtTarget = t.stopped && here === String(targetCode);
+        const isMovingOnTarget = (!t.stopped) && (
+          (dir === 0 ? (nxt === String(targetCode)) : (here === String(targetCode)))
+        );
+        if(isStoppedAtTarget || isMovingOnTarget){
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere2 = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(!stopsHere2){

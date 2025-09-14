@@ -14,6 +14,13 @@
     <link rel="stylesheet" href="/assets/css/main.css">
   </head>
   <body>
+    <div id="audioUnlockOverlay" class="tid-audio-overlay is-hidden" aria-hidden="true" role="dialog" aria-labelledby="audioUnlockTitle" aria-modal="true">
+      <div class="tid-audio-overlay__panel">
+        <h2 id="audioUnlockTitle" class="tid-audio-overlay__title">音声の許可が必要です</h2>
+        <p class="tid-audio-overlay__text">読み上げやアラーム音を再生するには、最初に許可ボタンを押してください。</p>
+        <button id="audioUnlockBtn" class="btn tid-audio-overlay__button" type="button">音声を有効化</button>
+      </div>
+    </div>
     <header data-include="header"></header>
     <main class="container">
       <details id="settingsPanel" class="settings" open>
