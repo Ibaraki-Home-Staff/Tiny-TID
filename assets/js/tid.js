@@ -12,6 +12,7 @@ const updatedAtEl = document.getElementById('updatedAt');
 const settingsPanel = document.getElementById('settingsPanel');
 const audioOverlay = document.getElementById('audioUnlockOverlay');
 const audioOverlayBtn = document.getElementById('audioUnlockBtn');
+const audioOverlayHint = document.getElementById('audioUnlockHint');
 
 // Debug helpers (enable with ?debug=1 or localStorage tid:debug=1)
 const __dbgParam = new URLSearchParams(window.location.search).get('debug');
@@ -748,6 +749,7 @@ function bindAudioUnlockOnce(){
       audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
       if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
       audioUnlocked = true;
+      try{ localStorage.setItem('tid:audio:unlocked','1'); }catch{}
       document.removeEventListener('pointerdown', unlock);
       document.removeEventListener('keydown', unlock);
       document.removeEventListener('touchstart', unlock);
@@ -783,7 +785,17 @@ function setupAudioUnlockOverlay(){
   if(!supported){ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); return; }
   const hide = () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} };
   const show = () => { try{ audioOverlay.classList.remove('is-hidden'); audioOverlay.removeAttribute('aria-hidden'); }catch{} };
+  // Hide if previously unlocked in this browser
+  try{ if(localStorage.getItem('tid:audio:unlocked') === '1'){ audioUnlocked = true; } }catch{}
   if(audioUnlocked){ hide(); return; }
+  // Environment hint
+  try{
+    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator && window.navigator.standalone === true);
+    const text = isStandalone
+      ? 'アプリとして起動中です。音声を有効化するとアラームや読み上げが動作します。'
+      : 'ブラウザで開いています。音声を有効化するとテスト音声やアラーム音声が使えるようになります。';
+    if(audioOverlayHint){ audioOverlayHint.textContent = text; }
+  }catch{}
   show();
   // Bind unlock attempt to button and any click on the overlay
   try{
