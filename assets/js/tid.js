@@ -1663,8 +1663,40 @@ function renderTrains(indexes, trainsData, dirParam){
       heading.textContent = '列車一覧（絞り込み無し）';
     }
   }
-  const up = hidePassed(parsed.filter(t => t.direction === 0).sort((a,b)=>a.posIndex-b.posIndex), 0);
-  const down = hidePassed(parsed.filter(t => t.direction === 1).sort((a,b)=>b.posIndex-a.posIndex), 1);
+  let up = hidePassed(parsed.filter(t => t.direction === 0).sort((a,b)=>a.posIndex-b.posIndex), 0);
+  let down = hidePassed(parsed.filter(t => t.direction === 1).sort((a,b)=>b.posIndex-a.posIndex), 1);
+
+  // When pass display is "show" and pass alarm is enabled for a direction,
+  // include the "just-left-of-target" segment for the selected station so that
+  // the alarm can trigger even if the UI hides already-passed trains.
+  // This keeps visual rules intact while aligning alarm timing expectations.
+  try{
+    const passSettingNow = (document.getElementById('passFilter')?.value || 'hide');
+    if(passSettingNow === 'show' && selectedCode){
+      const addExtrasForPass = (list, dir) => {
+        try{
+          const prefs = getPrefsForDir(dir);
+          if(!prefs || !prefs.has('pass')) return list;
+          const selected = String(selectedCode);
+          // Consider trains that would trigger pass alarm at the selected station boundary:
+          //  - up(dir=0): moving and nextCode === selected (segment selected -> left)
+          //  - down(dir=1): moving and atCode === selected (segment selected -> right)
+          const base = parsed.filter(t => t.direction === dir);
+          const extras = base.filter(t => !t.stopped && (
+            dir === 0 ? (String(t.nextCode||'') === selected) : (String(t.atCode||'') === selected)
+          ));
+          if(!extras.length) return list;
+          // merge without duplicates (by train no + pos)
+          const keyOf = (t) => `${t.no||'?'}:${t.pos||''}`;
+          const seen = new Set(list.map(keyOf));
+          for(const t of extras){ const k = keyOf(t); if(!seen.has(k)) { list.push(t); seen.add(k); } }
+          return list;
+        }catch{ return list; }
+      };
+      up = addExtrasForPass(up, 0);
+      down = addExtrasForPass(down, 1);
+    }
+  }catch{}
 
   // Render alarm type options (per-direction) based on selected station and current direction filter
   try{ renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhanced); }catch(e){ dbg('alarm render failed', e); }
