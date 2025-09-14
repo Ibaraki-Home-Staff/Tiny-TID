@@ -32,6 +32,8 @@ const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
 paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 方向: ${dirLabel}`;
 
 (async () => {
+  // migrate legacy localStorage keys once
+  try{ migrateLegacySettings(); }catch{}
   try{ setupAudioUnlockOverlay(); }catch{}
   if(!line){
     upContainer.textContent = '路線が未指定です';
@@ -76,11 +78,10 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
 // Persist settings panel open/close state
 if(settingsPanel){
   try{
-    const key = 'tid:settings:open';
-    const saved = localStorage.getItem(key);
+    const saved = String(getSetting('ui.settingsOpen','1'));
     if(saved === '0') settingsPanel.removeAttribute('open');
     settingsPanel.addEventListener('toggle', () => {
-      try{ localStorage.setItem(key, settingsPanel.open ? '1' : '0'); }catch{}
+      try{ setSetting('ui.settingsOpen', settingsPanel.open ? '1' : '0'); }catch{}
     });
   }catch{}
 }
@@ -246,7 +247,8 @@ function speakText(text){
 function delayThresholdKey(){ return 'tid:delay:threshold'; }
 function getDelayThreshold(){
   try{
-    const v = Number(localStorage.getItem(delayThresholdKey()));
+    const raw = getSetting('delay.threshold', null);
+    const v = Number(raw);
     if(Number.isFinite(v) && v >= 0) return Math.floor(v);
   }catch{}
   return 4; // default 4 minutes
@@ -260,7 +262,7 @@ function initDelayControls(){
     el.addEventListener('change', () => {
       let n = Number(el.value);
       if(!Number.isFinite(n) || n < 0) n = 4;
-      try{ localStorage.setItem(delayThresholdKey(), String(Math.floor(n))); }catch{}
+      try{ setSetting('delay.threshold', Math.floor(n)); }catch{}
       refreshTrains();
     });
   }catch{}
@@ -354,7 +356,7 @@ function buildTtsMessage(t, targetCode, indexes){
 }
 function getSelectedVoice(){
   try{
-    const name = localStorage.getItem(ttsVoiceKey()) || document.getElementById('ttsVoice')?.value || '';
+    const name = getSetting('tts.voice','') || document.getElementById('ttsVoice')?.value || '';
     const voices = getJapaneseVoices();
     return voices.find(v => v.name === name) || voices[0] || null;
   }catch{ return null; }
@@ -377,7 +379,7 @@ function populateTTSSelect(){
   none.value = '';
   none.textContent = '（未選択）';
   sel.appendChild(none);
-  const saved = localStorage.getItem(ttsVoiceKey()) || '';
+  const saved = getSetting('tts.voice','') || '';
   for(const v of voices){
     const opt = document.createElement('option');
     opt.value = v.name;
@@ -505,7 +507,7 @@ function initTTSControls(){
     // Some browsers populate voices asynchronously
     if('speechSynthesis' in window){
       window.speechSynthesis.onvoiceschanged = () => {
-        const saved = localStorage.getItem(ttsVoiceKey()) || '';
+        const saved = getSetting('tts.voice','') || '';
         populateTTSSelect();
         if(saved){
           const s = document.getElementById('ttsVoice');
@@ -514,10 +516,10 @@ function initTTSControls(){
       };
     }
     sel.addEventListener('change', ()=>{
-      try{ localStorage.setItem(ttsVoiceKey(), sel.value || ''); }catch{}
+      try{ setSetting('tts.voice', sel.value || ''); }catch{}
     });
     // Restore saved
-    const saved = localStorage.getItem(ttsVoiceKey());
+    const saved = getSetting('tts.voice','');
     if(saved && Array.from(sel.options).some(o=>o.value===saved)) sel.value = saved;
 
     // Test playback button
@@ -601,7 +603,12 @@ async function primeAlarmAudio(){
 function bgNotifyKey(){ return 'tid:bgnotify'; }
 function wakeLockKey(){ return 'tid:wakelock'; }
 function isBgNotifyEnabled(){
-  try{ return localStorage.getItem(bgNotifyKey()) === '1'; }catch{ return false; }
+  try{
+    const v = getSetting('bg.notify', null);
+    if(v === '1' || v === 1 || v === true) return true;
+    // fallback to legacy key if not set
+    return localStorage.getItem(bgNotifyKey()) === '1';
+  }catch{ return false; }
 }
 let screenWakeLock = null;
 async function enableWakeLock(){
@@ -637,30 +644,31 @@ function initBackgroundControls(){
                 try{ perm = await Notification.requestPermission(); }catch{}
               }
               if(perm === 'granted'){
-                localStorage.setItem(bgNotifyKey(), '1');
+                setSetting('bg.notify','1');
+                try{ localStorage.setItem(bgNotifyKey(), '1'); }catch{}
               }else{
-                ncb.checked = false; localStorage.setItem(bgNotifyKey(), '0');
+                ncb.checked = false; setSetting('bg.notify','0'); try{ localStorage.setItem(bgNotifyKey(), '0'); }catch{}
               }
             }else{
-              ncb.checked = false; localStorage.setItem(bgNotifyKey(), '0');
+              ncb.checked = false; setSetting('bg.notify','0'); try{ localStorage.setItem(bgNotifyKey(), '0'); }catch{}
             }
           }else{
-            localStorage.setItem(bgNotifyKey(), '0');
+            setSetting('bg.notify','0'); try{ localStorage.setItem(bgNotifyKey(), '0'); }catch{}
           }
         }catch{}
       });
     }
     if(wcb){
-      const saved = localStorage.getItem(wakeLockKey()) === '1';
+      const saved = (getSetting('bg.wakelock', null) === '1') || (localStorage.getItem(wakeLockKey()) === '1');
       wcb.checked = saved;
       if(saved) enableWakeLock();
       wcb.addEventListener('change', async () => {
         try{
           if(wcb.checked){
-            localStorage.setItem(wakeLockKey(), '1');
+            setSetting('bg.wakelock','1'); try{ localStorage.setItem(wakeLockKey(), '1'); }catch{}
             await enableWakeLock();
           }else{
-            localStorage.setItem(wakeLockKey(), '0');
+            setSetting('bg.wakelock','0'); try{ localStorage.setItem(wakeLockKey(), '0'); }catch{}
             await disableWakeLock();
           }
         }catch{}
@@ -751,7 +759,7 @@ function bindAudioUnlockOnce(){
       audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
       if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
       audioUnlocked = true;
-      try{ localStorage.setItem('tid:audio:unlocked','1'); }catch{}
+      try{ setSetting('ui.audioUnlocked','1'); localStorage.setItem('tid:audio:unlocked','1'); }catch{}
       document.removeEventListener('pointerdown', unlock);
       document.removeEventListener('keydown', unlock);
       document.removeEventListener('touchstart', unlock);
@@ -788,7 +796,7 @@ function setupAudioUnlockOverlay(){
   const hide = () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} };
   const show = () => { try{ audioOverlay.classList.remove('is-hidden'); audioOverlay.removeAttribute('aria-hidden'); }catch{} };
   // Hide if previously unlocked in this browser
-  try{ if(localStorage.getItem('tid:audio:unlocked') === '1'){ audioUnlocked = true; } }catch{}
+  try{ if(getSetting('ui.audioUnlocked','0') === '1' || localStorage.getItem('tid:audio:unlocked') === '1'){ audioUnlocked = true; } }catch{}
   if(audioUnlocked){ hide(); return; }
   // Environment hint
   try{
@@ -824,6 +832,14 @@ function alarmTargetKey(dir, st){
 }
 function readAlarmPrefs(dir, st){
   try{
+    const cfg = getLineConfig(line);
+    const stKey = String(st||'_none');
+    const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
+    const arr = cfg?.alarms?.[stKey]?.[dirKey]?.prefs;
+    if(Array.isArray(arr)) return new Set(arr);
+  }catch{}
+  // legacy fallback
+  try{
     const raw = localStorage.getItem(alarmKey(dir, st));
     const arr = raw ? JSON.parse(raw) : [];
     if(Array.isArray(arr)) return new Set(arr);
@@ -831,19 +847,37 @@ function readAlarmPrefs(dir, st){
   return new Set();
 }
 function saveAlarmPrefs(dir, values, st){
-  try{ localStorage.setItem(alarmKey(dir, st), JSON.stringify(Array.from(values||[]))); }catch{}
+  try{
+    const stKey = String(st||'_none');
+    const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
+    const arr = Array.from(values||[]);
+    setSetting(`lines.${line}.alarms.${stKey}.${dirKey}.prefs`, arr);
+  }catch{}
 }
 function readAlarmDisable(dir, st){
   try{
-    const v = localStorage.getItem(alarmDisableKey(dir, st));
-    if(v === null) return true; // default: disabled
-    return v === '1';
+    const stKey = String(st||'_none');
+    const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
+    const v = getSetting(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, undefined);
+    if(v === undefined) return true; // default disabled
+    return !!v;
   }catch{ return true; }
 }
 function saveAlarmDisable(dir, v, st){
-  try{ localStorage.setItem(alarmDisableKey(dir, st), v ? '1' : '0'); }catch{}
+  try{
+    const stKey = String(st||'_none');
+    const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
+    setSetting(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, !!v);
+  }catch{}
 }
 function readAlarmTargets(dir, st){
+  try{
+    const stKey = String(st||'_none');
+    const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
+    const obj = getSetting(`lines.${line}.alarms.${stKey}.${dirKey}.targets`, {});
+    return (obj && typeof obj === 'object') ? obj : {};
+  }catch{}
+  // legacy fallback
   try{
     const raw = localStorage.getItem(alarmTargetKey(dir, st));
     const obj = raw ? JSON.parse(raw) : {};
@@ -852,9 +886,11 @@ function readAlarmTargets(dir, st){
 }
 function saveAlarmTarget(dir, st, catKey, stationCode){
   try{
+    const stKey = String(st||'_none');
+    const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
     const obj = readAlarmTargets(dir, st);
     obj[catKey] = String(stationCode||'');
-    localStorage.setItem(alarmTargetKey(dir, st), JSON.stringify(obj));
+    setSetting(`lines.${line}.alarms.${stKey}.${dirKey}.targets`, obj);
   }catch{}
 }
 function setDisabledForDir(dir, disabled){
@@ -1461,26 +1497,26 @@ function populateStationFilter(indexes){
     opt.textContent = st.name || st.code;
     sel.appendChild(opt);
   }
-  // restore saved selection per line
-  const savedStation = localStorage.getItem(stationKey(line));
+  // restore saved selection per line (consolidated settings)
+  const savedStation = getSetting(`lines.${line}.station`, '');
   if(savedStation && Array.from(sel.options).some(o => o.value === savedStation)){
     sel.value = savedStation;
   }
   sel.addEventListener('change', () => {
-    localStorage.setItem(stationKey(line), sel.value || '');
+    setSetting(`lines.${line}.station`, sel.value || '');
     // retrigger render by refetching latest trains
     try{ alarmNotified.up.clear(); alarmNotified.down.clear(); }catch{}
     refreshTrains();
   });
   const passSel = document.getElementById('passFilter');
   if(passSel){
-    const savedPass = localStorage.getItem(passKey(line));
+    const savedPass = getSetting(`lines.${line}.pass`, null);
     if(savedPass === 'show' || savedPass === 'hide'){
       passSel.value = savedPass;
     }
     passSel.addEventListener('change', () => refreshTrains());
     passSel.addEventListener('change', () => {
-      localStorage.setItem(passKey(line), passSel.value);
+      setSetting(`lines.${line}.pass`, passSel.value);
     });
   }
   const refreshBtn = document.getElementById('refreshStationsBtn');
@@ -1601,8 +1637,8 @@ function renderTrains(indexes, trainsData, dirParam){
   const parsed = enhanced.filter(t => filterByStationSetting(t, allowedCats, passSetting));
   // If a station is selected, hide trains that have already passed the station
   const stationIdx = selectedCode ? indexes.byCode.get(selectedCode)?.index : null;
-  // PRIORITY: run approach alarm checks before any other UI/announcements
-  try{ handleApproachAlarms(indexes, enhanced, selectedCode, stationIdx, allowedCats, dirParam); }catch(e){ dbg('alarm check failed', e); }
+  // Note: Approach alarms must use the same set as the screen shows.
+  // We will compute shown lists first and then run alarm checks on them.
   const hidePassed = (arr, dir) => {
     if(stationIdx == null) return arr;
     return arr.filter(t => {
@@ -1632,6 +1668,11 @@ function renderTrains(indexes, trainsData, dirParam){
 
   // Render alarm type options (per-direction) based on selected station and current direction filter
   try{ renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhanced); }catch(e){ dbg('alarm render failed', e); }
+  // Approach alarms: use the same trains that are shown on screen
+  try{
+    const shown = dirParam === 'up' ? up : dirParam === 'down' ? down : up.concat(down);
+    handleApproachAlarms(indexes, shown, selectedCode, stationIdx, allowedCats, dirParam);
+  }catch(e){ dbg('alarm check failed', e); }
   // run low-priority delay announcements after alarm checks
   try{
     const shown = dirParam === 'up' ? up : dirParam === 'down' ? down : up.concat(down);
@@ -2182,3 +2223,100 @@ function getNickname(t){
 
 
 
+// -----------------------------
+// Consolidated settings storage
+// -----------------------------
+const SETTINGS_ROOT_KEY = 'tid:v1:settings';
+function loadSettingsRoot(){
+  try{
+    const raw = localStorage.getItem(SETTINGS_ROOT_KEY);
+    if(!raw) return {};
+    const obj = JSON.parse(raw);
+    return (obj && typeof obj === 'object') ? obj : {};
+  }catch{ return {}; }
+}
+function saveSettingsRoot(obj){
+  try{ localStorage.setItem(SETTINGS_ROOT_KEY, JSON.stringify(obj||{})); }catch{}
+}
+function getPath(obj, path){
+  try{
+    const segs = String(path||'').split('.');
+    let cur = obj;
+    for(const s of segs){ if(!cur || typeof cur !== 'object') return undefined; cur = cur[s]; }
+    return cur;
+  }catch{ return undefined; }
+}
+function setPath(obj, path, val){
+  try{
+    const segs = String(path||'').split('.');
+    let cur = obj;
+    for(let i=0;i<segs.length-1;i++){
+      const k = segs[i];
+      if(!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
+      cur = cur[k];
+    }
+    cur[segs[segs.length-1]] = val;
+  }catch{}
+}
+function getSetting(path, fallback){
+  const root = loadSettingsRoot();
+  const v = getPath(root, path);
+  return (v === undefined) ? fallback : v;
+}
+function setSetting(path, val){
+  const root = loadSettingsRoot();
+  setPath(root, path, val);
+  saveSettingsRoot(root);
+}
+function ensureLineConfig(lineId){
+  const root = loadSettingsRoot();
+  if(!root.lines) root.lines = {};
+  if(!root.lines[lineId]) root.lines[lineId] = {};
+  saveSettingsRoot(root);
+  return root.lines[lineId];
+}
+function getLineConfig(lineId){
+  const root = loadSettingsRoot();
+  return (root.lines && root.lines[lineId]) || {};
+}
+function migrateLegacySettings(){
+  try{
+    const root = loadSettingsRoot();
+    // UI
+    const open = localStorage.getItem('tid:settings:open'); if(open!=null){ setPath(root,'ui.settingsOpen',open); try{ localStorage.removeItem('tid:settings:open'); }catch{} }
+    const aud = localStorage.getItem('tid:audio:unlocked'); if(aud!=null){ setPath(root,'ui.audioUnlocked',aud); try{ localStorage.removeItem('tid:audio:unlocked'); }catch{} }
+    // TTS
+    const v = localStorage.getItem('tid:tts:voice'); if(v!=null){ setPath(root,'tts.voice',v); try{ localStorage.removeItem('tid:tts:voice'); }catch{} }
+    // Delay
+    const th = localStorage.getItem('tid:delay:threshold'); if(th!=null){ setPath(root,'delay.threshold',Number(th)); try{ localStorage.removeItem('tid:delay:threshold'); }catch{} }
+    // Background
+    const bg = localStorage.getItem('tid:bgnotify'); if(bg!=null){ setPath(root,'bg.notify',bg); /* keep original for pwa.js */ }
+    const wl = localStorage.getItem('tid:wakelock'); if(wl!=null){ setPath(root,'bg.wakelock',wl); try{ localStorage.removeItem('tid:wakelock'); }catch{} }
+    // Per-line station/pass
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const k = localStorage.key(i);
+        if(!k) continue;
+        const mStation = k.match(/^tid:station:(.+)$/);
+        if(mStation){ const lineId = mStation[1]; const val = localStorage.getItem(k)||''; if(val){ ensureLineConfig(lineId); setSetting(`lines.${lineId}.station`, val); } continue; }
+        const mPass = k.match(/^tid:pass:(.+)$/);
+        if(mPass){ const lineId = mPass[1]; const val = localStorage.getItem(k)||''; if(val){ ensureLineConfig(lineId); setSetting(`lines.${lineId}.pass`, val); } continue; }
+      }
+    }catch{}
+    // Per-line+station alarms (disable, prefs, targets)
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const k = localStorage.key(i);
+        if(!k) continue;
+        let m;
+        m = k.match(/^tid:alarm:disable:([^:]+):([^:]+):(up|down)$/);
+        if(m){ const [_, lineId, st, dir] = m; const val = localStorage.getItem(k)==='1'; setSetting(`lines.${lineId}.alarms.${st}.${dir}.disabled`, val); continue; }
+        m = k.match(/^tid:alarm:([^:]+):([^:]+):(up|down)$/);
+        if(m){ const [_, lineId, st, dir] = m; try{ const arr = JSON.parse(localStorage.getItem(k)||'[]'); if(Array.isArray(arr)) setSetting(`lines.${lineId}.alarms.${st}.${dir}.prefs`, arr); }catch{} continue; }
+        m = k.match(/^tid:alarm:target:([^:]+):([^:]+):(up|down)$/);
+        if(m){ const [_, lineId, st, dir] = m; try{ const obj = JSON.parse(localStorage.getItem(k)||'{}'); if(obj && typeof obj==='object') setSetting(`lines.${lineId}.alarms.${st}.${dir}.targets`, obj); }catch{} continue; }
+      }
+    }catch{}
+    saveSettingsRoot(root);
+  }catch{}
+}
