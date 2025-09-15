@@ -6,12 +6,13 @@
     <title>Tiny-TID - 列車走行位置</title>
     <base href="/" />
     <link rel="icon" href="/assets/img/placeholder.svg">
-    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="manifest" href="/manifest.webmanifest?v=1">
+    <meta name="app:version" content="1">
     <!-- 種別色マップ（color.txt）の場所を指定 -->
     <meta name="tid:colorUrl" content="/assets/color.txt">
     <!-- 読み上げ補正マップ（yomiage.txt）の場所を指定 -->
     <meta name="tid:yomiUrl" content="/assets/yomiage.txt">
-    <link rel="stylesheet" href="/assets/css/main.css">
+    <link rel="stylesheet" href="/assets/css/main.css?v=1">
   </head>
   <body>
     <div id="audioUnlockOverlay" class="tid-audio-overlay is-hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="audioUnlockTitle">
@@ -120,8 +121,8 @@
       </p>
     </main>
     <!--<footer data-include="footer"></footer> -->
-    <script type="module" src="/assets/js/pwa.js"></script>
-    <script type="module" src="/assets/js/tid.js"></script>
+    <script type="module" src="/assets/js/pwa.js?v=1"></script>
+    <script type="module" src="/assets/js/tid.js?v=1"></script>
   </body>
   </html>
 

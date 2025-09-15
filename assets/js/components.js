@@ -1,7 +1,22 @@
+function getAssetVersion(){
+  try{
+    const m = document.querySelector('meta[name="app:version"]');
+    const v = m && m.getAttribute('content');
+    return (v && String(v)) || '';
+  }catch{ return ''; }
+}
+function withVersion(u){
+  try{
+    const v = getAssetVersion();
+    if(!v) return u;
+    return u + (u.includes('?') ? `&v=${encodeURIComponent(v)}` : `?v=${encodeURIComponent(v)}`);
+  }catch{ return u; }
+}
+
 export async function loadComponents(){
   await Promise.all([
-    include('[data-include="header"]','/components/header.html'),
-    include('[data-include="footer"]','/components/footer.html')
+    include('[data-include="header"]', withVersion('/components/header.html')),
+    include('[data-include="footer"]', withVersion('/components/footer.html'))
   ]);
   setActiveNav();
   initNavToggle();
@@ -46,4 +61,3 @@ function initNavToggle(){
   };
   btn.addEventListener('click', toggle);
 }
-

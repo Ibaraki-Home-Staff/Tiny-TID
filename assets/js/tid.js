@@ -696,23 +696,58 @@ function notifyIfBackground(message, tag){
   }catch{}
 }
 
-// Time-window suppression for approach alarms (per line + station filter + train no)
-const approachAnnouncedAt = new Map(); // key -> timestamp
+// Time-window suppression for approach alarms (persisted TTL + in-memory)
+const approachAnnouncedAt = new Map(); // key -> timestamp (in-memory)
 const APPROACH_SUPPRESS_MS = 3 * 60 * 1000; // 3 minutes
-function approachKey(trainNo, selectedCode){
+const APPROACH_STORE_KEY = 'tid:v1:alarm:approachSuppression';
+function approachKey(trainNo, selectedCode, dir){
   const no = (trainNo != null && String(trainNo).trim()) ? String(trainNo).trim() : '?';
   const st = (selectedCode != null && String(selectedCode).trim()) ? String(selectedCode).trim() : '_none';
-  return `approach:${line}:${st}:${no}`;
+  const d = (dir === 0 || dir === 1) ? String(dir) : String(dir||'');
+  const a = String(area||'_');
+  const l = String(line||'_');
+  return `approach:${a}:${l}:${st}:${d}:${no}`;
 }
-function approachRecentlyAnnounced(trainNo, selectedCode){
+function loadApproachStore(){
   try{
-    const k = approachKey(trainNo, selectedCode);
-    const last = approachAnnouncedAt.get(k) || 0;
-    return (Date.now() - last) < APPROACH_SUPPRESS_MS;
+    const raw = localStorage.getItem(APPROACH_STORE_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    if(!obj || typeof obj !== 'object') return {};
+    // prune TTL
+    const now = Date.now();
+    let changed = false;
+    for(const k of Object.keys(obj)){
+      const ts = Number(obj[k]);
+      if(!Number.isFinite(ts) || (now - ts) >= APPROACH_SUPPRESS_MS){ delete obj[k]; changed = true; }
+    }
+    if(changed){ try{ localStorage.setItem(APPROACH_STORE_KEY, JSON.stringify(obj)); }catch{} }
+    return obj;
+  }catch{ return {}; }
+}
+function saveApproachStore(obj){
+  try{ localStorage.setItem(APPROACH_STORE_KEY, JSON.stringify(obj||{})); }catch{}
+}
+function approachRecentlyAnnounced(trainNo, selectedCode, dir){
+  try{
+    const k = approachKey(trainNo, selectedCode, dir);
+    const now = Date.now();
+    const mem = approachAnnouncedAt.get(k) || 0;
+    if((now - mem) < APPROACH_SUPPRESS_MS) return true;
+    const store = loadApproachStore();
+    const ts = Number(store[k] || 0);
+    if(Number.isFinite(ts) && (now - ts) < APPROACH_SUPPRESS_MS) return true;
+    return false;
   }catch{ return false; }
 }
-function markApproachAnnounced(trainNo, selectedCode){
-  try{ approachAnnouncedAt.set(approachKey(trainNo, selectedCode), Date.now()); }catch{}
+function markApproachAnnounced(trainNo, selectedCode, dir){
+  try{
+    const k = approachKey(trainNo, selectedCode, dir);
+    const now = Date.now();
+    approachAnnouncedAt.set(k, now);
+    const store = loadApproachStore();
+    store[k] = now;
+    saveApproachStore(store);
+  }catch{}
 }
 
 // Low-priority TTS queue for delay announcements (preemptable by alarms)
@@ -1950,12 +1985,12 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
             const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(stopsHere){
               // Suppress duplicates for same line + station filter + train no within 3 minutes
-              if(approachRecentlyAnnounced(t.no, selectedCode)) { alerted = true; return; }
+              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { alerted = true; return; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
-              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode); }catch{} };
+              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay);
-              notifyIfBackground(msg, approachKey(t.no, selectedCode));
+              notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
               alerted = true;
             }
           }
@@ -1975,12 +2010,12 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere2 = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(!stopsHere2){
-              if(approachRecentlyAnnounced(t.no, selectedCode)) { return; }
+              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { return; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
-              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode); }catch{} };
+              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay);
-              notifyIfBackground(msg, approachKey(t.no, selectedCode));
+              notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
             }
           }
         }

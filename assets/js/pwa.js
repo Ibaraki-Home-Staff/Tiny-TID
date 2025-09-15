@@ -7,7 +7,10 @@ async function registerServiceWorker(){
   try{
     if(!('serviceWorker' in navigator)) return null;
     if(!isSecure()) return null;
-    const reg = await navigator.serviceWorker.register('/service-worker.js');
+    const vMeta = document.querySelector('meta[name="app:version"]');
+    const v = vMeta && vMeta.getAttribute('content');
+    const swUrl = v ? `/service-worker.js?v=${encodeURIComponent(v)}` : '/service-worker.js';
+    const reg = await navigator.serviceWorker.register(swUrl);
     return reg;
   }catch(err){
     console.warn('[PWA] SW register failed', err);

@@ -7,11 +7,12 @@
     <meta name="description" content="Tiny-TID sample site" />
     <base href="/" />
     <link rel="icon" href="/assets/img/placeholder.svg">
-    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="manifest" href="/manifest.webmanifest?v=1">
+    <meta name="app:version" content="1">
     <!-- Optional: set these for Web Push (VAPID public key and your subscribe endpoint) -->
     <!-- <meta name="push:publicKey" content="BExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"> -->
     <!-- <meta name="push:subscribeUrl" content="https://your.api/subscribe"> -->
-    <link rel="stylesheet" href="/assets/css/main.css">
+    <link rel="stylesheet" href="/assets/css/main.css?v=1">
   </head>
   <body>
     <header data-include="header"></header>
@@ -48,7 +49,7 @@
       </section>
       
     </main>
-    <script type="module" src="/assets/js/pwa.js"></script>
-    <script type="module" src="/assets/js/main.js"></script>
+    <script type="module" src="/assets/js/pwa.js?v=1"></script>
+    <script type="module" src="/assets/js/main.js?v=1"></script>
   </body>
   </html>
