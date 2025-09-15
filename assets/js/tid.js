@@ -588,6 +588,56 @@ let alarmPlaying = false;
 let lastShownTrains = { up: [], down: [] };
 let lastSelectedCode = null;
 let lastIndexes = null;
+
+// Lightweight alarm modal (auto-dismiss ~3s with confirm button)
+let alarmModalEl = null;
+let alarmModalTimer = null;
+function ensureAlarmModal(){
+  if(alarmModalEl) return alarmModalEl;
+  try{
+    const wrap = document.createElement('div');
+    wrap.className = 'tid-alert-overlay is-hidden';
+    wrap.setAttribute('role','dialog');
+    wrap.setAttribute('aria-modal','true');
+    wrap.setAttribute('aria-labelledby','tidAlertTitle');
+    wrap.innerHTML = `
+      <div class="tid-alert__panel" role="document">
+        <h2 id="tidAlertTitle" class="tid-alert__title">列車接近</h2>
+        <div class="tid-alert__content">
+          <div class="tid-alert__row"><span class="tid-alert__label">列番</span><span class="tid-alert__value" data-alert-no>-</span></div>
+          <div class="tid-alert__row"><span class="tid-alert__label">種別</span><span class="tid-alert__value" data-alert-type>-</span></div>
+          <div class="tid-alert__row"><span class="tid-alert__label">遅れ</span><span class="tid-alert__value" data-alert-delay>-</span></div>
+        </div>
+        <div class="tid-alert__actions"><button type="button" class="btn" data-alert-ok>確認</button></div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const btn = wrap.querySelector('[data-alert-ok]');
+    btn?.addEventListener('click', hideAlarmModal);
+    alarmModalEl = wrap;
+  }catch{}
+  return alarmModalEl;
+}
+function hideAlarmModal(){
+  try{
+    if(alarmModalTimer){ clearTimeout(alarmModalTimer); alarmModalTimer = null; }
+    if(alarmModalEl){ alarmModalEl.classList.add('is-hidden'); alarmModalEl.setAttribute('aria-hidden','true'); }
+  }catch{}
+}
+function showAlarmModal(meta){
+  try{
+    const el = ensureAlarmModal(); if(!el) return;
+    const no = String(meta?.trainNo || meta?.no || '').trim();
+    const type = String(meta?.displayType || meta?.type || '').trim();
+    const delay = (typeof meta?.delay === 'number' && meta.delay > 0) ? `${meta.delay}分` : 'なし';
+    el.querySelector('[data-alert-no]').textContent = no || '-';
+    el.querySelector('[data-alert-type]').textContent = type || '-';
+    el.querySelector('[data-alert-delay]').textContent = delay;
+    el.classList.remove('is-hidden');
+    el.removeAttribute('aria-hidden');
+    if(alarmModalTimer){ clearTimeout(alarmModalTimer); }
+    alarmModalTimer = setTimeout(() => { hideAlarmModal(); }, 3000);
+  }catch{}
+}
 const BEEP_DURATION_MS = 280; // duration of the approach alarm beep (fallback)
 const ALARM_SOUND_URL = '/assets/sound/alarm.mp3';
 let alarmAudioEl = null;
@@ -1274,6 +1324,11 @@ async function drainAlarmQueue(){
         try{ if(it && it.key) alarmQueueKeys.delete(it.key); }catch{}
         continue;
       }
+      // Show ephemeral alarm modal
+      try{
+        const m = it && it.meta ? it.meta : null;
+        if(m){ showAlarmModal(m); }
+      }catch{}
       // Debug log (playback start)
       try{
         if(TID_DEBUG){
@@ -1310,28 +1365,28 @@ async function drainAlarmQueue(){
   }
 }
 
-function doAlarmBeepAndSpeak(dirStr, key, message, afterPlay){
+function doAlarmBeepAndSpeak(dirStr, key, message, afterPlay, meta){
   const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
   if(set.has(key)) return false;
   if(key && alarmQueueKeys.has(key)) return false;
   if(key) alarmQueueKeys.add(key);
-  alarmPlayQueue.push({ key, message, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
+  alarmPlayQueue.push({ key, message, meta, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
   // Kick the queue
   try{ drainAlarmQueue(); }catch{}
   return true;
 }
-function notifyOnce(dirStr, key, message, afterPlay){
+function notifyOnce(dirStr, key, message, afterPlay, meta){
   const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
   if(set.has(key)) return false;
   if(!audioUnlocked){
     bindAudioUnlockOnce();
     if(!pendingAudioKeys.has(key)){
       pendingAudioKeys.add(key);
-      pendingAudioQueue.push({ dirStr, key, message, afterPlay });
+      pendingAudioQueue.push({ dirStr, key, message, afterPlay, meta });
     }
     return false;
   }
-  try{ (async()=>{ await doAlarmBeepAndSpeak(dirStr, key, message, afterPlay); })(); }catch{}
+  try{ (async()=>{ await doAlarmBeepAndSpeak(dirStr, key, message, afterPlay, meta); })(); }catch{}
   return true;
 }
 
@@ -2108,7 +2163,9 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 nextName: indexes.byCode.get(String(t.nextCode||''))?.name,
                 targetCode: String(targetCode||''),
                 targetName: indexes.byCode.get(String(targetCode||''))?.name,
-                stopped: !!t.stopped
+                stopped: !!t.stopped,
+                displayType: String(t.displayType||''),
+                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
               };
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
@@ -2144,7 +2201,9 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 nextName: indexes.byCode.get(String(t.nextCode||''))?.name,
                 targetCode: String(targetCode||''),
                 targetName: indexes.byCode.get(String(targetCode||''))?.name,
-                stopped: !!t.stopped
+                stopped: !!t.stopped,
+                displayType: String(t.displayType||''),
+                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
               };
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
