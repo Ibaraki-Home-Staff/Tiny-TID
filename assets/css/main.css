@@ -8,11 +8,13 @@
 .tid-alert-overlay.is-hidden { display: none; }
 .tid-alert__panel { background: var(--color-bg, #fff); color: var(--color-text); border: 1px solid var(--color-border, #e3e3e3); border-radius: 18px; padding: 22px 24px; width: min(720px, calc(100% - 2.5rem)); box-shadow: 0 20px 72px rgba(0,0,0,.24); }
 .tid-alert__title { margin: 0 0 .75rem 0; font-size: 1.6rem; line-height: 1.25; }
-.tid-alert__groups { display: block; margin-bottom: 1rem; }
-.tid-alert__group { margin: 0 0 1rem 0; }
-.tid-alert__row { margin: 0 0 .6rem 0; }
-.tid-alert__label { color: var(--color-muted, #666); font-size: 1.1rem; }
-.tid-alert__value { font-size: 1.8rem; font-weight: 800; letter-spacing: .02em; display:block; width:100%; }
+.tid-alert__groups { display: grid; gap: 1rem; margin-bottom: 1rem; }
+.tid-alert__group { display: grid; grid-template-columns: 1fr; gap: .6rem; }
+.tid-alert__row { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: .6rem; }
+.tid-alert__label { color: var(--color-muted, #666); font-size: 1.1rem; white-space: nowrap; }
+.tid-alert__value { font-size: 1.9rem; font-weight: 800; letter-spacing: .02em; display:block; width:100%; }
+/* Emphasize type size */
+.tid-alert__value[data-alert-type] { font-size: 2.2rem; }
 .tid-alert__value--delay-bad { color: var(--color-danger,#c00); font-weight: 800; }
 .delay-bad { color: var(--color-danger,#c00); font-weight: 700; }
 .tid-alert__actions { display: flex; justify-content: flex-end; }
@@ -21,7 +23,10 @@
 @media (min-width: 768px){
   .tid-alert__panel { border-radius: 20px; padding: 26px 28px; width: min(860px, calc(100% - 3rem)); }
   .tid-alert__title { font-size: 1.8rem; }
-  .tid-alert__groups { display: block; }
+  .tid-alert__groups { grid-template-columns: 1fr; }
+  .tid-alert__group { grid-template-columns: 1fr 1fr; }
+  .tid-alert__value { font-size: 2.1rem; }
+  .tid-alert__value[data-alert-type] { font-size: 2.6rem; }
   .tid-alert__label { font-size: 1.2rem; }
   .tid-alert__value { font-size: 2.1rem; }
   .tid-alert__actions .btn { font-size: 1.3rem; padding: .9rem 1.4rem; min-width: 140px; min-height: 52px; }
