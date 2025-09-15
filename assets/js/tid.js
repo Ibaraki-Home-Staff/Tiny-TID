@@ -303,7 +303,7 @@ function buildDelayTtsMessage(t, indexes){
     type = yomiFor(type);
     const nick = getNickname(t);
     if(type){
-      if(nick){ segs.push(`${type}${nick}`); }
+      if(nick){ segs.push(`${type} ${nick}`); }
       else { segs.push(`${type}列車`); }
     }
     let dest = getDestText(t, indexes, 'tts.dest');
@@ -350,8 +350,8 @@ function buildTtsMessage(t, targetCode, indexes){
     const nick = getNickname(t);
     if(type){
       if(nick){
-        // 種別 + 愛称（例: 特急サンダーバード49号）
-        segs.push(`${type}${nick}`);
+        // 種別 + 愛称（例: 特急 サンダーバード49号）
+        segs.push(`${type} ${nick}`);
       }else{
         // 愛称なし → 「種別＋列車」（例: 普通列車）
         segs.push(`${type}列車`);
@@ -562,7 +562,8 @@ function initTTSControls(){
             audioUnlocked = true; // clear user gesture
             btn.textContent = '停止';
             // Use the same stabilized path as alarms for iOS reliability
-            await speakTextAsync('4049M、特急サンダーバード49号、大阪行き、千里丘に接近');
+            // 種別と愛称の間にスペースを入れて読み上げ確認
+            await speakTextAsync('4049M、特急 サンダーバード49号、大阪行き、千里丘に接近');
             btn.textContent = 'テスト再生';
           }catch(e){ btn.textContent = 'エラー'; }
         });
