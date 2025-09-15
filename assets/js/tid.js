@@ -679,7 +679,7 @@ function showAlarmModal(meta){
         const mapCls = configuredTypeTextClass(type);
         const cat = trainCategoryFromDisplayType(type);
         const cls = mapCls || typeTextClass(cat);
-        typeEl.className = '';
+        typeEl.className = 'tid-alert__value';
         if(cls) typeEl.classList.add(cls);
       }catch{}
     }
