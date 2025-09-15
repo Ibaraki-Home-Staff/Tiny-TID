@@ -319,6 +319,8 @@ function buildDelayTtsMessage(t, indexes){
 }
 
 function handleDelayAnnouncements(list, indexes){
+  // 背景状態では読み上げを行わない（復帰時の一斉再生を防止）
+  try{ if(document.hidden) return; }catch{}
   // iOS Safari等の自動再生制限: ユーザー操作でアンロック済みでない場合は何もしない
   // （初回ロード時に読み上げ“失敗”として抑制フラグだけ付くのを防ぐ）
   if(!audioUnlocked){
@@ -582,6 +584,10 @@ const pendingAudioKeys = new Set();
 const alarmPlayQueue = [];
 const alarmQueueKeys = new Set();
 let alarmPlaying = false;
+// Track last shown trains and context to validate queued alarms
+let lastShownTrains = { up: [], down: [] };
+let lastSelectedCode = null;
+let lastIndexes = null;
 const BEEP_DURATION_MS = 280; // duration of the approach alarm beep (fallback)
 const ALARM_SOUND_URL = '/assets/sound/alarm.mp3';
 let alarmAudioEl = null;
@@ -1248,9 +1254,26 @@ async function drainAlarmQueue(){
   try{
     // Preempt any ongoing low-priority delay TTS
     preemptDelayTts();
+    const isStale = (item) => {
+      try{
+        // Expect key format: `${no}:${dir}:${targetCode}` where dir is 0/1
+        const parts = String(item?.key||'').split(':');
+        if(parts.length < 3) return false; // unknown format → play
+        const no = parts[0];
+        const dirNum = Number(parts[1]);
+        const list = (dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
+        // If the train is not in the currently shown list, consider it stale
+        return !list.some(t => String(t.no||'') === String(no));
+      }catch{ return false; }
+    };
     while(alarmPlayQueue.length){
       const it = alarmPlayQueue.shift();
       if(!it) continue;
+      // Skip stale items (train already passed or no longer eligible)
+      if(isStale(it)){
+        try{ if(it && it.key) alarmQueueKeys.delete(it.key); }catch{}
+        continue;
+      }
       // Debug log (playback start)
       try{
         if(TID_DEBUG){
@@ -1802,6 +1825,13 @@ function renderTrains(indexes, trainsData, dirParam){
   }
   up = hideTerminatesBeforeSelected(up, 0);
   down = hideTerminatesBeforeSelected(down, 1);
+
+  // Keep latest context for alarm queue validation
+  try{
+    lastShownTrains = { up: up.slice(), down: down.slice() };
+    lastSelectedCode = selectedCode || null;
+    lastIndexes = indexes || null;
+  }catch{}
 
   // When pass display is "show" and pass alarm is enabled for a direction,
   // include the "just-left-of-target" segment for the selected station so that
