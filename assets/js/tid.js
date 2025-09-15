@@ -259,7 +259,8 @@ function speakText(text){
 function delayThresholdKey(){ return 'tid:delay:threshold'; }
 function getDelayThreshold(){
   try{
-    const raw = getSetting('delay.threshold', null);
+    const raw = getSetting('delay.threshold', undefined);
+    if(raw == null || raw === '') return 4;
     const v = Number(raw);
     if(Number.isFinite(v) && v >= 0) return Math.floor(v);
   }catch{}
@@ -1249,7 +1250,7 @@ async function drainAlarmQueue(){
           const ss = String(dt.getSeconds()).padStart(2,'0');
           const dirJa = (m.dir === 'up') ? '上り' : (m.dir === 'down' ? '下り' : String(m.dir||''));
           const seg = m.stopped ? `${m.atName||m.atCode}（停車）` : `${m.atName||m.atCode}→${m.nextName||m.nextCode}`;
-          console.debug('[TID][ALARM]', `${hh}:${mm}:${ss}`, dirJa, seg, '列車', (m.trainNo || '?'));
+          console.log('[TID][ALARM]', `${hh}:${mm}:${ss}`, dirJa, seg, '列車', (m.trainNo || '?'));
         }
       }catch{}
       // Play alarm sound (mp3), fallback to beep

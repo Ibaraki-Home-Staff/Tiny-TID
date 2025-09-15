@@ -1,8 +1,8 @@
-@import url("./reset.css?v=1");
-@import url("./variables.css?v=1");
-@import url("./base.css?v=1");
-@import url("./layout.css?v=1");
-@import url("./components.css?v=1");
+@import url("./reset.css?v=3");
+@import url("./variables.css?v=3");
+@import url("./base.css?v=3");
+@import url("./layout.css?v=3");
+@import url("./components.css?v=3");
 
 /* Audio unlock overlay (modal pop-up) */
 .tid-audio-overlay { position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in oklab, black 38%, transparent); backdrop-filter: blur(4px) saturate(1.05); pointer-events: auto; }
