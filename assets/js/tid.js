@@ -1242,15 +1242,19 @@ async function drainAlarmQueue(){
       if(!it) continue;
       // Debug log (playback start)
       try{
-        if(TID_DEBUG && it && it.meta){
-          const m = it.meta;
+        if(TID_DEBUG){
           const dt = new Date();
           const hh = String(dt.getHours()).padStart(2,'0');
           const mm = String(dt.getMinutes()).padStart(2,'0');
           const ss = String(dt.getSeconds()).padStart(2,'0');
-          const dirJa = (m.dir === 'up') ? '上り' : (m.dir === 'down' ? '下り' : String(m.dir||''));
-          const seg = m.stopped ? `${m.atName||m.atCode}（停車）` : `${m.atName||m.atCode}→${m.nextName||m.nextCode}`;
-          console.log('[TID][ALARM]', `${hh}:${mm}:${ss}`, dirJa, seg, '列車', (m.trainNo || '?'));
+          if(it && it.meta){
+            const m = it.meta;
+            const dirJa = (m.dir === 'up') ? '上り' : (m.dir === 'down' ? '下り' : String(m.dir||''));
+            const seg = m.stopped ? `${m.atName||m.atCode}（停車）` : `${m.atName||m.atCode}→${m.nextName||m.nextCode}`;
+            console.log('[TID][ALARM]', `${hh}:${mm}:${ss}`, dirJa, seg, '列車', (m.trainNo || '?'));
+          }else{
+            console.log('[TID][ALARM]', `${hh}:${mm}:${ss}`, (it && it.key) ? it.key : '(no-key)', (it && it.message) ? it.message : '');
+          }
         }
       }catch{}
       // Play alarm sound (mp3), fallback to beep
