@@ -628,14 +628,36 @@ function showAlarmModal(meta){
     const el = ensureAlarmModal(); if(!el) return;
     const no = String(meta?.trainNo || meta?.no || '').trim();
     const type = String(meta?.displayType || meta?.type || '').trim();
-    const delay = (typeof meta?.delay === 'number' && meta.delay > 0) ? `${meta.delay}分` : 'なし';
-    el.querySelector('[data-alert-no]').textContent = no || '-';
-    el.querySelector('[data-alert-type]').textContent = type || '-';
-    el.querySelector('[data-alert-delay]').textContent = delay;
+    const delayNum = (typeof meta?.delay === 'number') ? meta.delay : 0;
+    const delayText = (delayNum && delayNum > 0) ? `${delayNum}分` : 'なし';
+    // Set values
+    const noEl = el.querySelector('[data-alert-no]');
+    const typeEl = el.querySelector('[data-alert-type]');
+    const delayEl = el.querySelector('[data-alert-delay]');
+    if(noEl) noEl.textContent = no || '-';
+    if(typeEl){
+      typeEl.textContent = type || '-';
+      // Color class per train list logic
+      try{
+        const mapCls = configuredTypeTextClass(type);
+        const cat = trainCategoryFromDisplayType(type);
+        const cls = mapCls || typeTextClass(cat);
+        typeEl.className = 'tid-alert__value';
+        if(cls) typeEl.classList.add(cls);
+      }catch{}
+    }
+    if(delayEl){
+      delayEl.textContent = delayText;
+      delayEl.className = 'tid-alert__value';
+      try{
+        const th = getDelayThreshold();
+        if(delayNum && delayNum >= th){ delayEl.classList.add('tid-alert__value--delay-bad'); }
+      }catch{}
+    }
     el.classList.remove('is-hidden');
     el.removeAttribute('aria-hidden');
     if(alarmModalTimer){ clearTimeout(alarmModalTimer); }
-    alarmModalTimer = setTimeout(() => { hideAlarmModal(); }, 3000);
+    alarmModalTimer = setTimeout(() => { hideAlarmModal(); }, 10000);
   }catch{}
 }
 const BEEP_DURATION_MS = 280; // duration of the approach alarm beep (fallback)

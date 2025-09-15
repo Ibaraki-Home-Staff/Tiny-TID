@@ -6,12 +6,23 @@
 /* Alarm alert modal */
 .tid-alert-overlay { position: fixed; inset: 0; z-index: 2147483646; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in oklab, black 28%, transparent); backdrop-filter: blur(2px) saturate(1.02); pointer-events: auto; }
 .tid-alert-overlay.is-hidden { display: none; }
-.tid-alert__panel { background: var(--color-bg, #fff); color: var(--color-fg, #111); border: 1px solid var(--color-border, #e3e3e3); border-radius: 14px; padding: 16px 18px; width: min(560px, calc(100% - 2rem)); box-shadow: 0 16px 60px rgba(0,0,0,.22); }
-.tid-alert__title { margin: 0 0 .5rem 0; font-size: 1.2rem; }
-.tid-alert__content { display: grid; grid-template-columns: auto 1fr; grid-row-gap: .4rem; grid-column-gap: .8rem; margin-bottom: .75rem; }
-.tid-alert__label { color: var(--color-muted, #666); }
-.tid-alert__value { font-size: 1.35rem; font-weight: 700; letter-spacing: .02em; }
+.tid-alert__panel { background: var(--color-bg, #fff); color: var(--color-fg, #111); border: 1px solid var(--color-border, #e3e3e3); border-radius: 18px; padding: 22px 24px; width: min(720px, calc(100% - 2.5rem)); box-shadow: 0 20px 72px rgba(0,0,0,.24); }
+.tid-alert__title { margin: 0 0 .75rem 0; font-size: 1.6rem; line-height: 1.25; }
+.tid-alert__content { display: grid; grid-template-columns: 120px 1fr; grid-row-gap: .6rem; grid-column-gap: 1rem; margin-bottom: 1rem; align-items: center; }
+.tid-alert__label { color: var(--color-muted, #666); font-size: 1.1rem; }
+.tid-alert__value { font-size: 1.8rem; font-weight: 800; letter-spacing: .02em; }
+.tid-alert__value--delay-bad { color: var(--color-danger,#c00); font-weight: 800; }
 .tid-alert__actions { display: flex; justify-content: flex-end; }
+.tid-alert__actions .btn { font-size: 1.2rem; padding: .8rem 1.2rem; min-width: 120px; min-height: 48px; }
+
+@media (min-width: 768px){
+  .tid-alert__panel { border-radius: 20px; padding: 26px 28px; width: min(860px, calc(100% - 3rem)); }
+  .tid-alert__title { font-size: 1.8rem; }
+  .tid-alert__content { grid-template-columns: 140px 1fr; grid-row-gap: .75rem; grid-column-gap: 1.25rem; }
+  .tid-alert__label { font-size: 1.2rem; }
+  .tid-alert__value { font-size: 2.1rem; }
+  .tid-alert__actions .btn { font-size: 1.3rem; padding: .9rem 1.4rem; min-width: 140px; min-height: 52px; }
+}
 
 /* Audio unlock overlay (modal pop-up) */
 .tid-audio-overlay { position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in oklab, black 38%, transparent); backdrop-filter: blur(4px) saturate(1.05); pointer-events: auto; }
