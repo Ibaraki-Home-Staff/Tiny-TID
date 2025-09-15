@@ -604,9 +604,8 @@ function ensureAlarmModal(){
       <div class="tid-alert__panel" role="document">
         <h2 id="tidAlertTitle" class="tid-alert__title">列車接近</h2>
         <div class="tid-alert__content">
-          <div class="tid-alert__row"><span class="tid-alert__label">列番</span><span class="tid-alert__value" data-alert-no>-</span></div>
-          <div class="tid-alert__row"><span class="tid-alert__label">種別</span><span class="tid-alert__value" data-alert-type>-</span></div>
-          <div class="tid-alert__row"><span class="tid-alert__label">愛称</span><span class="tid-alert__value" data-alert-nick>-</span></div>
+          <div class="tid-alert__row"><span class="tid-alert__label">列番 / 行先</span><span class="tid-alert__value"><span data-alert-no>-</span><span data-alert-dest></span></span></div>
+          <div class="tid-alert__row"><span class="tid-alert__label">種別 / 愛称</span><span class="tid-alert__value"><span data-alert-type>-</span><span data-alert-nick></span></span></div>
           <div class="tid-alert__row"><span class="tid-alert__label">遅れ</span><span class="tid-alert__value" data-alert-delay>-</span></div>
         </div>
         <div class="tid-alert__actions"><button type="button" class="btn" data-alert-ok>確認</button></div>
@@ -627,6 +626,30 @@ function hideAlarmModal(){
 function showAlarmModal(meta){
   try{
     const el = ensureAlarmModal(); if(!el) return;
+    // Update dynamic title by train's own direction (prefer numeric),
+    // fallback to inferring from station indices or meta.dir string.
+    try{
+      const title = el.querySelector('#tidAlertTitle');
+      let label = '列車接近';
+      const numDir = (typeof meta?.direction === 'number') ? meta.direction : null;
+      if(numDir === 0) label = '上り列車接近';
+      else if(numDir === 1) label = '下り列車接近';
+      else {
+        // infer from indices
+        try{
+          const aIdx = lastIndexes?.byCode?.get(String(meta?.atCode||''))?.index;
+          const bIdx = lastIndexes?.byCode?.get(String(meta?.nextCode||''))?.index;
+          if(typeof aIdx === 'number' && typeof bIdx === 'number' && aIdx !== bIdx){
+            label = (bIdx < aIdx) ? '上り列車接近' : '下り列車接近';
+          }else{
+            const d = String(meta?.dir||'');
+            if(d === 'up') label = '上り列車接近';
+            else if(d === 'down') label = '下り列車接近';
+          }
+        }catch{}
+      }
+      if(title) title.textContent = label;
+    }catch{}
     const no = String(meta?.trainNo || meta?.no || '').trim();
     const type = String(meta?.displayType || meta?.type || '').trim();
     const nick = String(meta?.nickname || meta?.nick || '').trim();
@@ -634,10 +657,12 @@ function showAlarmModal(meta){
     const delayText = (delayNum && delayNum > 0) ? `${delayNum}分` : 'なし';
     // Set values
     const noEl = el.querySelector('[data-alert-no]');
+    const destEl = el.querySelector('[data-alert-dest]');
     const typeEl = el.querySelector('[data-alert-type]');
     const nickEl = el.querySelector('[data-alert-nick]');
     const delayEl = el.querySelector('[data-alert-delay]');
     if(noEl) noEl.textContent = no || '-';
+    if(destEl){ destEl.textContent = (meta?.dest && String(meta.dest).trim()) ? ` ${String(meta.dest).trim()}` : ''; }
     if(typeEl){
       typeEl.textContent = type || '-';
       // Color class per train list logic
@@ -645,7 +670,7 @@ function showAlarmModal(meta){
         const mapCls = configuredTypeTextClass(type);
         const cat = trainCategoryFromDisplayType(type);
         const cls = mapCls || typeTextClass(cat);
-        typeEl.className = 'tid-alert__value';
+        typeEl.className = '';
         if(cls) typeEl.classList.add(cls);
       }catch{}
     }
@@ -2188,6 +2213,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               const meta = {
                 area, line,
                 dir: (dir === 0 ? 'up' : 'down'),
+                direction: (typeof t.direction === 'number') ? t.direction : undefined,
                 trainNo: t.no||'?',
                 atCode: String(t.atCode||''), nextCode: String(t.nextCode||''),
                 atName: indexes.byCode.get(String(t.atCode||''))?.name,
@@ -2197,7 +2223,8 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 stopped: !!t.stopped,
                 displayType: String(t.displayType||''),
                 nickname: String(getNickname(t)||''),
-                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
+                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0,
+                dest: String(getDestText(t, indexes, 'dest')||'')
               };
               try{
                 dbg('ALARM_TRIGGER', {
@@ -2238,6 +2265,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               const meta = {
                 area, line,
                 dir: (dir === 0 ? 'up' : 'down'),
+                direction: (typeof t.direction === 'number') ? t.direction : undefined,
                 trainNo: t.no||'?',
                 atCode: String(t.atCode||''), nextCode: String(t.nextCode||''),
                 atName: indexes.byCode.get(String(t.atCode||''))?.name,
@@ -2247,7 +2275,8 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 stopped: !!t.stopped,
                 displayType: String(t.displayType||''),
                 nickname: String(getNickname(t)||''),
-                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
+                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0,
+                dest: String(getDestText(t, indexes, 'dest')||'')
               };
               try{
                 dbg('ALARM_TRIGGER', {
