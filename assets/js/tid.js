@@ -241,13 +241,23 @@ function getJapaneseVoices(){
     return list.filter(v => /^ja([-_]|$)/i.test(v.lang) || /japanese/i.test(v.name));
   }catch{ return []; }
 }
+function fixTtsText(raw){
+  try{
+    let s = String(raw||'');
+    // 読み上げ補正: 数字+M を「エム」と読ませる（例: 4049M → 4049エム）
+    // 半角/全角の M に対応。
+    s = s.replace(/(\d+)\s*[mMＭ]\b/g, '$1エム');
+    return s;
+  }catch{ return String(raw||''); }
+}
+
 function speakText(text){
   try{
     if(!audioUnlocked) return;
     if(!('speechSynthesis' in window)) return;
     const synth = window.speechSynthesis;
     const voice = getSelectedVoice();
-    const u = new SpeechSynthesisUtterance(String(text||''));
+    const u = new SpeechSynthesisUtterance(fixTtsText(text));
     if(voice){ u.voice = voice; u.lang = voice.lang || 'ja-JP'; }
     else { u.lang = 'ja-JP'; }
     u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
@@ -1215,7 +1225,7 @@ async function speakTextAsync(text){
         try{ if(synth.paused && synth.resume) synth.resume(); }catch{}
         const startSpeak = () => {
           try{
-            const u = new SpeechSynthesisUtterance(String(text||''));
+            const u = new SpeechSynthesisUtterance(fixTtsText(text));
             if(voice){ u.voice = voice; u.lang = voice.lang || 'ja-JP'; }
             else { u.lang = 'ja-JP'; }
             u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
