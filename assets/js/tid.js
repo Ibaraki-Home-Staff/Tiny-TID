@@ -603,17 +603,18 @@ function ensureAlarmModal(){
     wrap.innerHTML = `
       <div class="tid-alert__panel" role="document">
         <h2 id="tidAlertTitle" class="tid-alert__title">列車接近</h2>
-        <div class="tid-alert__content">
-          <div class="tid-alert__row"><span class="tid-alert__label"></span><span class="tid-alert__value"><span class="tid-alert__mini"><span class="tid-alert__mini-label">列番</span> <span data-alert-no>-</span></span><span class="tid-alert__gap">　</span><br class="tid-alert__br"><span class="tid-alert__mini"><span class="tid-alert__mini-label">行先</span> <span data-alert-dest>-</span></span></span></div>
-          <div class="tid-alert__row"><span class="tid-alert__label">種別 / 愛称</span><span class="tid-alert__value"><span data-alert-type>-</span><span data-alert-nick></span></span></div>
-          <div class="tid-alert__row"><span class="tid-alert__label">遅れ</span><span class="tid-alert__value" data-alert-delay>-</span></div>
-        </div>
-        <div class="tid-alert__content2">
-          <div class="tid-alert__block"><div class="tid-alert__label">列番</div><div class="tid-alert__value" data-alert-no>-</div></div>
-          <div class="tid-alert__block"><div class="tid-alert__label">行先</div><div class="tid-alert__value" data-alert-dest>-</div></div>
-          <div class="tid-alert__block"><div class="tid-alert__label">種別</div><div class="tid-alert__value" data-alert-type>-</div></div>
-          <div class="tid-alert__block"><div class="tid-alert__label">愛称</div><div class="tid-alert__value" data-alert-nick>-</div></div>
-          <div class="tid-alert__block"><div class="tid-alert__label">遅れ</div><div class="tid-alert__value" data-alert-delay>-</div></div>
+        <div class="tid-alert__groups">
+          <div class="tid-alert__group">
+            <div class="tid-alert__row"><div class="tid-alert__label">列番</div><div class="tid-alert__value" data-alert-no>-</div></div>
+            <div class="tid-alert__row"><div class="tid-alert__label">行先</div><div class="tid-alert__value" data-alert-dest>-</div></div>
+          </div>
+          <div class="tid-alert__group">
+            <div class="tid-alert__row"><div class="tid-alert__label">種別</div><div class="tid-alert__value" data-alert-type>-</div></div>
+            <div class="tid-alert__row"><div class="tid-alert__label">愛称</div><div class="tid-alert__value" data-alert-nick>-</div></div>
+          </div>
+          <div class="tid-alert__group">
+            <div class="tid-alert__row"><div class="tid-alert__label">遅れ</div><div class="tid-alert__value" data-alert-delay>-</div></div>
+          </div>
         </div>
         <div class="tid-alert__actions"><button type="button" class="btn" data-alert-ok>確認</button></div>
       </div>`;
@@ -663,7 +664,7 @@ function showAlarmModal(meta){
     const delayNum = (typeof meta?.delay === 'number') ? meta.delay : 0;
     const delayText = (delayNum && delayNum > 0) ? `${delayNum}分` : 'なし';
     // Set values
-    const root = el.querySelector('.tid-alert__content2') || el;
+    const root = el.querySelector('.tid-alert__groups') || el;
     const noEl = root.querySelector('[data-alert-no]') || el.querySelector('[data-alert-no]');
     const destEl = root.querySelector('[data-alert-dest]') || el.querySelector('[data-alert-dest]');
     const typeEl = root.querySelector('[data-alert-type]') || el.querySelector('[data-alert-type]');
