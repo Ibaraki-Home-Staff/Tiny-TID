@@ -1335,7 +1335,11 @@ async function drainAlarmQueue(){
         const dirNum = Number(parts[1]);
         const list = (dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
         // If the train is not in the currently shown list, consider it stale
-        return !list.some(t => String(t.no||'') === String(no));
+        const stale = !list.some(t => String(t.no||'') === String(no));
+        if(stale){
+          try{ dbg('ALARM_SKIP_STALE', { time: new Date().toISOString(), key: item?.key||'', dir: dirNum, shownUp: lastShownTrains.up?.length||0, shownDown: lastShownTrains.down?.length||0 }); }catch{}
+        }
+        return stale;
       }catch{ return false; }
     };
     while(alarmPlayQueue.length){
@@ -2127,6 +2131,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     if(dirParam === 'down' && t.direction !== 1) continue;
     const dir = t.direction;
     const prefs = getPrefsForDir(dir);
+    const prefsRaw = new Set(prefs);
     // If pass display is hidden, automatically disable pass alarm
     try{
       const passSetting = (document.getElementById('passFilter')?.value || 'hide');
@@ -2189,6 +2194,17 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 displayType: String(t.displayType||''),
                 delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
               };
+              try{
+                dbg('ALARM_TRIGGER', {
+                  time: new Date().toISOString(), line, area,
+                  selectedStation: String(selectedCode),
+                  trainNo: meta.trainNo, displayType: meta.displayType,
+                  prefsRaw: Array.from(prefsRaw||[]), prefsNow: Array.from(prefs||[]),
+                  target: { code: meta.targetCode, name: meta.targetName },
+                  pos: { at: meta.atCode, next: meta.nextCode },
+                  reason: 'stop-segment'
+                });
+              }catch{}
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
               alerted = true;
@@ -2227,6 +2243,17 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 displayType: String(t.displayType||''),
                 delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
               };
+              try{
+                dbg('ALARM_TRIGGER', {
+                  time: new Date().toISOString(), line, area,
+                  selectedStation: String(selectedCode),
+                  trainNo: meta.trainNo, displayType: meta.displayType,
+                  prefsRaw: Array.from(prefsRaw||[]), prefsNow: Array.from(prefs||[]),
+                  target: { code: meta.targetCode, name: meta.targetName },
+                  pos: { at: meta.atCode, next: meta.nextCode },
+                  reason: 'pass-segment'
+                });
+              }catch{}
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
             }
