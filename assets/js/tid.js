@@ -1752,6 +1752,57 @@ function renderTrains(indexes, trainsData, dirParam){
   let up = hidePassed(parsed.filter(t => t.direction === 0).sort((a,b)=>a.posIndex-b.posIndex), 0);
   let down = hidePassed(parsed.filter(t => t.direction === 1).sort((a,b)=>b.posIndex-a.posIndex), 1);
 
+  // Additional filter: hide trains whose destination station is before the selected
+  // station along the train's direction (i.e., they terminate before reaching the
+  // selected station). This also implicitly suppresses their delay TTS since we
+  // only announce for shown trains.
+  function destIndexForTrain(t){
+    try{
+      const d = t && t.dest;
+      if(!d) return null;
+      let code = null;
+      if(typeof d === 'object'){
+        if(d.code != null){ code = String(d.code); }
+        else{
+          const name = String(d.text || d.name || '').trim();
+          if(name){
+            for(const [c, rec] of indexes.byCode.entries()){
+              if(String(rec?.name||'').trim() === name){ return typeof rec.index === 'number' ? rec.index : null; }
+            }
+          }
+        }
+      }else if(typeof d === 'string'){
+        const name = String(d).trim();
+        if(name){
+          for(const [c, rec] of indexes.byCode.entries()){
+            if(String(rec?.name||'').trim() === name){ return typeof rec.index === 'number' ? rec.index : null; }
+          }
+        }
+      }
+      if(code){
+        const rec = indexes.byCode.get(code);
+        return (rec && typeof rec.index === 'number') ? rec.index : null;
+      }
+    }catch{}
+    return null;
+  }
+  function hideTerminatesBeforeSelected(arr, dir){
+    if(stationIdx == null) return arr;
+    return arr.filter(t => {
+      const di = destIndexForTrain(t);
+      if(typeof di !== 'number') return true; // unknown → keep
+      if(dir === 0){
+        // up (indices decrease as moving): hide if destination is to the right of selected (greater index)
+        return di <= stationIdx;
+      }else{
+        // down (indices increase as moving): hide if destination is to the left of selected (smaller index)
+        return di >= stationIdx;
+      }
+    });
+  }
+  up = hideTerminatesBeforeSelected(up, 0);
+  down = hideTerminatesBeforeSelected(down, 1);
+
   // When pass display is "show" and pass alarm is enabled for a direction,
   // include the "just-left-of-target" segment for the selected station so that
   // the alarm can trigger even if the UI hides already-passed trains.
