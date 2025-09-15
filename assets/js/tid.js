@@ -568,6 +568,7 @@ let audioUnlockBound = false;
 const pendingAudioQueue = [];
 const pendingAudioKeys = new Set();
 const alarmPlayQueue = [];
+const alarmQueueKeys = new Set();
 let alarmPlaying = false;
 const BEEP_DURATION_MS = 280; // duration of the approach alarm beep (fallback)
 const ALARM_SOUND_URL = '/assets/sound/alarm.mp3';
@@ -1213,6 +1214,7 @@ async function drainAlarmQueue(){
       try{ await new Promise(r => setTimeout(r, 140)); }catch{}
       if(it.message){ await speakTextAsync(it.message); }
       try{ if(typeof it.onDone === 'function') it.onDone(); }catch{}
+      try{ if(it.key) alarmQueueKeys.delete(it.key); }catch{}
     }
   }finally{
     alarmPlaying = false;
@@ -1224,7 +1226,9 @@ async function drainAlarmQueue(){
 function doAlarmBeepAndSpeak(dirStr, key, message, afterPlay){
   const set = dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
   if(set.has(key)) return false;
-  alarmPlayQueue.push({ message, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
+  if(key && alarmQueueKeys.has(key)) return false;
+  if(key) alarmQueueKeys.add(key);
+  alarmPlayQueue.push({ key, message, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
   // Kick the queue
   try{ drainAlarmQueue(); }catch{}
   return true;
