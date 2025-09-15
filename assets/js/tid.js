@@ -816,7 +816,7 @@ function bindAudioUnlockOnce(){
           const it = pendingAudioQueue.shift();
           if(!it) continue;
           pendingAudioKeys.delete(it.key);
-          try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay); })(); }catch{}
+          try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay, it.meta); })(); }catch{}
         }
       }catch{}
       // iOS Safari: once unlocked, re-run train refresh and drain any pending delay TTS
@@ -1239,6 +1239,19 @@ async function drainAlarmQueue(){
     while(alarmPlayQueue.length){
       const it = alarmPlayQueue.shift();
       if(!it) continue;
+      // Debug log (playback start)
+      try{
+        if(TID_DEBUG && it && it.meta){
+          const m = it.meta;
+          const dt = new Date();
+          const hh = String(dt.getHours()).padStart(2,'0');
+          const mm = String(dt.getMinutes()).padStart(2,'0');
+          const ss = String(dt.getSeconds()).padStart(2,'0');
+          const dirJa = (m.dir === 'up') ? '上り' : (m.dir === 'down' ? '下り' : String(m.dir||''));
+          const seg = m.stopped ? `${m.atName||m.atCode}（停車）` : `${m.atName||m.atCode}→${m.nextName||m.nextCode}`;
+          console.debug('[TID][ALARM]', `${hh}:${mm}:${ss}`, dirJa, seg, '列車', (m.trainNo || '?'));
+        }
+      }catch{}
       // Play alarm sound (mp3), fallback to beep
       let ms = await playAlarmSound();
       if(ms <= 0){
@@ -1989,7 +2002,18 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
               const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
-              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay);
+              const meta = {
+                area, line,
+                dir: (dir === 0 ? 'up' : 'down'),
+                trainNo: t.no||'?',
+                atCode: String(t.atCode||''), nextCode: String(t.nextCode||''),
+                atName: indexes.byCode.get(String(t.atCode||''))?.name,
+                nextName: indexes.byCode.get(String(t.nextCode||''))?.name,
+                targetCode: String(targetCode||''),
+                targetName: indexes.byCode.get(String(targetCode||''))?.name,
+                stopped: !!t.stopped
+              };
+              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
               alerted = true;
             }
@@ -2014,7 +2038,18 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage(t, targetCode, indexes);
               const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
-              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay);
+              const meta = {
+                area, line,
+                dir: (dir === 0 ? 'up' : 'down'),
+                trainNo: t.no||'?',
+                atCode: String(t.atCode||''), nextCode: String(t.nextCode||''),
+                atName: indexes.byCode.get(String(t.atCode||''))?.name,
+                nextName: indexes.byCode.get(String(t.nextCode||''))?.name,
+                targetCode: String(targetCode||''),
+                targetName: indexes.byCode.get(String(targetCode||''))?.name,
+                stopped: !!t.stopped
+              };
+              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
             }
           }
