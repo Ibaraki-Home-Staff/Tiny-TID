@@ -651,7 +651,7 @@ function showAlarmModal(meta){
       delayEl.className = 'tid-alert__value';
       try{
         const th = getDelayThreshold();
-        if(delayNum && delayNum >= th){ delayEl.classList.add('tid-alert__value--delay-bad'); }
+        if(delayNum && delayNum >= th){ delayEl.classList.add('tid-alert__value--delay-bad','delay-bad'); }
       }catch{}
     }
     el.classList.remove('is-hidden');

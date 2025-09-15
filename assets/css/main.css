@@ -12,6 +12,7 @@
 .tid-alert__label { color: var(--color-muted, #666); font-size: 1.1rem; }
 .tid-alert__value { font-size: 1.8rem; font-weight: 800; letter-spacing: .02em; }
 .tid-alert__value--delay-bad { color: var(--color-danger,#c00); font-weight: 800; }
+.delay-bad { color: var(--color-danger,#c00); font-weight: 700; }
 .tid-alert__actions { display: flex; justify-content: flex-end; }
 .tid-alert__actions .btn { font-size: 1.2rem; padding: .8rem 1.2rem; min-width: 120px; min-height: 48px; }
 
