@@ -604,9 +604,16 @@ function ensureAlarmModal(){
       <div class="tid-alert__panel" role="document">
         <h2 id="tidAlertTitle" class="tid-alert__title">列車接近</h2>
         <div class="tid-alert__content">
-          <div class="tid-alert__row"><span class="tid-alert__label">列番 / 行先</span><span class="tid-alert__value"><span data-alert-no>-</span><span data-alert-dest></span></span></div>
+          <div class="tid-alert__row"><span class="tid-alert__label"></span><span class="tid-alert__value"><span class="tid-alert__mini"><span class="tid-alert__mini-label">列番</span> <span data-alert-no>-</span></span><span class="tid-alert__gap">　</span><br class="tid-alert__br"><span class="tid-alert__mini"><span class="tid-alert__mini-label">行先</span> <span data-alert-dest>-</span></span></span></div>
           <div class="tid-alert__row"><span class="tid-alert__label">種別 / 愛称</span><span class="tid-alert__value"><span data-alert-type>-</span><span data-alert-nick></span></span></div>
           <div class="tid-alert__row"><span class="tid-alert__label">遅れ</span><span class="tid-alert__value" data-alert-delay>-</span></div>
+        </div>
+        <div class="tid-alert__content2">
+          <div class="tid-alert__block"><div class="tid-alert__label">列番</div><div class="tid-alert__value" data-alert-no>-</div></div>
+          <div class="tid-alert__block"><div class="tid-alert__label">行先</div><div class="tid-alert__value" data-alert-dest>-</div></div>
+          <div class="tid-alert__block"><div class="tid-alert__label">種別</div><div class="tid-alert__value" data-alert-type>-</div></div>
+          <div class="tid-alert__block"><div class="tid-alert__label">愛称</div><div class="tid-alert__value" data-alert-nick>-</div></div>
+          <div class="tid-alert__block"><div class="tid-alert__label">遅れ</div><div class="tid-alert__value" data-alert-delay>-</div></div>
         </div>
         <div class="tid-alert__actions"><button type="button" class="btn" data-alert-ok>確認</button></div>
       </div>`;
@@ -656,13 +663,14 @@ function showAlarmModal(meta){
     const delayNum = (typeof meta?.delay === 'number') ? meta.delay : 0;
     const delayText = (delayNum && delayNum > 0) ? `${delayNum}分` : 'なし';
     // Set values
-    const noEl = el.querySelector('[data-alert-no]');
-    const destEl = el.querySelector('[data-alert-dest]');
-    const typeEl = el.querySelector('[data-alert-type]');
-    const nickEl = el.querySelector('[data-alert-nick]');
-    const delayEl = el.querySelector('[data-alert-delay]');
+    const root = el.querySelector('.tid-alert__content2') || el;
+    const noEl = root.querySelector('[data-alert-no]') || el.querySelector('[data-alert-no]');
+    const destEl = root.querySelector('[data-alert-dest]') || el.querySelector('[data-alert-dest]');
+    const typeEl = root.querySelector('[data-alert-type]') || el.querySelector('[data-alert-type]');
+    const nickEl = root.querySelector('[data-alert-nick]') || el.querySelector('[data-alert-nick]');
+    const delayEl = root.querySelector('[data-alert-delay]') || el.querySelector('[data-alert-delay]');
     if(noEl) noEl.textContent = no || '-';
-    if(destEl){ destEl.textContent = (meta?.dest && String(meta.dest).trim()) ? ` ${String(meta.dest).trim()}` : ''; }
+    if(destEl){ destEl.textContent = (meta?.dest && String(meta.dest).trim()) ? String(meta.dest).trim() : '-'; }
     if(typeEl){
       typeEl.textContent = type || '-';
       // Color class per train list logic
