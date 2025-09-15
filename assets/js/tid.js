@@ -606,6 +606,7 @@ function ensureAlarmModal(){
         <div class="tid-alert__content">
           <div class="tid-alert__row"><span class="tid-alert__label">列番</span><span class="tid-alert__value" data-alert-no>-</span></div>
           <div class="tid-alert__row"><span class="tid-alert__label">種別</span><span class="tid-alert__value" data-alert-type>-</span></div>
+          <div class="tid-alert__row"><span class="tid-alert__label">愛称</span><span class="tid-alert__value" data-alert-nick>-</span></div>
           <div class="tid-alert__row"><span class="tid-alert__label">遅れ</span><span class="tid-alert__value" data-alert-delay>-</span></div>
         </div>
         <div class="tid-alert__actions"><button type="button" class="btn" data-alert-ok>確認</button></div>
@@ -628,11 +629,13 @@ function showAlarmModal(meta){
     const el = ensureAlarmModal(); if(!el) return;
     const no = String(meta?.trainNo || meta?.no || '').trim();
     const type = String(meta?.displayType || meta?.type || '').trim();
+    const nick = String(meta?.nickname || meta?.nick || '').trim();
     const delayNum = (typeof meta?.delay === 'number') ? meta.delay : 0;
     const delayText = (delayNum && delayNum > 0) ? `${delayNum}分` : 'なし';
     // Set values
     const noEl = el.querySelector('[data-alert-no]');
     const typeEl = el.querySelector('[data-alert-type]');
+    const nickEl = el.querySelector('[data-alert-nick]');
     const delayEl = el.querySelector('[data-alert-delay]');
     if(noEl) noEl.textContent = no || '-';
     if(typeEl){
@@ -646,6 +649,7 @@ function showAlarmModal(meta){
         if(cls) typeEl.classList.add(cls);
       }catch{}
     }
+    if(nickEl){ nickEl.textContent = nick || '-'; }
     if(delayEl){
       delayEl.textContent = delayText;
       delayEl.className = 'tid-alert__value';
@@ -2192,6 +2196,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 targetName: indexes.byCode.get(String(targetCode||''))?.name,
                 stopped: !!t.stopped,
                 displayType: String(t.displayType||''),
+                nickname: String(getNickname(t)||''),
                 delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
               };
               try{
@@ -2241,6 +2246,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 targetName: indexes.byCode.get(String(targetCode||''))?.name,
                 stopped: !!t.stopped,
                 displayType: String(t.displayType||''),
+                nickname: String(getNickname(t)||''),
                 delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0
               };
               try{
