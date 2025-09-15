@@ -55,6 +55,7 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
     initAlarmControls();
     initTTSControls();
     initDelayControls();
+    initCarsControls();
     initBackgroundControls();
     const trains = await fetchTrains(line);
     setUpdatedAt(trains?.update);
@@ -286,6 +287,31 @@ function initDelayControls(){
       let n = Number(el.value);
       if(!Number.isFinite(n) || n < 0) n = 4;
       try{ setSetting('delay.threshold', Math.floor(n)); }catch{}
+      refreshTrains();
+    });
+  }catch{}
+}
+
+// Cars highlight threshold and UI
+function getCarsThreshold(){
+  try{
+    const raw = getSetting('cars.threshold', undefined);
+    if(raw == null || raw === '') return 9;
+    const v = Number(raw);
+    if(Number.isFinite(v) && v >= 0) return Math.floor(v);
+  }catch{}
+  return 9;
+}
+function initCarsControls(){
+  const el = document.getElementById('carsThreshold');
+  if(!el) return;
+  try{
+    const v = getCarsThreshold();
+    el.value = String(v);
+    el.addEventListener('change', () => {
+      let n = Number(el.value);
+      if(!Number.isFinite(n) || n < 0) n = 9;
+      try{ setSetting('cars.threshold', Math.floor(n)); }catch{}
       refreshTrains();
     });
   }catch{}
@@ -2061,7 +2087,12 @@ function renderTrainListJP(container, list, indexes){
           return `${escapeHtml(from || '')} → ${escapeHtml(to || '')}`;
         })();
     const destText = escapeHtml(getDestText(t, indexes, 'dest'));
-    const carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : '';
+    let carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : '';
+    try{
+      const th = getCarsThreshold();
+      const n = Number(t.numberOfCars);
+      if(Number.isFinite(n) && n >= th){ carsText = `<span class=\"cars-emph\">${carsText}</span>`; }
+    }catch{}
     tr.innerHTML = `
       <td>${escapeHtml(t.no || '')}</td>
       <td>${TYPE_HTML}</td>
@@ -2414,7 +2445,12 @@ function renderTrainList(container, list, indexes){
           return `${escapeHtml(from || '')} -> ${escapeHtml(to || '')}`;
         })();
         const destText = escapeHtml(getDestText(t, indexes, 'dest'));
-    const carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : '';
+    let carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : '';
+    try{
+      const th = getCarsThreshold();
+      const n = Number(t.numberOfCars);
+      if(Number.isFinite(n) && n >= th){ carsText = `<span class=\"cars-emph\">${carsText}</span>`; }
+    }catch{}
     tr.innerHTML = `
       <td>${escapeHtml(t.no || '')}</td>
       <td>${typeHtml}</td>
