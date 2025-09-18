@@ -948,40 +948,47 @@ function preemptDelayTts(){
   }catch{}
 }
 
+function cleanupAudioUnlockListeners(){
+  try{ document.removeEventListener('pointerdown', handleAudioUnlockGesture); }catch{}
+  try{ document.removeEventListener('keydown', handleAudioUnlockGesture); }catch{}
+  try{ document.removeEventListener('touchstart', handleAudioUnlockGesture); }catch{}
+  audioUnlockBound = false;
+}
+function handleAudioUnlockGesture(){
+  performAudioUnlock('gesture');
+}
+function performAudioUnlock(source){
+  if(audioUnlocked) return;
+  try{
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
+  }catch{}
+  audioUnlocked = true;
+  try{ setSetting('ui.audioUnlocked','1'); localStorage.setItem('tid:audio:unlocked','1'); sessionStorage.setItem('tid:audio:session','1'); }catch{}
+  cleanupAudioUnlockListeners();
+  try{ dbg('audio unlocked', source||''); }catch{}
+  try{ document.dispatchEvent(new CustomEvent('tid:audiounlocked')); }catch{}
+  try{ primeAlarmAudio(); }catch{}
+  try{
+    while(pendingAudioQueue.length){
+      const it = pendingAudioQueue.shift();
+      if(!it) continue;
+      pendingAudioKeys.delete(it.key);
+      try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay, it.meta); })(); }catch{}
+    }
+  }catch{}
+  try{ refreshTrains(); }catch{}
+  try{ drainDelayTts(); }catch{}
+}
+
 function bindAudioUnlockOnce(){
+  if(audioUnlocked) return;
   if(audioUnlockBound) return;
   audioUnlockBound = true;
-  const unlock = () => {
-    try{
-      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-      if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
-      audioUnlocked = true;
-      try{ setSetting('ui.audioUnlocked','1'); localStorage.setItem('tid:audio:unlocked','1'); sessionStorage.setItem('tid:audio:session','1'); }catch{}
-      document.removeEventListener('pointerdown', unlock);
-      document.removeEventListener('keydown', unlock);
-      document.removeEventListener('touchstart', unlock);
-      dbg('audio unlocked');
-      try{ document.dispatchEvent(new CustomEvent('tid:audiounlocked')); }catch{}
-      // Prime HTMLAudio element for iOS so alarm mp3 can play
-      try{ primeAlarmAudio(); }catch{}
-      // process any pending alarms that were queued while locked
-      try{
-        while(pendingAudioQueue.length){
-          const it = pendingAudioQueue.shift();
-          if(!it) continue;
-          pendingAudioKeys.delete(it.key);
-          try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay, it.meta); })(); }catch{}
-        }
-      }catch{}
-      // iOS Safari: once unlocked, re-run train refresh and drain any pending delay TTS
-      try{ refreshTrains(); }catch{}
-      try{ drainDelayTts(); }catch{}
-    }catch{}
-  };
   try{
-    document.addEventListener('pointerdown', unlock, { once: true, passive: true });
-    document.addEventListener('keydown', unlock, { once: true });
-    document.addEventListener('touchstart', unlock, { once: true, passive: true });
+    document.addEventListener('pointerdown', handleAudioUnlockGesture, { once: true, passive: true });
+    document.addEventListener('keydown', handleAudioUnlockGesture, { once: true });
+    document.addEventListener('touchstart', handleAudioUnlockGesture, { once: true, passive: true });
   }catch{}
 }
 
@@ -998,18 +1005,38 @@ function setupAudioUnlockOverlay(){
   try{
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator && window.navigator.standalone === true);
     const text = isStandalone
-      ? 'アプリとして起動中です。音声を有効化するとアラームや読み上げが動作します。'
-      : 'ブラウザで開いています。音声を有効化するとテスト音声やアラーム音声が使えるようになります。';
+      ? 'アプリとして起動中です。音声を有効にするとアラート通知やテスト音声を確認できます。'
+      : 'ブラウザで開いています。音声を有効にするとテスト音声やアラート通知が行えるようになります。';
     if(audioOverlayHint){ audioOverlayHint.textContent = text; }
   }catch{}
   show();
   // Bind unlock attempt to button; do not hijack background clicks (non-modal floating)
   try{
-    if(audioOverlayBtn){ audioOverlayBtn.addEventListener('click', () => { bindAudioUnlockOnce(); /* click triggers unlock */ }); }
+    if(audioOverlayBtn){
+      audioOverlayBtn.addEventListener('click', () => {
+        try{
+          bindAudioUnlockOnce();
+          performAudioUnlock('overlay-button');
+          runAudioUnlockTestPlayback();
+        }catch(err){ dbg('audio unlock button failed', err); }
+      });
+    }
     if(audioOverlayLater){ audioOverlayLater.addEventListener('click', () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} }); }
     if(audioOverlayClose){ audioOverlayClose.addEventListener('click', () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} }); }
     document.addEventListener('tid:audiounlocked', hide, { once: true });
   }catch{}
+}
+
+async function runAudioUnlockTestPlayback(){
+  try{
+    if(!audioUnlocked) return;
+    preemptDelayTts();
+    const waitMs = playBeep();
+    if(waitMs > 0){
+      try{ await new Promise(r => setTimeout(r, waitMs)); }catch{}
+    }
+    await speakTextAsync('テスト音声です。');
+  }catch(err){ dbg('audio unlock test failed', err); }
 }
 function selectedStationCode(){
   return (document.getElementById('stationFilter')?.value || '').trim();
@@ -2194,6 +2221,13 @@ function normalizeTrain(t){
 function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCats, dirParam){
   if(!selectedCode || stationIdx == null) return;
   const byCode = indexes.byCode;
+  const stationIndexOf = (code) => {
+    if(code == null) return null;
+    const rec = byCode.get(String(code));
+    const idx = rec?.index;
+    return (typeof idx === 'number') ? idx : null;
+  };
+  const selectedIndex = (typeof stationIdx === 'number') ? stationIdx : stationIndexOf(selectedCode);
   for(const t of list){
     if(typeof t.direction !== 'number') continue;
     if(dirParam === 'up' && t.direction !== 0) continue;
@@ -2201,6 +2235,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     const dir = t.direction;
     const prefs = getPrefsForDir(dir);
     const prefsRaw = new Set(prefs);
+    const posIdx = (typeof t.posIndex === 'number') ? t.posIndex : null;
     // If pass display is hidden, automatically disable pass alarm
     try{
       const passSetting = (document.getElementById('passFilter')?.value || 'hide');
@@ -2231,6 +2266,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     if(prefs.has(`cat:${cat}`)){
       const targetCode = targets[catKey] || fallbackTarget;
       if(targetCode){
+          const targetIndex = stationIndexOf(targetCode);
           // Direction-aware trigger:
           //  - stopped: atCode === target
           //  - moving: up(dir=0) -> nextCode === target (segment A_target : moving toward selected side)
@@ -2241,7 +2277,24 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
           const isMovingOnTarget = (!t.stopped) && (
             (dir === 0 ? (nxt === String(targetCode)) : (here === String(targetCode)))
           );
-          if(isStoppedAtTarget || isMovingOnTarget){
+          const segmentMatch = (() => {
+            if(posIdx == null || selectedIndex == null || targetIndex == null) return false;
+            if(dir === 0 && targetIndex < selectedIndex) return false;
+            if(dir === 1 && targetIndex > selectedIndex) return false;
+            const lower = Math.min(selectedIndex, targetIndex);
+            const upper = Math.max(selectedIndex, targetIndex);
+            if(lower === upper) return posIdx === lower;
+            if(dir === 0){
+              return posIdx >= selectedIndex && posIdx <= upper;
+            }
+            if(dir === 1){
+              return posIdx <= selectedIndex && posIdx >= lower;
+            }
+            return posIdx >= lower && posIdx <= upper;
+          })();
+          const boundaryMatch = isStoppedAtTarget || isMovingOnTarget;
+          const rangeMatch = segmentMatch && !boundaryMatch;
+          if(boundaryMatch || rangeMatch){
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(stopsHere){
@@ -2264,7 +2317,11 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 displayType: String(t.displayType||''),
                 nickname: String(getNickname(t)||''),
                 delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0,
-                dest: String(getDestText(t, indexes, 'dest')||'')
+                dest: String(getDestText(t, indexes, 'dest')||''),
+                triggerReason: rangeMatch ? 'range' : 'segment',
+                selectedIndex: selectedIndex,
+                targetIndex: targetIndex,
+                posIndex: posIdx
               };
               try{
                 dbg('ALARM_TRIGGER', {
@@ -2274,7 +2331,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                   prefsRaw: Array.from(prefsRaw||[]), prefsNow: Array.from(prefs||[]),
                   target: { code: meta.targetCode, name: meta.targetName },
                   pos: { at: meta.atCode, next: meta.nextCode },
-                  reason: 'stop-segment'
+                  reason: rangeMatch ? 'stop-range' : 'stop-segment'
                 });
               }catch{}
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
