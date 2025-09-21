@@ -17,13 +17,15 @@
 .train-table{width:100%; border-collapse:collapse; table-layout:auto}
 .train-table thead th{position:sticky; top:0; background:var(--color-surface); text-align:left; padding:.5rem; border-bottom:1px solid #3b3f46}
 .train-table tbody td{padding:.5rem .6rem; border-bottom:1px solid #2a2d32; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.train-table tbody td:nth-child(6){white-space:normal;}
+.train-table tbody td:nth-child(7){white-space:normal;}
 .train-table col:nth-child(1){width:12%}
 .train-table col:nth-child(2){width:12%}
-.train-table col:nth-child(3){width:14%}
-.train-table col:nth-child(4){width:8%}
-.train-table col:nth-child(5){width:22%}
-.train-table col:nth-child(7){width:10%}
+.train-table col:nth-child(3){width:12%}
+.train-table col:nth-child(4){width:14%}
+.train-table col:nth-child(5){width:20%}
+.train-table col:nth-child(6){width:8%}
+.train-table col:nth-child(7){width:14%}
+.train-table col:nth-child(8){width:8%}
 .updated-at{color:var(--color-muted); font-size:.9rem; margin:.2rem 0 .6rem}
 .settings{border:1px solid #2a2d32; border-radius:8px; background:var(--color-surface); margin:.5rem 0 1rem}
 .settings-summary{cursor:pointer; list-style:none; padding:.6rem .8rem; font-weight:600}

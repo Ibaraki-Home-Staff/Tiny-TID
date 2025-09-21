@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "lineName": "JR京都線",
+    "lineRange": "京都 — 大阪",
+    "areaName": "近畿",
+    "updatedAt": "2024-06-25T08:30:00+09:00",
+    "boardUpdatedAt": "2024-06-25T08:29:30+09:00"
+  },
+  "summary": {
+    "directionLabel": "上り",
+    "updatedAt": "2024-06-25T08:30:00+09:00",
+    "lineName": "JR京都線",
+    "lineRange": "京都⇔大阪"
+  },
+  "traffic": [
+    {
+      "id": "delay-info",
+      "title": "京都〜高槻間で遅延",
+      "detail": "踏切点検の影響で一部列車に最大10分程度の遅れが出ています。",
+      "type": "line"
+    }
+  ],
+  "trains": [
+    {
+      "id": "kyt101",
+      "number": "A101",
+      "type": "新快速",
+      "destination": "大阪",
+      "position": "京都 駅",
+      "status": "発車済",
+      "cars": "12両",
+      "delayMinutes": 5
+    },
+    {
+      "id": "kyt203",
+      "number": "B203",
+      "type": "快速",
+      "destination": "高槻",
+      "position": "長岡京〜向日町",
+      "status": "運転中",
+      "cars": "8両",
+      "delayMinutes": 0
+    }
+  ],
+  "alert": {
+    "title": "列車接近アラーム",
+    "requiresAudio": true,
+    "groups": [
+      {
+        "id": "alarm-track",
+        "label": "番線",
+        "value": "京都駅 3番線"
+      },
+      {
+        "id": "alarm-train",
+        "label": "列車",
+        "value": "特急サンダーバード7号",
+        "type": "delay-bad"
+      }
+    ]
+  }
+}
