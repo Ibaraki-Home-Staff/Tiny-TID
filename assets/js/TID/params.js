@@ -1,11 +1,16 @@
 const ALLOWED_DIRECTIONS = new Set(['up', 'down', 'both']);
+const DEFAULT_PARAMS = {
+  area: 'kinki',
+  line: 'kyoto',
+  direction: 'up',
+};
 
 export function getQueryParams(){
   const url = new URL(window.location.href);
-  const area = (url.searchParams.get('area') || '').trim();
-  const line = (url.searchParams.get('line') || '').trim();
-  const dir = (url.searchParams.get('dir') || 'both').trim().toLowerCase();
-  const direction = ALLOWED_DIRECTIONS.has(dir) ? dir : 'both';
+  const area = (url.searchParams.get('area') ?? DEFAULT_PARAMS.area).trim() || DEFAULT_PARAMS.area;
+  const line = (url.searchParams.get('line') ?? DEFAULT_PARAMS.line).trim() || DEFAULT_PARAMS.line;
+  const dirRaw = (url.searchParams.get('dir') ?? DEFAULT_PARAMS.direction).trim().toLowerCase() || DEFAULT_PARAMS.direction;
+  const direction = ALLOWED_DIRECTIONS.has(dirRaw) ? dirRaw : DEFAULT_PARAMS.direction;
   return { area, line, direction };
 }
 

@@ -4,6 +4,7 @@ export const state = {
   lastSource: null,
   pollHandle: null,
   audioEnabled: false,
+  showPassing: false,
 };
 
 export function setParams(params){
@@ -31,4 +32,13 @@ export function clearPollHandle(){
 
 export function setAudioEnabled(enabled){
   state.audioEnabled = Boolean(enabled);
+}
+
+export function setShowPassing(value){
+  state.showPassing = Boolean(value);
+}
+
+export function toggleShowPassing(){
+  state.showPassing = !state.showPassing;
+  return state.showPassing;
 }

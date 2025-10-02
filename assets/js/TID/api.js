@@ -1,4 +1,4 @@
-import { resolveApiUrl } from './config.js';
+import { resolveApiUrl, getExtraLines } from './config.js';
 
 async function fetchJson(url){
   const res = await fetch(url, { cache: 'no-store' });
@@ -48,26 +48,92 @@ function resolveMaybeUrl(resource){
 
 export async function fetchSnapshot(params){
   const master = await fetchAreaMaster(params.area);
-  const line = pickLine(master, params.line);
-  if(!line){
-    throw new Error('指定された路線データが見つかりません');
+  const requestedLines = [params.line, ...getExtraLines()].filter(Boolean);
+  const uniqueLineIds = [];
+  for(const lineId of requestedLines){
+    if(!uniqueLineIds.includes(lineId)){
+      uniqueLineIds.push(lineId);
+    }
   }
-  const posUrl = resolveMaybeUrl(line.pos);
-  if(!posUrl){
-    throw new Error('選択した路線の運行データ URL が不明です');
+  if(!uniqueLineIds.length){
+    throw new Error('路線が指定されていません');
   }
-  const stationsUrl = resolveMaybeUrl(line.st);
+
+  const lineEntries = [];
+  for(let index = 0; index < uniqueLineIds.length; index += 1){
+    const lineId = uniqueLineIds[index];
+    const line = pickLine(master, lineId);
+    if(!line){
+      if(index === 0){
+        throw new Error('指定された路線データが見つかりません');
+      }
+      console.warn('Line data not found for optional line', lineId);
+      continue;
+    }
+    const posUrl = resolveMaybeUrl(line.pos);
+    if(!posUrl){
+      if(index === 0){
+        throw new Error('選択した路線の運行データ URL が不明です');
+      }
+      console.warn('Position data URL missing for optional line', lineId);
+      continue;
+    }
+    const stationsUrl = resolveMaybeUrl(line.st);
+    lineEntries.push({
+      id: lineId,
+      line,
+      posUrl,
+      stationsUrl,
+      required: index === 0,
+    });
+  }
+
+  if(!lineEntries.length){
+    throw new Error('利用可能な路線データが見つかりません');
+  }
+
   const trafficUrl = resolveMaybeUrl(master && master.trafficInfo && master.trafficInfo.url);
-  const [posData, stationsData, trafficData] = await Promise.all([
-    fetchJson(posUrl),
-    safeFetchJson(stationsUrl),
-    safeFetchJson(trafficUrl),
-  ]);
+
+  const posList = await Promise.all(lineEntries.map((entry) => {
+    if(entry.required){
+      return fetchJson(entry.posUrl);
+    }
+    return safeFetchJson(entry.posUrl);
+  }));
+  const stationList = await Promise.all(lineEntries.map((entry) => safeFetchJson(entry.stationsUrl)));
+  const trafficData = await safeFetchJson(trafficUrl);
+
+  const usableEntries = [];
+  for(let index = 0; index < lineEntries.length; index += 1){
+    const entry = lineEntries[index];
+    const posData = posList[index];
+    if(!posData){
+      if(entry.required){
+        throw new Error('選択した路線の運行データを取得できませんでした');
+      }
+      console.warn('Skipping optional line with no position data', entry.id);
+      continue;
+    }
+    usableEntries.push({
+      id: entry.id,
+      line: entry.line,
+      posData,
+      stationsData: stationList[index],
+    });
+  }
+
+  if(!usableEntries.length){
+    throw new Error('利用可能な路線データが取得できませんでした');
+  }
+
+  const primary = usableEntries[0];
+
   return {
     master,
-    line,
-    posData,
-    stationsData,
+    line: primary.line,
+    posData: primary.posData,
+    stationsData: primary.stationsData,
     trafficData,
+    lines: usableEntries,
   };
 }

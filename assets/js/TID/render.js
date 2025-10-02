@@ -6,7 +6,7 @@ function queryDom(){
   if(domCache) return domCache;
   const root = document.querySelector('[data-tid-app]');
   if(!root){
-    throw new Error('TID レイアウトが見つかりません');
+    throw new Error('TID アプリケーション要素が見つかりません');
   }
   domCache = {
     root,
@@ -17,6 +17,7 @@ function queryDom(){
     statusContainer: root.querySelector('[data-status-message]'),
     boardContainer: root.querySelector('[data-board-container]'),
     boardUpdated: root.querySelector('[data-board-updated]'),
+    passingToggle: root.querySelector('[data-toggle-passing]'),
   };
   return domCache;
 }
@@ -71,14 +72,14 @@ function renderTrainTable(boardContainer, trains){
   clearElement(boardContainer);
   if(!trains.length){
     const empty = document.createElement('p');
-    empty.textContent = '表示できる列車データはありません。';
+    empty.textContent = '条件に合致する列車はありません。';
     boardContainer.appendChild(empty);
     return;
   }
   const table = document.createElement('table');
   table.className = 'train-table';
 
-  const headers = ['列車', '種別', '愛称', '行先', '現在位置', '遅延', '備考', '編成'];
+  const headers = ['列車', '路線', '種別', '愛称', '行先', '現在位置', '遅延', '備考', '編成'];
 
   const colgroup = document.createElement('colgroup');
   for(let i = 0; i < headers.length; i += 1){
@@ -105,6 +106,10 @@ function renderTrainTable(boardContainer, trains){
     numberCell.textContent = train.number || '---';
     tr.appendChild(numberCell);
 
+    const lineCell = document.createElement('td');
+    lineCell.textContent = train.lineName || train.lineId || '---';
+    tr.appendChild(lineCell);
+
     const typeCell = document.createElement('td');
     const typeValue = train.type || '';
     if(train.typeBadgeClass && typeValue){
@@ -130,6 +135,9 @@ function renderTrainTable(boardContainer, trains){
 
     const positionCell = document.createElement('td');
     positionCell.textContent = train.position || '---';
+    if(train.stopsAtReference){
+      positionCell.classList.add('train-stops-here');
+    }
     tr.appendChild(positionCell);
 
     const delayCell = document.createElement('td');
@@ -152,6 +160,14 @@ function renderTrainTable(boardContainer, trains){
 
   table.appendChild(tbody);
   boardContainer.appendChild(table);
+}
+
+function syncPassingToggleState(dom){
+  if(!dom.passingToggle) return;
+  const pressed = Boolean(state.showPassing);
+  dom.passingToggle.classList.toggle('is-active', pressed);
+  dom.passingToggle.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+  dom.passingToggle.textContent = pressed ? '通過表示中' : '通過表示';
 }
 
 export function renderLoading(){
@@ -178,6 +194,7 @@ export function renderLoading(){
   if(dom.boardUpdated){
     dom.boardUpdated.textContent = '更新: --';
   }
+  syncPassingToggleState(dom);
 }
 
 export function renderSnapshot(snapshot){
@@ -205,6 +222,7 @@ export function renderSnapshot(snapshot){
   if(dom.boardContainer){
     renderTrainTable(dom.boardContainer, snapshot.trains || []);
   }
+  syncPassingToggleState(dom);
 }
 
 export function renderError(message){
@@ -224,4 +242,5 @@ export function renderError(message){
   if(dom.boardUpdated){
     dom.boardUpdated.textContent = '更新: --';
   }
+  syncPassingToggleState(dom);
 }

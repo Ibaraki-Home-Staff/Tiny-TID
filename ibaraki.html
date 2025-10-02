@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiny-TID 茨木ビュー</title>
+    <meta name="description" content="Tiny-TID 茨木駅周辺の運行状況ビュー" />
+    <base href="/" />
+    <link rel="icon" href="/assets/img/placeholder.svg">
+    <link rel="manifest" href="/manifest.webmanifest?v=3">
+    <meta name="app:version" content="3">
+    <link rel="stylesheet" href="/assets/css/main.css?v=3">
+  </head>
+  <body>
+    <header data-include="header"></header>
+    <main class="container tid-app" data-tid-app>
+      <!-- Default focus: 茨木駅 (station code 0410) per sample data -->
+      <nav class="tid-app__nav">
+        <a class="btn btn-ghost" href="/index.html">エリア一覧に戻る</a>
+        <button type="button" class="btn" data-toggle-passing aria-pressed="false">通過表示</button>
+      </nav>
+      <section class="tid-app__summary" aria-live="polite">
+        <h1 class="tid-app__title" data-line-title>読み込み中…</h1>
+        <p class="tid-app__subtitle" data-line-subtitle></p>
+        <dl class="tid-app__meta">
+          <div class="tid-app__meta-item">
+            <dt>方向</dt>
+            <dd data-direction-label>--</dd>
+          </div>
+          <div class="tid-app__meta-item">
+            <dt>最終更新</dt>
+            <dd data-updated-at>--:--</dd>
+          </div>
+        </dl>
+      </section>
+      <section class="tid-app__status">
+        <h2 class="visually-hidden">運行状況</h2>
+        <div data-status-message class="traffic-info"></div>
+      </section>
+      <section class="tid-app__board">
+        <div class="tid-app__board-header">
+          <h2>列車一覧</h2>
+          <p class="updated-at" data-board-updated>更新: --</p>
+        </div>
+        <div data-board-container></div>
+      </section>
+    </main>
+    <div class="tid-alert-overlay is-hidden" data-alert-overlay aria-hidden="true">
+      <div class="tid-alert__panel" role="dialog" aria-modal="true" aria-labelledby="tidAlertTitle">
+        <h2 class="tid-alert__title" id="tidAlertTitle"></h2>
+        <div class="tid-alert__groups" data-alert-groups></div>
+        <div class="tid-alert__actions">
+          <button type="button" class="btn" data-alert-close>閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tid-audio-overlay is-hidden" data-audio-overlay aria-hidden="true">
+      <div class="tid-audio-overlay__panel" role="dialog" aria-modal="true" aria-labelledby="tidAudioTitle">
+        <img class="tid-audio-overlay__icon" src="/assets/img/placeholder.svg" alt="">
+        <h2 class="tid-audio-overlay__title" id="tidAudioTitle">アラート音を有効にしますか？</h2>
+        <p class="tid-audio-overlay__text">「ラウドな音声」を含むため、再生には周囲の状況に配慮してください。</p>
+        <p class="tid-audio-overlay__hint">「有効にする」を選ぶと、緊急時にアラート音が自動再生されます。</p>
+        <div class="tid-audio-overlay__actions">
+          <button type="button" class="btn" data-audio-enable>有効にする</button>
+          <button type="button" class="btn btn-ghost" data-audio-cancel>やめておく</button>
+        </div>
+        <button type="button" class="tid-audio-overlay__close" data-audio-close aria-label="閉じる">×</button>
+      </div>
+    </div>
+
+    <script>
+      window.TID_EXTRA_LINES = ['kobesanyo', 'ako'];
+      window.TID_REFERENCE_STATION = '0410';
+      window.TID_REFERENCE_STOP_TYPES = ['快速'];
+      window.TID_HIDE_PAST_REFERENCE = true;
+      window.TID_DESTINATION_FILTERS = ['kyoto', 'hokuriku', 'hokurikubiwako', 'kosei', 'biwako'];
+      window.TID_DESTINATION_CODES = [
+        '0382', '0384', '0385', '0386', '0387', '0388', '0389', '0390',
+        '0391', '0392', '0393', '0394', '0395', '0396', '0397', '0398',
+        '0399', '0400', '0401', '0402', '0404', '0501', '0502', '0503',
+        '0504', '0505', '0506', '0507', '0508', '0509', '0510', '0601',
+        '0602', '0603', '0604', '0605', '0606', '0607', '0608', '0609',
+        '0610', '0611', '0612', '0613', '0614', '0615', '0616', '0617',
+        '0618', '0919', '4401'
+      ];
+    </script>
+    <script type="module" src="/assets/js/pwa.js?v=3"></script>
+    <script type="module" src="/assets/js/TID/init.js?v=3"></script>
+  </body>
+</html>
