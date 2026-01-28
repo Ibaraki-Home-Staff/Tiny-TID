@@ -2254,26 +2254,42 @@ function normalizeTrain(t){
     const obj = { ...t };
     const label = String(obj.displayType || '').trim();
 
-    // 既存ロジックを維持: 新快○ → 新快速 + Aシート
-    if(/新快[○◯〇]/.test(label)){
-      obj.displayType = '新快速';
-      const nick = getNickname(obj);
-      if(!/Aシート/i.test(nick)){
-        obj.nickname = nick ? `${nick} Aシート` : 'Aシート';
-      }
-    }
-
-    // 可変マップに基づく「う{token}○」→ displayType 正規化 + 愛称（うれしート）付与
+    // A新快○/× → 新快速 + Aシート○/×（新快速はAシートありか愛称無しの二択）
     try{
-      const m = label.match(/^う[\s　]*([^\s○◯〇]+)[\s　]*[○◯〇]$/);
+      const mAshinkai = label.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
+      if(mAshinkai){
+        obj.displayType = '新快速';
+        const mark = mAshinkai[1];
+        const nick = getNickname(obj);
+        if(!/Aシート/i.test(nick)){
+          obj.nickname = nick ? `${nick} Aシート${mark}` : `Aシート${mark}`;
+        }
+      }
+    }catch{}
+
+    // 可変マップに基づく「う{token}○/×」→ displayType 正規化 + 愛称（うれしート○/×）付与
+    try{
+      const m = label.match(/^う[\s　]*([^\s○◯〇×]+)[\s　]*([○◯〇×])$/);
       if(m){
         const token = m[1];
-        const mapped = U_TOKEN_TYPE_MAP ? U_TOKEN_TYPE_MAP[token] : undefined;
-        if(mapped){
-          obj.displayType = String(mapped);
+        const mark = m[2]; // ○ or ×
+        let targetType = null;
+
+        // 快速・普通は直接マッピング
+        if(token === '快速'){
+          targetType = '快速';
+        } else if(token === '普通'){
+          targetType = '普通';
+        } else {
+          // その他はU_TOKEN_TYPE_MAPを使用
+          targetType = U_TOKEN_TYPE_MAP ? U_TOKEN_TYPE_MAP[token] : undefined;
+        }
+
+        if(targetType){
+          obj.displayType = String(targetType);
           const current = getNickname(obj);
           if(!/うれしート/i.test(current)){
-            obj.nickname = current ? `${current} うれしート` : 'うれしート';
+            obj.nickname = current ? `${current} うれしート${mark}` : `うれしート${mark}`;
           }
         }
       }
