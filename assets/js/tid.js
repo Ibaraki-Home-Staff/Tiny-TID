@@ -22,7 +22,20 @@ const TID_DEBUG = (__dbgParam === '1') || (localStorage.getItem('tid:debug') ===
 function dbg(){ try{ if(TID_DEBUG) console.log('[TID]', ...arguments); }catch{} }
 function warn(){ try{ console.warn('[TID]', ...arguments); }catch{} }
 
-
+// Alarm preferences and runtime state (must be declared before usage in async IIFE)
+const alarmNotified = { up: new Set(), down: new Set() };
+let audioCtx = null;
+let audioUnlocked = false;
+let audioUnlockBound = false;
+const pendingAudioQueue = [];
+const pendingAudioKeys = new Set();
+const alarmPlayQueue = [];
+const alarmQueueKeys = new Set();
+let alarmPlaying = false;
+// Track last shown trains and context to validate queued alarms
+let lastShownTrains = { up: [], down: [] };
+let lastSelectedCode = null;
+let lastIndexes = null;
 
 const sp = new URLSearchParams(window.location.search);
 const area = sp.get('area') || '';
@@ -633,21 +646,6 @@ function initTTSControls(){
     }
   }catch{}
 }
-
-// Alarm preferences and runtime state
-const alarmNotified = { up: new Set(), down: new Set() };
-let audioCtx = null;
-let audioUnlocked = false;
-let audioUnlockBound = false;
-const pendingAudioQueue = [];
-const pendingAudioKeys = new Set();
-const alarmPlayQueue = [];
-const alarmQueueKeys = new Set();
-let alarmPlaying = false;
-// Track last shown trains and context to validate queued alarms
-let lastShownTrains = { up: [], down: [] };
-let lastSelectedCode = null;
-let lastIndexes = null;
 
 // Lightweight alarm modal (auto-dismiss ~3s with confirm button)
 let alarmModalEl = null;
@@ -2253,6 +2251,7 @@ function normalizeTrain(t){
   try{
     const obj = { ...t };
     const label = String(obj.displayType || '').trim();
+    const originalDisplayType = label;
 
     // A新快○/× → 新快速 + Aシート○/×（新快速はAシートありか愛称無しの二択）
     try{
@@ -2264,6 +2263,7 @@ function normalizeTrain(t){
         if(!/Aシート/i.test(nick)){
           obj.nickname = nick ? `${nick} Aシート${mark}` : `Aシート${mark}`;
         }
+        dbg('NORMALIZE_TRAIN', { trainNo: t.no, original: originalDisplayType, normalized: obj.displayType, nickname: obj.nickname, pattern: 'A新快' });
       }
     }catch{}
 
@@ -2291,6 +2291,7 @@ function normalizeTrain(t){
           if(!/うれしート/i.test(current)){
             obj.nickname = current ? `${current} うれしート${mark}` : `うれしート${mark}`;
           }
+          dbg('NORMALIZE_TRAIN', { trainNo: t.no, original: originalDisplayType, token, normalized: obj.displayType, nickname: obj.nickname, pattern: 'うれしート' });
         }
       }
     }catch{}
@@ -2357,6 +2358,18 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     })();
     const fallbackTarget = ahead[0] || null;
     let alerted = false;
+
+    // Debug log for train alarm check
+    dbg('ALARM_CHECK_TRAIN', {
+      trainNo: t.no,
+      displayType: t.displayType,
+      category: cat,
+      categoryLabel: getCategoryLabel(cat),
+      prefs: Array.from(prefs),
+      hasCategory: prefs.has(`cat:${cat}`),
+      hasPass: prefs.has('pass')
+    });
+
     // 1) Stop case
     if(prefs.has(`cat:${cat}`)){
       const targetCode = targets[catKey] || fallbackTarget;
@@ -2395,6 +2408,15 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
           if(boundaryMatch || rangeMatch){
             const targetAllowed = stationAllowedCategories(indexes.byCode.get(String(targetCode)));
             const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
+            dbg('ALARM_TARGET_CHECK', {
+              trainNo: t.no,
+              cat,
+              targetCode,
+              targetAllowed: targetAllowed ? Array.from(targetAllowed) : null,
+              stopsHere,
+              boundaryMatch,
+              rangeMatch
+            });
             if(stopsHere){
               // Suppress duplicates for same line + station filter + train no within 3 minutes
               if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { alerted = true; return; }
@@ -2443,6 +2465,16 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
           }
         }
       }
+    } else {
+      // Category not in prefs - user hasn't checked this train type
+      dbg('ALARM_CATEGORY_NOT_IN_PREFS', {
+        trainNo: t.no,
+        displayType: t.displayType,
+        category: cat,
+        categoryLabel: getCategoryLabel(cat),
+        prefs: Array.from(prefs)
+      });
+    }
     // 2) Pass case (only if not alerted)
     if(!alerted && prefs.has('pass')){
       const targetCode = targets['pass'] || fallbackTarget;
@@ -2515,18 +2547,23 @@ function stationAllowedCategories(st){
 
 function trainCategoryFromDisplayType(dt){
   const s = String(dt||'');
-  if(/新快速/.test(s)) return 1;
-  if(/区間快速/.test(s)) return 3;
-  if(/直通快速/.test(s)) return 4;
-  if(/快速/.test(s)) return 2;
-  if(/特急/.test(s)) return 5;
-  if(/急行/.test(s)) return 6;
-  if(/寝台/.test(s)) return 7;
-  if(/\bSL\b/.test(s)) return 8;
-  if(/観光/.test(s)) return 9;
-  if(/瑞風/.test(s)) return 10;
-  if(/普通/.test(s)) return 0;
-  return -1;
+  let cat = -1;
+  if(/新快速/.test(s)) cat = 1;
+  else if(/区間快速/.test(s)) cat = 3;
+  else if(/直通快速/.test(s)) cat = 4;
+  else if(/快速/.test(s)) cat = 2;
+  else if(/特急/.test(s)) cat = 5;
+  else if(/急行/.test(s)) cat = 6;
+  else if(/寝台/.test(s)) cat = 7;
+  else if(/\bSL\b/.test(s)) cat = 8;
+  else if(/観光/.test(s)) cat = 9;
+  else if(/瑞風/.test(s)) cat = 10;
+  else if(/普通/.test(s)) cat = 0;
+
+  if(TID_DEBUG && cat >= 0){
+    dbg('TRAIN_CATEGORY', { displayType: dt, category: cat, categoryLabel: getCategoryLabel(cat) });
+  }
+  return cat;
 }
 
 function filterByStationSetting(train, allowed, passSetting){
