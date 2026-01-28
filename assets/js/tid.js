@@ -34,6 +34,20 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
 (async () => {
   // migrate legacy localStorage keys once
   try{ migrateLegacySettings(); }catch{}
+  // Restore audioUnlocked state from previous session
+  try{
+    const savedAudioUnlocked = getSetting('ui.audioUnlocked', '0');
+    const sessionAudio = sessionStorage.getItem('tid:audio:session');
+    if(savedAudioUnlocked === '1' || sessionAudio === '1'){
+      try{
+        performAudioUnlock('restored-from-storage');
+        dbg('audio unlocked: restored from storage');
+      }catch(err){
+        dbg('audio unlock restore failed, will bind on gesture', err);
+        bindAudioUnlockOnce(); // Fallback to gesture-based unlock
+      }
+    }
+  }catch(err){ dbg('audio unlock restore error', err); }
   try{ setupAudioUnlockOverlay(); }catch{}
   if(!line){
     upContainer.textContent = '路線が未指定です';
@@ -57,6 +71,7 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
     initDelayControls();
     initCarsControls();
     initBackgroundControls();
+    if(TID_DEBUG){ try{ initDebugPanel(); }catch{} }
     const trains = await fetchTrains(line);
     setUpdatedAt(trains?.update);
     renderTrains(indexes, trains, dir);
@@ -1082,9 +1097,9 @@ function readAlarmDisable(dir, st){
     const stKey = String(st||'_none');
     const dirKey = (dir === 0 || dir === 'up') ? 'up' : (dir === 1 || dir === 'down') ? 'down' : String(dir||'up');
     const v = getSetting(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, undefined);
-    if(v === undefined) return true; // default disabled
+    if(v === undefined) return false; // default enabled (changed from true)
     return !!v;
-  }catch{ return true; }
+  }catch{ return false; } // default enabled on error (changed from true)
 }
 function saveAlarmDisable(dir, v, st){
   try{
@@ -1320,10 +1335,14 @@ function renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhanc
 function getPrefsForDir(dir){
   const st = selectedStationCode();
   const disabled = readAlarmDisable(dir === 0 ? 'up' : 'down', st);
-  if(disabled) return new Set();
+  if(disabled){
+    dbg('ALARM_PREFS_DISABLED', { dir: dir === 0 ? 'up' : 'down', station: st });
+    return new Set();
+  }
   const sel = dir === 0 ? '[data-alarm-up]' : '[data-alarm-down]';
   const boxes = Array.from(document.querySelectorAll(sel));
   const vals = new Set(boxes.filter(b => b.checked).map(b => b.value));
+  dbg('ALARM_PREFS', { dir: dir === 0 ? 'up' : 'down', station: st, disabled, prefs: Array.from(vals) });
   return vals;
 }
 async function playAlarmSound(){
@@ -1421,16 +1440,39 @@ async function drainAlarmQueue(){
       try{
         // Expect key format: `${no}:${dir}:${targetCode}` where dir is 0/1
         const parts = String(item?.key||'').split(':');
-        if(parts.length < 3) return false; // unknown format → play
+        if(parts.length < 2) return false; // unknown format → play
         const no = parts[0];
         const dirNum = Number(parts[1]);
-        const list = (dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
-        // If the train is not in the currently shown list, consider it stale
-        const stale = !list.some(t => String(t.no||'') === String(no));
-        if(stale){
-          try{ dbg('ALARM_SKIP_STALE', { time: new Date().toISOString(), key: item?.key||'', dir: dirNum, shownUp: lastShownTrains.up?.length||0, shownDown: lastShownTrains.down?.length||0 }); }catch{}
+
+        // Time-based stale check: if item was queued more than 5 minutes ago, it's stale
+        const queuedAt = item.queuedAt || 0;
+        const age = Date.now() - queuedAt;
+        const STALE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+        if(age > STALE_THRESHOLD){
+          dbg('ALARM_SKIP_STALE_AGE', { key: item?.key, ageMs: age });
+          return true;
         }
-        return stale;
+
+        const list = (dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
+        const found = list.some(t => String(t.no||'') === String(no));
+
+        // Relax stale check: if train not found but queued less than 3 minutes ago, still play
+        if(!found && age < 3 * 60 * 1000){
+          dbg('ALARM_QUEUE_NOT_STALE_YET', { key: item?.key, ageMs: age, found });
+          return false;
+        }
+
+        if(!found){
+          dbg('ALARM_SKIP_STALE', {
+            time: new Date().toISOString(),
+            key: item?.key||'',
+            dir: dirNum,
+            ageMs: age,
+            shownUp: lastShownTrains.up?.length||0,
+            shownDown: lastShownTrains.down?.length||0
+          });
+        }
+        return !found;
       }catch{ return false; }
     };
     while(alarmPlayQueue.length){
@@ -1499,7 +1541,11 @@ function notifyOnce(dirStr, key, message, afterPlay, meta){
     bindAudioUnlockOnce();
     if(!pendingAudioKeys.has(key)){
       pendingAudioKeys.add(key);
-      pendingAudioQueue.push({ dirStr, key, message, afterPlay, meta });
+      pendingAudioQueue.push({
+        dirStr, key, message, afterPlay, meta,
+        queuedAt: Date.now() // Timestamp for stale detection
+      });
+      dbg('ALARM_QUEUED', { key, queuedAt: new Date().toISOString(), reason: 'audioUnlocked=false' });
     }
     return false;
   }
@@ -2241,7 +2287,10 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
       const passSetting = (document.getElementById('passFilter')?.value || 'hide');
       if(passSetting !== 'show') prefs.delete('pass');
     }catch{}
-    if(!prefs || prefs.size === 0) continue;
+    if(!prefs || prefs.size === 0){
+      dbg('ALARM_NO_PREFS', { trainNo: t.no, direction: dir, prefs: Array.from(prefs || []) });
+      continue;
+    }
     const a = byCode.get(String(t.atCode||''));
     const b = t.nextCode ? byCode.get(String(t.nextCode||'')) : null;
     const aIdx = a?.index; const bIdx = b?.index; // kept for potential future use
@@ -2265,6 +2314,9 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     // 1) Stop case
     if(prefs.has(`cat:${cat}`)){
       const targetCode = targets[catKey] || fallbackTarget;
+      if(!targetCode){
+        dbg('ALARM_NO_TARGET', { trainNo: t.no, cat, targets, fallbackTarget });
+      }
       if(targetCode){
           const targetIndex = stationIndexOf(targetCode);
           // Direction-aware trigger:
@@ -2337,7 +2389,11 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
               notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
               alerted = true;
+            } else {
+              dbg('ALARM_NOT_STOPPING', { trainNo: t.no, cat, targetCode, targetAllowed: targetAllowed ? Array.from(targetAllowed) : null });
             }
+          } else {
+            dbg('ALARM_NO_MATCH', { trainNo: t.no, boundaryMatch, rangeMatch, here, nxt, targetCode, isStoppedAtTarget, isMovingOnTarget, segmentMatch });
           }
         }
       }
@@ -2785,4 +2841,70 @@ function migrateLegacySettings(){
     }catch{}
     saveSettingsRoot(root);
   }catch{}
+}
+
+// Debug Panel (only when TID_DEBUG is enabled)
+function initDebugPanel(){
+  const panel = document.createElement('div');
+  panel.id = 'tidDebugPanel';
+  panel.style.cssText = `
+    position: fixed; bottom: 10px; right: 10px; width: 400px; max-height: 500px;
+    overflow-y: auto; background: rgba(0,0,0,0.9); color: #0f0;
+    font-family: monospace; font-size: 11px; padding: 10px;
+    border: 2px solid #0f0; z-index: 9999; border-radius: 5px;
+  `;
+
+  const title = document.createElement('div');
+  title.textContent = '🐛 TID Debug Panel';
+  title.style.cssText = 'font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #ff0;';
+  panel.appendChild(title);
+
+  const logContainer = document.createElement('div');
+  logContainer.id = 'tidDebugLog';
+  panel.appendChild(logContainer);
+
+  document.body.appendChild(panel);
+
+  // Hook dbg() function to display in UI
+  const originalDbg = window.dbg || dbg;
+  window.dbg = function(...args){
+    originalDbg.apply(this, args);
+    try{
+      const logEl = document.getElementById('tidDebugLog');
+      if(!logEl) return;
+      const entry = document.createElement('div');
+      entry.style.cssText = 'margin: 3px 0; padding: 3px; border-bottom: 1px solid #333;';
+      const timestamp = new Date().toLocaleTimeString('ja-JP');
+      entry.textContent = `[${timestamp}] ${JSON.stringify(args)}`;
+
+      // Color coding
+      const msg = args.join(' ');
+      if(msg.includes('ALARM_TRIGGER')) entry.style.color = '#0f0';
+      else if(msg.includes('ALARM_SKIP') || msg.includes('ALARM_NO')) entry.style.color = '#f80';
+      else if(msg.includes('ALARM_QUEUED')) entry.style.color = '#0ff';
+      else if(msg.includes('ALARM_PREFS')) entry.style.color = '#ff0';
+
+      logEl.appendChild(entry);
+      if(logEl.children.length > 100) logEl.removeChild(logEl.firstChild);
+      logEl.scrollTop = logEl.scrollHeight;
+    }catch{}
+  };
+}
+
+// Test alarm function (only when TID_DEBUG is enabled)
+if(TID_DEBUG){
+  window.tidTestAlarm = function(trainNo, direction, targetCode){
+    console.log('[TID][TEST] Simulating alarm', trainNo, direction, targetCode);
+    const dir = direction === 'up' ? 0 : 1;
+    const key = `${trainNo}:${dir}:${targetCode}`;
+    const msg = `テスト: ${trainNo}号、${direction}、${targetCode}駅接近`;
+    const meta = {
+      area, line, dir: direction, direction: dir, trainNo,
+      atCode: targetCode, nextCode: '', targetCode, stopped: true,
+      displayType: '快速', nickname: 'テスト列車', delay: 0,
+      dest: 'テスト行き', triggerReason: 'manual-test'
+    };
+    notifyOnce(direction, key, msg, ()=>{}, meta);
+  };
+  console.log('[TID][DEBUG] Test function: tidTestAlarm(trainNo, direction, targetCode)');
 }
