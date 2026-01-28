@@ -317,8 +317,16 @@ function getCarsThreshold(){
   }catch{}
   return 9;
 }
+function isCarsFilterEnabled(){
+  try{
+    const v = getSetting('cars.filterEnabled', false);
+    return !!v;
+  }catch{}
+  return false;
+}
 function initCarsControls(){
   const el = document.getElementById('carsThreshold');
+  const filterCb = document.getElementById('carsFilterEnable');
   if(!el) return;
   try{
     const v = getCarsThreshold();
@@ -330,6 +338,17 @@ function initCarsControls(){
       refreshTrains();
     });
   }catch{}
+  if(filterCb){
+    try{
+      filterCb.checked = isCarsFilterEnabled();
+      filterCb.addEventListener('change', () => {
+        try{
+          setSetting('cars.filterEnabled', filterCb.checked);
+          dbg('CARS_FILTER_ENABLED', { enabled: filterCb.checked, threshold: getCarsThreshold() });
+        }catch{}
+      });
+    }catch{}
+  }
 }
 
 const delayAnnouncedAt = new Map(); // key -> timestamp
@@ -2278,6 +2297,17 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
     if(typeof t.direction !== 'number') continue;
     if(dirParam === 'up' && t.direction !== 0) continue;
     if(dirParam === 'down' && t.direction !== 1) continue;
+
+    // Cars filter: only trigger alarm for trains with cars >= threshold
+    if(isCarsFilterEnabled()){
+      const threshold = getCarsThreshold();
+      const cars = (typeof t.cars === 'number') ? t.cars : 0;
+      if(cars < threshold){
+        dbg('ALARM_CARS_FILTERED', { trainNo: t.no, cars, threshold });
+        continue;
+      }
+    }
+
     const dir = t.direction;
     const prefs = getPrefsForDir(dir);
     const prefsRaw = new Set(prefs);
