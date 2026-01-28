@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiny-TID - 列車走行位置</title>
+    <base href="/" />
+    <link rel="icon" href="/assets/img/placeholder.svg">
+    <link rel="manifest" href="/manifest.webmanifest?v=3">
+    <meta name="app:version" content="3">
+    <!-- 種別色マップ（color.txt）の場所を指定 -->
+    <meta name="tid:colorUrl" content="/assets/color.txt">
+    <!-- 読み上げ補正マップ（yomiage.txt）の場所を指定 -->
+    <meta name="tid:yomiUrl" content="/assets/yomiage.txt">
+    <link rel="stylesheet" href="/assets/css/main.css?v=13">
+  </head>
+  <body>
+    <div id="audioUnlockOverlay" class="tid-audio-overlay is-hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="audioUnlockTitle">
+      <div class="tid-audio-overlay__panel" role="document">
+        <button id="audioUnlockClose" class="tid-audio-overlay__close" type="button" aria-label="閉じる">×</button>
+        <img src="/assets/img/placeholder.svg" alt="" class="tid-audio-overlay__icon" aria-hidden="true">
+        <h2 id="audioUnlockTitle" class="tid-audio-overlay__title">音声の許可が必要です</h2>
+        <p class="tid-audio-overlay__text">読み上げやアラーム音を再生するには、最初に許可ボタンを押してください。</p>
+        <p id="audioUnlockHint" class="tid-audio-overlay__hint" aria-live="polite"></p>
+        <div class="tid-audio-overlay__actions">
+          <button id="audioUnlockBtn" class="btn tid-audio-overlay__button" type="button">音声を有効化</button>
+          <button id="audioUnlockLater" class="btn btn-ghost" type="button" aria-label="後で">後で</button>
+        </div>
+      </div>
+    </div>
+    <header data-include="header"></header>
+    <main class="container">
+      <details id="settingsPanel" class="settings" open>
+        <summary class="settings-summary">設定</summary>
+        <section id="settingsSection" aria-labelledby="settingsHeading" style="margin:.75rem 0 1.25rem 0;">
+          <h2 id="settingsHeading" class="visually-hidden">設定</h2>
+          <div style="display:flex; gap:.75rem; align-items:end; flex-wrap:wrap;">
+            <div>
+              <label for="stationFilter" style="display:block; margin-bottom:.35rem;">駅で絞り込み</label>
+              <select id="stationFilter" name="station" style="min-width:260px">
+                <option value="">（未選択）</option>
+              </select>
+            </div>
+            <div>
+              <label for="passFilter" style="display:block; margin-bottom:.35rem;">通過列車の表示</label>
+              <select id="passFilter" name="pass" style="min-width:180px">
+                <option value="hide" selected>非表示（推奨）</option>
+                <option value="show">表示</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block; margin-bottom:.35rem;">駅リスト更新</label>
+              <button id="refreshStationsBtn" class="btn" type="button">更新</button>
+            </div>
+            <div>
+              <label for="ttsVoice" style="display:block; margin-bottom:.35rem;">読み上げ（日本語の音声）</label>
+              <select id="ttsVoice" name="ttsVoice" style="min-width:280px">
+                <option value="">取得中…</option>
+              </select>
+              <button id="ttsTestBtn" class="btn" type="button" style="margin-left:.5rem;">テスト再生</button>
+            </div>
+            <div>
+              <label for="delayThreshold" style="display:block; margin-bottom:.35rem;">遅延の強調表示（分）</label>
+              <input id="delayThreshold" type="number" min="0" step="1" value="4" style="width:90px" />
+            </div>
+            <div>
+              <label for="carsThreshold" style="display:block; margin-bottom:.35rem;">両数の強調表示（両）</label>
+              <input id="carsThreshold" type="number" min="0" step="1" value="9" style="width:90px" />
+            </div>
+            <div>
+              <label style="display:block; margin-bottom:.35rem;">バックグラウンド</label>
+              <label style="display:flex; align-items:center; gap:.5rem;">
+                <input type="checkbox" id="bgNotifyEnable" />
+                通知で接近を知らせる（非表示時）
+              </label>
+              <label style="display:flex; align-items:center; gap:.5rem; margin-top:.25rem;">
+                <input type="checkbox" id="wakeLockEnable" />
+                画面スリープを防止（実験的）
+              </label>
+            </div>
+          </div>
+          <div id="alarmRow" style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-top:.75rem;">
+            <fieldset id="alarmUpBox" style="flex:1 1 480px; min-width:420px; border:1px solid var(--color-border, #ddd); border-radius:.5rem; padding:1rem;">
+              <legend>上り: 接近アラーム</legend>
+              <div id="alarmUpOptions"></div>
+              <label style="display:flex; align-items:center; gap:.75rem; padding:.9rem 1.1rem; margin:.35rem 0; color:var(--color-muted); min-height:52px; font-size:1.05rem; border:1px solid #e0e0e0; border-radius:.5rem;">
+                <input type="checkbox" id="alarmUpDisable">
+                アラーム無効
+              </label>
+            </fieldset>
+            <fieldset id="alarmDownBox" style="flex:1 1 480px; min-width:420px; border:1px solid var(--color-border, #ddd); border-radius:.5rem; padding:1rem;">
+              <legend>下り: 接近アラーム</legend>
+              <div id="alarmDownOptions"></div>
+              <label style="display:flex; align-items:center; gap:.75rem; padding:.9rem 1.1rem; margin:.35rem 0; color:var(--color-muted); min-height:52px; font-size:1.05rem; border:1px solid #e0e0e0; border-radius:.5rem;">
+                <input type="checkbox" id="alarmDownDisable">
+                アラーム無効
+              </label>
+            </fieldset>
+          </div>
+          </div>
+        </section>
+      </details>
+
+      <h1>列車走行位置</h1>
+      <p id="paramsView">読み込み中…</p>
+      <div id="trafficInfo" class="traffic-info" aria-live="polite"></div>
+
+      <section id="trainsSection" aria-labelledby="trainsHeading" style="margin-top:1rem;">
+        <h2 id="trainsHeading">列車一覧</h2>
+        <div id="updatedAt" class="updated-at" aria-live="polite"></div>
+        <div id="trainsContainer" class="trains-grid">
+          <div id="trainsUp" class="train-list" aria-labelledby="headingUp">
+            <h3 id="headingUp">上り</h3>
+            <div class="train-items" data-dir="up">読み込み中…</div>
+          </div>
+          <div id="trainsDown" class="train-list" aria-labelledby="headingDown">
+            <h3 id="headingDown">下り</h3>
+            <div class="train-items" data-dir="down">読み込み中…</div>
+          </div>
+        </div>
+      </section>
+
+      <p>
+        <a class="btn" href="/index.html">エリア選択に戻る</a>
+      </p>
+    </main>
+    <!--<footer data-include="footer"></footer> -->
+    <script type="module" src="/assets/js/pwa.js?v=3"></script>
+    <script type="module" src="/assets/js/tid.js?v=24"></script>
+  </body>
+  </html>

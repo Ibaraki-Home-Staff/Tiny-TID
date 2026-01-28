@@ -1,0 +1,283 @@
+/**
+ * Tiny-TID v2 Styles
+ * Additional styles for Ibaraki station specialized version
+ */
+
+/* App Layout */
+.tid-app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.tid-app__nav {
+  margin-bottom: 1.5rem;
+}
+
+.tid-app__title {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tid-app__summary {
+  margin-bottom: 1.5rem;
+}
+
+.tid-app__subtitle {
+  font-size: 1.1rem;
+  color: var(--color-muted);
+  margin-bottom: 0.75rem;
+}
+
+.tid-app__meta {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.tid-app__meta-item {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tid-app__meta-item dt {
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.tid-app__meta-item dd {
+  font-weight: 600;
+}
+
+.tid-app__status {
+  margin-bottom: 1.5rem;
+}
+
+.tid-app__board {
+  margin-top: 2rem;
+}
+
+.tid-app__board-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+/* Train Type Filter */
+.tid-app__filters {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: var(--color-surface);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+}
+
+.tid-app__filters h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.filter-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+/* Alarm Settings */
+.tid-app__alarm-settings {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: var(--color-surface);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+}
+
+.tid-app__alarm-settings h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.tid-app__alarm-settings details {
+  cursor: pointer;
+}
+
+.tid-app__alarm-settings summary {
+  font-weight: 500;
+  padding: 0.5rem;
+  user-select: none;
+}
+
+.alarm-controls {
+  margin-top: 1rem;
+  padding: 0 0.5rem;
+}
+
+.alarm-direction-group {
+  margin-bottom: 1.5rem;
+}
+
+.alarm-direction-group h3 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.alarm-direction-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+
+.alarm-types {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.alarm-types label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Train Board */
+.train-section {
+  margin-bottom: 2rem;
+}
+
+.train-section__title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--color-primary, #0066cc);
+}
+
+.train-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+/* Train Card */
+.train-card {
+  background: var(--color-surface);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  padding: 1rem;
+  transition: box-shadow 0.2s ease;
+}
+
+.train-card:hover {
+  box-shadow: var(--shadow);
+}
+
+.train-card--delayed {
+  border-left: 4px solid #ff6b6b;
+}
+
+.train-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.train-card__type {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: white;
+}
+
+.train-card__number {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.train-card__delay {
+  color: #ff6b6b;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.train-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.train-card__destination,
+.train-card__position,
+.train-card__line {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.train-card__label {
+  color: #666;
+  font-size: 0.875rem;
+  min-width: 3rem;
+}
+
+.train-card__value {
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+/* Train Type Badges */
+.type-badge-local {
+  background-color: #333;
+}
+
+.type-badge-rapid {
+  background-color: #ff9800;
+}
+
+.type-badge-special-rapid {
+  background-color: #e91e63;
+}
+
+.type-badge-limited-express {
+  background-color: #2196f3;
+}
+
+.type-badge-default {
+  background-color: #757575;
+}
+
+/* Messages */
+.loading-message,
+.error-message,
+.empty-message {
+  padding: 2rem;
+  text-align: center;
+  color: #666;
+  font-size: 1rem;
+}
+
+.error-message {
+  color: #ff6b6b;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .train-list {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-group {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}

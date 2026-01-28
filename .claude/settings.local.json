@@ -7,7 +7,25 @@
       "mcp__serena__search_for_pattern",
       "mcp__serena__think_about_collected_information",
       "Bash(wc:*)",
-      "mcp__serena__find_symbol"
+      "mcp__serena__find_symbol",
+      "Bash(ls:*)",
+      "Bash(python -c:*)",
+      "Bash(uv venv)",
+      "Bash(uv pip install:*)",
+      "Bash(uv run uvicorn:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(python -m http.server:*)",
+      "Bash(grep:*)",
+      "Bash(uv run python:*)",
+      "Bash(taskkill /F /PID b2aeb54)",
+      "Bash(timeout /t 3)",
+      "Bash(timeout /t)",
+      "Bash(ping:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)"
     ]
   }
 }
