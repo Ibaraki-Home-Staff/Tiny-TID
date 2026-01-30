@@ -6,6 +6,7 @@ import {
   typeTextClass,
   normalizeTrain,
   stationAllowedCategories,
+  getNickname,
   CATEGORY
 } from '/assets/js/tid-category.js';
 
@@ -44,6 +45,8 @@ let alarmPlaying = false;
 let lastShownTrains = { up: [], down: [] };
 let lastSelectedCode = null;
 let lastIndexes = null;
+let delayTtsPlaying = false;
+let refreshing = false;
 
 const sp = new URLSearchParams(window.location.search);
 const area = sp.get('area') || '';
@@ -947,7 +950,7 @@ function markApproachAnnounced(trainNo, selectedCode, dir){
 // Low-priority TTS queue for delay announcements (preemptable by alarms)
 const delayTtsQueue = [];
 const delayTtsKeys = new Set();
-let delayTtsPlaying = false;
+// delayTtsPlaying moved to top of file (line 48)
 function queueDelayTts(message, key){
   try{
     const k = String(key||'');
@@ -1904,7 +1907,7 @@ async function refreshTrains(){
 }
 
 let refreshTimer = null;
-let refreshing = false;
+// refreshing moved to top of file (line 49)
 let visBound = false;
 function startAutoRefresh(){
   stopAutoRefresh();
@@ -2742,7 +2745,7 @@ function guessLineIdFromStations(data){
   return (data && data.lineId) ? String(data.lineId) : null;
 }
 
-// getNickname() moved to tid-category.js (internal function)
+// getNickname() moved to tid-category.js
 
 
 

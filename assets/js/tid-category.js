@@ -97,7 +97,7 @@ export function typeTextClass(cat){
  * @param {Object} train - 列車オブジェクト
  * @returns {string} 愛称文字列
  */
-function getNickname(train){
+export function getNickname(train){
   const n = train && train.nickname;
   if(n == null) return '';
   return String(n || '').trim();
