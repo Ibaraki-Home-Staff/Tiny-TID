@@ -2472,7 +2472,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
           }
         }
       }
-    } else {
+    else {
       // Category not in prefs - user hasn't checked this train type
       dbg('ALARM_CATEGORY_NOT_IN_PREFS', {
         trainNo: t.no,
