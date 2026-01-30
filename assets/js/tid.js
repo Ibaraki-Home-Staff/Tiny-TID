@@ -981,9 +981,8 @@ function preemptDelayTts(){
 }
 
 function cleanupAudioUnlockListeners(){
-  try{ document.removeEventListener('pointerdown', handleAudioUnlockGesture); }catch{}
-  try{ document.removeEventListener('keydown', handleAudioUnlockGesture); }catch{}
-  try{ document.removeEventListener('touchstart', handleAudioUnlockGesture); }catch{}
+  // Listeners registered with { once: true } are automatically removed after firing
+  // Just reset the flag to allow re-binding if needed
   audioUnlockBound = false;
 }
 function handleAudioUnlockGesture(){
@@ -1018,9 +1017,17 @@ function bindAudioUnlockOnce(){
   if(audioUnlockBound) return;
   audioUnlockBound = true;
   try{
-    document.addEventListener('pointerdown', handleAudioUnlockGesture, { once: true, passive: true });
-    document.addEventListener('keydown', handleAudioUnlockGesture, { once: true });
+    // Touch devices: touchstart is most reliable
     document.addEventListener('touchstart', handleAudioUnlockGesture, { once: true, passive: true });
+    // Desktop: keyboard and mouse
+    document.addEventListener('keydown', handleAudioUnlockGesture, { once: true });
+    // Modern browsers with pointer events (may not work on older iPad Safari)
+    if('PointerEvent' in window){
+      document.addEventListener('pointerdown', handleAudioUnlockGesture, { once: true, passive: true });
+    } else {
+      // Fallback for browsers without pointer events
+      document.addEventListener('mousedown', handleAudioUnlockGesture, { once: true, passive: true });
+    }
   }catch{}
 }
 
@@ -1858,9 +1865,9 @@ function populateStationFilter(indexes){
     if(savedPass === 'show' || savedPass === 'hide'){
       passSel.value = savedPass;
     }
-    passSel.addEventListener('change', () => refreshTrains());
     passSel.addEventListener('change', () => {
       setSetting(`lines.${line}.pass`, passSel.value);
+      refreshTrains();
     });
   }
   const refreshBtn = document.getElementById('refreshStationsBtn');
