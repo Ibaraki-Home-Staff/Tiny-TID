@@ -1,5 +1,13 @@
 import { loadComponents } from '/assets/js/components.js';
 import { U_TOKEN_TYPE_MAP } from '/assets/js/tid-rules.js';
+import {
+  trainCategoryFromDisplayType,
+  getCategoryLabel,
+  typeTextClass,
+  normalizeTrain,
+  stationAllowedCategories,
+  CATEGORY
+} from '/assets/js/tid-category.js';
 
 // Init
 loadComponents();
@@ -1183,22 +1191,7 @@ function initAlarmControls(){
     dnDis.onchange = ()=>{ saveAlarmDisable('down', dnDis.checked, selectedStationCode()); setDisabledForDir('down', dnDis.checked); };
   }
 }
-function getCategoryLabel(cat){
-  switch(Number(cat)){
-    case 0: return '普通';
-    case 1: return '新快速';
-    case 2: return '快速';
-    case 3: return '区間快速';
-    case 4: return '直通快速';
-    case 5: return '特急';
-    case 6: return '急行';
-    case 7: return '寝台';
-    case 8: return 'SL';
-    case 9: return '観光';
-    case 10: return '瑞風';
-    default: return `種別${cat}`;
-  }
-}
+// getCategoryLabel() moved to tid-category.js
 function renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam, enhancedList){
   const upBox = document.getElementById('alarmUpOptions');
   const downBox = document.getElementById('alarmDownOptions');
@@ -2230,81 +2223,23 @@ function typeBadgeClass(cat){
   }
 }
 
-function typeTextClass(cat){
-  switch(Number(cat)){
-    case 5: // 特急
-    case 6: // 急行
-    case 7: // 寝台
-    case 8: // SL
-    case 9: // 観光
-      return 'type-text-red';
-    case 1: // 新快速
-      return 'type-text-blue';
-    case 4: // 直通快速
-      return 'type-text-bluegray';
-    case 2: // 快速
-      return 'type-text-orange';
-    case 3: // 区間快速
-      return 'type-text-green';
-    case 10: // 瑞風
-      return 'type-text-emerald';
-    case 0: // 普通（デフォルト色を使う）
-    default:
-      return '';
+// typeTextClass() moved to tid-category.js
+
+// normalizeTrain() moved to tid-category.js
+// デバッグログを追加するためのラッパー関数
+function normalizeTrainWithDebug(train){
+  const result = normalizeTrain(train);
+  if(result !== train && TID_DEBUG){
+    const originalDisplayType = String(train.displayType || '').trim();
+    if(originalDisplayType !== result.displayType){
+      if(/^A[\s　]*新快/.test(originalDisplayType)){
+        dbg('NORMALIZE_TRAIN', { trainNo: train.no, original: originalDisplayType, normalized: result.displayType, nickname: result.nickname, pattern: 'A新快' });
+      } else if(/^う[\s　]*[^\s○◯〇×]+[\s　]*[○◯〇×]$/.test(originalDisplayType)){
+        dbg('NORMALIZE_TRAIN', { trainNo: train.no, original: originalDisplayType, normalized: result.displayType, nickname: result.nickname, pattern: 'うれしート' });
+      }
+    }
   }
-}
-
-function normalizeTrain(t){
-  try{
-    const obj = { ...t };
-    const label = String(obj.displayType || '').trim();
-    const originalDisplayType = label;
-
-    // A新快○/× → 新快速 + Aシート○/×（新快速はAシートありか愛称無しの二択）
-    try{
-      const mAshinkai = label.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
-      if(mAshinkai){
-        obj.displayType = '新快速';
-        const mark = mAshinkai[1];
-        const nick = getNickname(obj);
-        if(!/Aシート/i.test(nick)){
-          obj.nickname = nick ? `${nick} Aシート${mark}` : `Aシート${mark}`;
-        }
-        dbg('NORMALIZE_TRAIN', { trainNo: t.no, original: originalDisplayType, normalized: obj.displayType, nickname: obj.nickname, pattern: 'A新快' });
-      }
-    }catch{}
-
-    // 可変マップに基づく「う{token}○/×」→ displayType 正規化 + 愛称（うれしート○/×）付与
-    try{
-      const m = label.match(/^う[\s　]*([^\s○◯〇×]+)[\s　]*([○◯〇×])$/);
-      if(m){
-        const token = m[1];
-        const mark = m[2]; // ○ or ×
-        let targetType = null;
-
-        // 快速・普通は直接マッピング
-        if(token === '快速'){
-          targetType = '快速';
-        } else if(token === '普通'){
-          targetType = '普通';
-        } else {
-          // その他はU_TOKEN_TYPE_MAPを使用
-          targetType = U_TOKEN_TYPE_MAP ? U_TOKEN_TYPE_MAP[token] : undefined;
-        }
-
-        if(targetType){
-          obj.displayType = String(targetType);
-          const current = getNickname(obj);
-          if(!/うれしート/i.test(current)){
-            obj.nickname = current ? `${current} うれしート${mark}` : `うれしート${mark}`;
-          }
-          dbg('NORMALIZE_TRAIN', { trainNo: t.no, original: originalDisplayType, token, normalized: obj.displayType, nickname: obj.nickname, pattern: 'うれしート' });
-        }
-      }
-    }catch{}
-
-    return obj;
-  }catch{ return t; }
+  return result;
 }
 
 function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCats, dirParam){
@@ -2543,32 +2478,14 @@ function passKey(line){
   return `tid:pass:${line}`;
 }
 
-function stationAllowedCategories(st){
-  if(!st || !Array.isArray(st.stopTrains)) return null; // no filter
-  // ユーザー定義リストに基づくカテゴリ: 0=普通（補完）,1=新快速,2=快速,...
-  const set = new Set(st.stopTrains.map(n => Number(n)));
-  // 「普通」対策: displayTypeが「普通」の列車を許可するため、0を含める
-  set.add(0);
-  return set;
-}
+// stationAllowedCategories() moved to tid-category.js
 
-function trainCategoryFromDisplayType(dt){
-  const s = String(dt||'');
-  let cat = -1;
-  if(/新快速/.test(s)) cat = 1;
-  else if(/区間快速/.test(s)) cat = 3;
-  else if(/直通快速/.test(s)) cat = 4;
-  else if(/快速/.test(s)) cat = 2;
-  else if(/特急/.test(s)) cat = 5;
-  else if(/急行/.test(s)) cat = 6;
-  else if(/寝台/.test(s)) cat = 7;
-  else if(/\bSL\b/.test(s)) cat = 8;
-  else if(/観光/.test(s)) cat = 9;
-  else if(/瑞風/.test(s)) cat = 10;
-  else if(/普通/.test(s)) cat = 0;
-
+// trainCategoryFromDisplayType() moved to tid-category.js
+// デバッグログを追加するためのラッパー関数
+function trainCategoryFromDisplayTypeWithDebug(displayType){
+  const cat = trainCategoryFromDisplayType(displayType);
   if(TID_DEBUG && cat >= 0){
-    dbg('TRAIN_CATEGORY', { displayType: dt, category: cat, categoryLabel: getCategoryLabel(cat) });
+    dbg('TRAIN_CATEGORY', { displayType, category: cat, categoryLabel: getCategoryLabel(cat) });
   }
   return cat;
 }
@@ -2825,11 +2742,7 @@ function guessLineIdFromStations(data){
   return (data && data.lineId) ? String(data.lineId) : null;
 }
 
-function getNickname(t){
-  const n = t && t.nickname;
-  if(n == null) return '';
-  return String(n || '').trim();
-}
+// getNickname() moved to tid-category.js (internal function)
 
 
 
