@@ -10,6 +10,7 @@ import {
   getNickname,
   CATEGORY
 } from '/assets/js/tid-category.js';
+import { initBackgroundControls, notifyIfBackground } from '/assets/js/tid-background.js';
 
 // Init
 loadComponents();
@@ -95,7 +96,7 @@ paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路�
     initTTSControls();
     initDelayControls();
     initCarsControls();
-    initBackgroundControls();
+    initBackgroundControls({ getSetting, setSetting, dbg });
     if(TID_DEBUG){ try{ initDebugPanel(); }catch{} }
     const trains = await fetchTrains(line);
     setUpdatedAt(trains?.update);
@@ -805,94 +806,7 @@ async function primeAlarmAudio(){
   }catch{ return false; }
 }
 
-// Background notification and wake lock preferences
-function bgNotifyKey(){ return 'tid:bgnotify'; }
-function wakeLockKey(){ return 'tid:wakelock'; }
-function isBgNotifyEnabled(){
-  try{
-    const v = getSetting('bg.notify', null);
-    if(v === '1' || v === 1 || v === true) return true;
-    // fallback to legacy key if not set
-    return localStorage.getItem(bgNotifyKey()) === '1';
-  }catch{ return false; }
-}
-let screenWakeLock = null;
-async function enableWakeLock(){
-  try{
-    if(!('wakeLock' in navigator)) return false;
-    screenWakeLock = await navigator.wakeLock.request('screen');
-    screenWakeLock.addEventListener('release', () => { /* no-op */ });
-    return true;
-  }catch{ return false; }
-}
-async function disableWakeLock(){
-  try{ if(screenWakeLock){ await screenWakeLock.release(); screenWakeLock = null; } }catch{}
-}
-async function tryReacquireWakeLock(){
-  try{
-    if(localStorage.getItem(wakeLockKey()) === '1' && document.visibilityState === 'visible'){
-      if(!screenWakeLock) await enableWakeLock();
-    }
-  }catch{}
-}
-function initBackgroundControls(){
-  try{
-    const ncb = document.getElementById('bgNotifyEnable');
-    const wcb = document.getElementById('wakeLockEnable');
-    if(ncb){
-      ncb.checked = isBgNotifyEnabled();
-      ncb.addEventListener('change', async () => {
-        try{
-          if(ncb.checked){
-            if('Notification' in window){
-              let perm = Notification.permission;
-              if(perm !== 'granted'){
-                try{ perm = await Notification.requestPermission(); }catch{}
-              }
-              if(perm === 'granted'){
-                setSetting('bg.notify','1');
-                try{ localStorage.setItem(bgNotifyKey(), '1'); }catch{}
-              }else{
-                ncb.checked = false; setSetting('bg.notify','0'); try{ localStorage.setItem(bgNotifyKey(), '0'); }catch{}
-              }
-            }else{
-              ncb.checked = false; setSetting('bg.notify','0'); try{ localStorage.setItem(bgNotifyKey(), '0'); }catch{}
-            }
-          }else{
-            setSetting('bg.notify','0'); try{ localStorage.setItem(bgNotifyKey(), '0'); }catch{}
-          }
-        }catch{}
-      });
-    }
-    if(wcb){
-      const saved = (getSetting('bg.wakelock', null) === '1') || (localStorage.getItem(wakeLockKey()) === '1');
-      wcb.checked = saved;
-      if(saved) enableWakeLock();
-      wcb.addEventListener('change', async () => {
-        try{
-          if(wcb.checked){
-            setSetting('bg.wakelock','1'); try{ localStorage.setItem(wakeLockKey(), '1'); }catch{}
-            await enableWakeLock();
-          }else{
-            setSetting('bg.wakelock','0'); try{ localStorage.setItem(wakeLockKey(), '0'); }catch{}
-            await disableWakeLock();
-          }
-        }catch{}
-      });
-      // Reacquire on visibility change
-      document.addEventListener('visibilitychange', tryReacquireWakeLock);
-    }
-  }catch{}
-}
-function notifyIfBackground(message, tag){
-  try{
-    if(!document.hidden) return;
-    if(!isBgNotifyEnabled()) return;
-    if(!('Notification' in window) || Notification.permission !== 'granted') return;
-    const opts = { body: String(message||''), tag: String(tag||''), renotify: true, icon: '/assets/img/placeholder.svg' };
-    new Notification('列車接近', opts);
-  }catch{}
-}
+// Background notification and wake lock preferences moved to tid-background.js
 
 // Time-window suppression for approach alarms (persisted TTL + in-memory)
 const approachAnnouncedAt = new Map(); // key -> timestamp (in-memory)
@@ -1560,6 +1474,9 @@ function notifyOnce(dirStr, key, message, afterPlay, meta){
   if(set.has(key)) return false;
   if(!audioUnlocked){
     bindAudioUnlockOnce();
+    // Visual fallback so alarms still appear even when audio is locked
+    try{ if(meta) showAlarmModal(meta); }catch{}
+    try{ if('vibrate' in navigator){ navigator.vibrate([120, 80, 120]); } }catch{}
     if(!pendingAudioKeys.has(key)){
       pendingAudioKeys.add(key);
       pendingAudioQueue.push({
@@ -2401,7 +2318,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 });
               }catch{}
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
-              notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
+              notifyIfBackground(msg, approachKey(t.no, selectedCode, dir), { getSetting, dbg });
               alerted = true;
             } else {
               dbg('ALARM_NOT_STOPPING', { trainNo: t.no, cat, targetCode, targetAllowed: targetAllowed ? Array.from(targetAllowed) : null });
@@ -2467,7 +2384,7 @@ function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCa
                 });
               }catch{}
               notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
-              notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
+              notifyIfBackground(msg, approachKey(t.no, selectedCode, dir), { getSetting, dbg });
             }
           }
         }

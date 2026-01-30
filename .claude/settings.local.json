@@ -6,7 +6,9 @@
       "mcp__serena__read_memory",
       "mcp__serena__get_symbols_overview",
       "Bash(test:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(node --check:*)",
+      "Bash(curl:*)"
     ]
   }
 }
