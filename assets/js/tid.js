@@ -1,5 +1,6 @@
 import { loadComponents } from '/assets/js/components.js';
 import { U_TOKEN_TYPE_MAP } from '/assets/js/tid-rules.js';
+// tid-category.js: カテゴリ判定とデータ正規化
 import {
   trainCategoryFromDisplayType,
   getCategoryLabel,

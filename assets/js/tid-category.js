@@ -1,6 +1,6 @@
 import { U_TOKEN_TYPE_MAP } from './tid-rules.js';
 
-// カテゴリ定数
+// カテゴリ定数（列車種別のマッピング）
 export const CATEGORY = {
   LOCAL: 0,
   RAPID_SPECIAL: 1,  // 新快速
