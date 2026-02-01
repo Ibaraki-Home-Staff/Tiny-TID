@@ -3,7 +3,10 @@ from typing import Dict, List
 from config import get_settings
 from services.jrwest.realtime_cache import realtime_cache
 from services.jrwest.realtime_models import TrainPositionData, RealtimeCacheStatus
-from services.jrwest.station_graph import build_station_graph, format_position
+from services.jrwest.station_graph import (
+    build_station_graph_multi_area,
+    format_position,
+)
 
 router = APIRouter(prefix="/jrwest/realtime", tags=["jrwest-realtime"])
 
@@ -24,10 +27,10 @@ async def get_all_realtime_data():
     settings = get_settings()
     base_station = settings.wjrc_stcode
     target_lines = settings.wjrc_line.split(",") if settings.wjrc_line else []
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
     if base_station and target_lines:
-        graph = build_station_graph(base_station, target_lines, area)
+        graph = build_station_graph_multi_area(base_station, target_lines, areas)
         if graph:
             # 各列車のposition_textを設定
             for line_id, line_data in data.items():
@@ -55,10 +58,10 @@ async def get_line_realtime(line: str):
     settings = get_settings()
     base_station = settings.wjrc_stcode
     target_lines = settings.wjrc_line.split(",") if settings.wjrc_line else []
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
     if base_station and target_lines:
-        graph = build_station_graph(base_station, target_lines, area)
+        graph = build_station_graph_multi_area(base_station, target_lines, areas)
         if graph:
             # 各列車のposition_textを設定
             for train in data.trains:
@@ -75,5 +78,7 @@ async def get_realtime_status():
     from config import get_settings
 
     settings = get_settings()
-    status = realtime_cache.get_all_status(settings.wjrc_area)
+    # 複数エリアの場合は最初のエリアを使用（ステータス表示用）
+    area = settings.wjrc_areas[0] if settings.wjrc_areas else "unknown"
+    status = realtime_cache.get_all_status(area)
     return status

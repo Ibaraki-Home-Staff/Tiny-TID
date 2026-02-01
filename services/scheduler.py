@@ -135,22 +135,24 @@ def realtime_polling_loop():
     lines = [line.strip() for line in settings.wjrc_line.split(",")]
     line_interval = settings.wjrc_line_interval
     polling_interval = settings.wjrc_polling_interval
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
-    # 路線名を取得
-    area_data = jrwest_cache.get_area(area)
+    # 路線名を取得（全エリアから）
     line_names = {}
-    if area_data:
-        for line_id in lines:
-            if line_id in area_data.master.lines:
-                line_names[line_id] = area_data.master.lines[line_id].name
-            else:
-                line_names[line_id] = line_id
-    else:
-        line_names = {line_id: line_id for line_id in lines}
+    for area in areas:
+        area_data = jrwest_cache.get_area(area)
+        if area_data:
+            for line_id in lines:
+                if line_id in area_data.master.lines:
+                    line_names[line_id] = area_data.master.lines[line_id].name
+
+    # 見つからない路線はIDをそのまま使用
+    for line_id in lines:
+        if line_id not in line_names:
+            line_names[line_id] = line_id
 
     print(f"[{datetime.now()}] リアルタイムポーリング開始")
-    print(f"  - エリア: {area}")
+    print(f"  - エリア: {', '.join(areas)}")
     print(f"  - 路線: {', '.join(lines)}")
     print(f"  - 路線間隔: {line_interval}秒")
     print(f"  - 総サイクル: {polling_interval}秒")

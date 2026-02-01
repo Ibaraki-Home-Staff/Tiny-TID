@@ -183,25 +183,41 @@ def select_station(api_key: str, prefecture_code: str) -> str:
                 print("数字を入力してください。")
 
 
-def select_jr_area() -> str:
-    """JR西日本エリアを選択"""
+def select_jr_areas() -> List[str]:
+    """JR西日本エリアを複数選択"""
     print("\nJR西日本のエリアを選択してください:\n")
 
     area_list = list(JR_AREAS.items())
     for i, (display, key) in enumerate(area_list, 1):
         print(f"  {i}. {display}")
 
+    print("\n複数選択する場合は、カンマ区切りで番号を入力してください（例: 1,2）")
+    print("全て選択する場合は 'all' と入力してください")
+
     while True:
+        choice = input("\n選択するエリアの番号を入力してください: ").strip()
+
+        if choice.lower() == "all":
+            selected = [key for _, key in area_list]
+            print(f"選択: 全{len(selected)}エリア")
+            return selected
+
         try:
-            choice = input("\n選択するエリアの番号を入力してください: ").strip()
-            idx = int(choice) - 1
-            if 0 <= idx < len(area_list):
-                display_name, area_key = area_list[idx]
-                print(f"選択: {display_name}")
-                return area_key
-            print("無効な番号です。")
+            indices = [int(x.strip()) - 1 for x in choice.split(",")]
+            selected = []
+            selected_names = []
+            for idx in indices:
+                if 0 <= idx < len(area_list):
+                    display_name, area_key = area_list[idx]
+                    selected.append(area_key)
+                    selected_names.append(display_name)
+
+            if selected:
+                print(f"選択: {', '.join(selected_names)}")
+                return selected
+            print("有効なエリアが選択されていません。")
         except ValueError:
-            print("数字を入力してください。")
+            print("無効な入力です。数字または'all'を入力してください。")
 
 
 def fetch_jr_lines(area: str) -> Dict[str, Dict[str, str]]:
@@ -223,21 +239,27 @@ def fetch_jr_lines(area: str) -> Dict[str, Dict[str, str]]:
                     lines[line_id] = {"name": line_name, "range": line_range}
         return lines
     except Exception as e:
-        print(f"路線一覧取得エラー: {e}")
+        print(f"路線一覧取得エラー ({area}): {e}")
         return {}
 
 
-def select_jr_lines(area: str) -> List[str]:
-    """JR西日本の路線を複数選択"""
-    print(f"\n{area}エリアの路線を取得中...")
-    lines = fetch_jr_lines(area)
+def select_jr_lines(areas: List[str]) -> List[str]:
+    """JR西日本の路線を複数選択（複数エリア対応）"""
+    all_lines = {}
 
-    if not lines:
+    for area in areas:
+        print(f"\n{area}エリアの路線を取得中...")
+        lines = fetch_jr_lines(area)
+        if lines:
+            all_lines.update(lines)
+            print(f"  → {len(lines)}路線取得")
+
+    if not all_lines:
         print("路線情報が取得できませんでした。")
         return []
 
-    print(f"\n{len(lines)}路線が見つかりました:\n")
-    line_items = list(lines.items())
+    print(f"\n合計{len(all_lines)}路線が見つかりました:\n")
+    line_items = list(all_lines.items())
     for i, (line_id, line_info) in enumerate(line_items, 1):
         line_name = line_info.get("name", line_id)
         line_range = line_info.get("range", "")
@@ -267,7 +289,7 @@ def select_jr_lines(area: str) -> List[str]:
             if selected:
                 print(f"選択: {len(selected)}路線")
                 for line_id in selected:
-                    line_info = lines[line_id]
+                    line_info = all_lines[line_id]
                     line_name = line_info.get("name", line_id)
                     line_range = line_info.get("range", "")
                     if line_range:
@@ -304,10 +326,10 @@ def fetch_jr_stations(line_id: str) -> Dict[str, str]:
         return {}
 
 
-def select_jr_station(line_ids: List[str], area: str) -> tuple:
-    """JR西日本の駅を選択（エア・路線を指定して正確に選ぶ）"""
+def select_jr_station(line_ids: List[str], areas: List[str]) -> tuple:
+    """JR西日本の駅を選択（エリア・路線を指定して正確に選ぶ）"""
     print(f"\n{len(line_ids)}路線から駅を検索します。")
-    print(f"対象エア: {area}")
+    print(f"対象エリア: {', '.join(areas)}")
 
     # 各路線の駅を個別に収集（路線情報も保持）
     line_stations = {}  # {line_id: {code: name}}
@@ -469,12 +491,13 @@ def run_wizard() -> bool:
     # ステップ4: JR西日本エリア選択
     current_step += 1
     print_step(current_step, total_steps, "JR西日本エリアの選択")
-    jr_area = select_jr_area()
+    jr_areas = select_jr_areas()
+    jr_area_str = ",".join(jr_areas) if jr_areas else ""
 
     # ステップ5: JR西日本路線選択
     current_step += 1
     print_step(current_step, total_steps, "JR西日本路線の選択")
-    jr_lines = select_jr_lines(jr_area)
+    jr_lines = select_jr_lines(jr_areas)
     jr_line_str = ",".join(jr_lines) if jr_lines else ""
 
     # ステップ6: JR西日本駅選択
@@ -483,7 +506,7 @@ def run_wizard() -> bool:
     jr_station_code = ""
     jr_station_line = ""
     if jr_lines:
-        jr_station_code, jr_station_line = select_jr_station(jr_lines, jr_area)
+        jr_station_code, jr_station_line = select_jr_station(jr_lines, jr_areas)
 
         # 選択された駅が路線上にない場合は警告
         if jr_station_code and not jr_station_line:
@@ -508,7 +531,7 @@ def run_wizard() -> bool:
         "ekispert_api_key": api_key,
         "station_code": station_code,
         "cache_dir": cache_dir,
-        "wjrc_area": jr_area,
+        "wjrc_area": jr_area_str,
         "wjrc_line": jr_line_str,
         "wjrc_stcode": jr_station_code,
         "wjrc_polling_interval": polling_interval,
@@ -519,7 +542,7 @@ def run_wizard() -> bool:
     print_header("設定内容の確認")
     print(f"駅すぱあとAPIキー: {'*' * 8}{api_key[-4:] if len(api_key) > 4 else ''}")
     print(f"駅コード: {station_code}")
-    print(f"JR西日本エリア: {jr_area}")
+    print(f"JR西日本エリア: {jr_area_str}")
     print(f"JR西日本路線: {jr_line_str[:50]}{'...' if len(jr_line_str) > 50 else ''}")
     print(f"JR西日本駅コード: {jr_station_code}")
     print(f"ポーリング間隔: {polling_interval}秒")

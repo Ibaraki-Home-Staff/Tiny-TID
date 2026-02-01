@@ -292,6 +292,269 @@ def build_station_graph(
     )
 
 
+def build_station_graph_multi_area(
+    base_station_code: str, target_line_ids: List[str], areas: List[str]
+) -> Optional[StationGraph]:
+    """
+    複数エリア対応の駅グラフを構築
+
+    Args:
+        base_station_code: 起点駅コード（WJRC_STCODE）
+        target_line_ids: 対象路線IDリスト（WJRC_LINE）
+        areas: エリアコードリスト（複数指定可能）
+
+    Returns:
+        StationGraphオブジェクト
+    """
+    if not areas:
+        return None
+
+    # 単一エリアの場合は既存関数を使用
+    if len(areas) == 1:
+        return build_station_graph(base_station_code, target_line_ids, areas[0])
+
+    # 複数エリアのデータを統合
+    from .models import AreaData
+
+    all_area_data = {}
+    for area in areas:
+        area_data = cache.get_area(area)
+        if area_data:
+            all_area_data[area] = area_data
+
+    if not all_area_data:
+        return None
+
+    # 起点駅を検索（全エリアから）
+    base_info = None
+    base_area = None
+    base_line_id = None
+
+    for area, area_data in all_area_data.items():
+        for line_id in target_line_ids:
+            station_list = area_data.stations.get(line_id)
+            if not station_list:
+                continue
+            for idx, station in enumerate(station_list.stations):
+                if station.info.code == base_station_code:
+                    base_info = {
+                        "line_id": line_id,
+                        "station_index": idx,
+                        "station_data": station,
+                        "line_info": area_data.master.lines.get(line_id),
+                    }
+                    base_area = area
+                    base_line_id = line_id
+                    break
+            if base_info:
+                break
+        if base_info:
+            break
+
+    if not base_info:
+        return None
+
+    base_station_idx = base_info["station_index"]
+    base_station_data = base_info["station_data"]
+    base_line_info = base_info["line_info"]
+
+    lines = []
+    processed_lines = set()
+
+    # 対象路線ごとに処理（全エリアから検索）
+    for line_id in target_line_ids:
+        if line_id in processed_lines:
+            continue
+
+        # 路線が存在するエリアを探す
+        line_area_data = None
+        for area, area_data in all_area_data.items():
+            if line_id in area_data.stations:
+                line_area_data = area_data
+                break
+
+        if not line_area_data:
+            continue
+
+        station_list = line_area_data.stations.get(line_id)
+        line_info = line_area_data.master.lines.get(line_id)
+
+        if not station_list or not line_info:
+            continue
+
+        # 起点駅がこの路線上にあるか確認
+        base_idx_in_line = None
+        for idx, station in enumerate(station_list.stations):
+            if station.info.code == base_station_code:
+                base_idx_in_line = idx
+                break
+
+        stations = []
+
+        if base_idx_in_line is not None:
+            # 起点駅がこの路線上にある場合
+            for idx, station in enumerate(station_list.stations):
+                distance = idx - base_idx_in_line
+
+                if distance < 0:
+                    direction = "upper"
+                elif distance > 0:
+                    direction = "lower"
+                else:
+                    direction = "base"
+
+                # 停車列車種別を取得
+                stop_trains = []
+                if station.info.stop_trains:
+                    from .models import get_stop_train_names
+
+                    stop_trains = get_stop_train_names(station.info.stop_trains)
+
+                node = StationNode(
+                    code=station.info.code,
+                    name=station.info.name,
+                    line_id=line_id,
+                    line_name=line_info.name,
+                    distance_from_base=distance,
+                    direction_from_base=direction,
+                    is_base_station=(distance == 0),
+                    transfers=[
+                        {
+                            "name": t.name,
+                            "code": t.code,
+                            "link": t.link,
+                            "link_code": t.link_code,
+                        }
+                        for t in (station.info.transfer or [])
+                    ],
+                    stop_trains=stop_trains,
+                )
+                stations.append(node)
+        else:
+            # 起点駅がこの路線上にない場合
+            for idx, station in enumerate(station_list.stations):
+                stop_trains = []
+                if station.info.stop_trains:
+                    from .models import get_stop_train_names
+
+                    stop_trains = get_stop_train_names(station.info.stop_trains)
+
+                node = StationNode(
+                    code=station.info.code,
+                    name=station.info.name,
+                    line_id=line_id,
+                    line_name=line_info.name,
+                    distance_from_base=None,
+                    direction_from_base="unknown",
+                    is_base_station=False,
+                    transfers=[
+                        {
+                            "name": t.name,
+                            "code": t.code,
+                            "link": t.link,
+                            "link_code": t.link_code,
+                        }
+                        for t in (station.info.transfer or [])
+                    ],
+                    stop_trains=stop_trains,
+                )
+                stations.append(node)
+
+        if stations:
+            line_segment = LineSegment(
+                line_id=line_id,
+                line_name=line_info.name,
+                line_range=line_info.range,
+                direction={
+                    "upper": line_info.dest.upper,
+                    "lower": line_info.dest.lower,
+                },
+                stations=stations,
+            )
+            lines.append(line_segment)
+            processed_lines.add(line_id)
+
+    # 接続路線を追加（起点駅の乗換情報から、全エリアで検索）
+    if base_station_data.info.transfer:
+        for transfer in base_station_data.info.transfer:
+            if transfer.link and transfer.link not in processed_lines:
+                # 接続路線のデータを取得（全エリアから検索）
+                linked_line_id = transfer.link
+                linked_area_data = None
+
+                for area, area_data in all_area_data.items():
+                    if linked_line_id in area_data.stations:
+                        linked_area_data = area_data
+                        break
+
+                if linked_area_data:
+                    station_list = linked_area_data.stations[linked_line_id]
+                    line_info = linked_area_data.master.lines.get(linked_line_id)
+
+                    if station_list and line_info:
+                        stations = []
+                        for idx, station in enumerate(station_list.stations):
+                            stop_trains = []
+                            if station.info.stop_trains:
+                                from .models import get_stop_train_names
+
+                                stop_trains = get_stop_train_names(
+                                    station.info.stop_trains
+                                )
+
+                            # 接続駅かどうかを判定
+                            is_transfer_station = (
+                                station.info.code == transfer.link_code
+                            )
+
+                            node = StationNode(
+                                code=station.info.code,
+                                name=station.info.name,
+                                line_id=linked_line_id,
+                                line_name=line_info.name,
+                                distance_from_base=0 if is_transfer_station else None,
+                                direction_from_base="transfer"
+                                if is_transfer_station
+                                else "unknown",
+                                is_base_station=False,
+                                transfers=[
+                                    {
+                                        "name": t.name,
+                                        "code": t.code,
+                                        "link": t.link,
+                                        "link_code": t.link_code,
+                                    }
+                                    for t in (station.info.transfer or [])
+                                ],
+                                stop_trains=stop_trains,
+                            )
+                            stations.append(node)
+
+                        if stations:
+                            line_segment = LineSegment(
+                                line_id=linked_line_id,
+                                line_name=line_info.name,
+                                line_range=line_info.range,
+                                direction={
+                                    "upper": line_info.dest.upper,
+                                    "lower": line_info.dest.lower,
+                                },
+                                stations=stations,
+                            )
+                            lines.append(line_segment)
+                            processed_lines.add(linked_line_id)
+
+    return StationGraph(
+        base_station={
+            "code": base_station_code,
+            "name": base_station_data.info.name,
+            "line_id": base_line_id,
+            "line_name": base_line_info.name if base_line_info else "",
+        },
+        lines=lines,
+    )
+
+
 def get_train_direction_from_graph(
     train_pos: str, station_graph: StationGraph
 ) -> Optional[str]:

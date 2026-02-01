@@ -189,7 +189,7 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
         line.strip() for line in settings.wjrc_line.split(",") if line.strip()
     ]
     target_station_code = settings.wjrc_stcode
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
     if not target_station_code or not target_lines:
         print(
@@ -197,22 +197,57 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
         )
         return None
 
-    # 駅データを取得（stopTrains確認用）
-    station_data = jrwest_cache.search_station_in_area(area, target_station_code)
+    # 駅データを取得（全エリアから検索）
+    station_data = None
+    found_area = None
+    print(
+        f"[{datetime.now()}] 駅データ検索開始: station_code={target_station_code}, areas={areas}"
+    )
+    for area in areas:
+        print(f"  - {area}エリアで検索中...")
+        station_data = jrwest_cache.search_station_in_area(area, target_station_code)
+        if station_data:
+            found_area = area
+            print(
+                f"  - {area}エリアで見つかりました: {station_data.info.name} (code={station_data.info.code})"
+            )
+            break
+
     if not station_data:
         print(
-            f"[{datetime.now()}] 駅列車データ生成: 駅データが見つかりません (station_code={target_station_code})"
+            f"[{datetime.now()}] 駅列車データ生成: 駅データが見つかりません (station_code={target_station_code}, areas={areas})"
         )
         return None
 
     station_name = station_data.info.name
     station_stop_trains = station_data.info.stop_trains
+    print(
+        f"[{datetime.now()}] 駅データ確定: {station_name} (code={target_station_code}, area={found_area})"
+    )
 
-    # 駅グラフを構築（経路判定用）
-    station_graph = build_station_graph(target_station_code, target_lines, area)
+    # 駅グラフを構築（複数エリア対応）
+    from services.jrwest.station_graph import build_station_graph_multi_area
+
+    station_graph = build_station_graph_multi_area(
+        target_station_code, target_lines, areas
+    )
     if not station_graph:
         print(f"[{datetime.now()}] 駅列車データ生成: 駅グラフ構築失敗")
         return None
+
+    # 駅グラフに起点駅が含まれているか確認（指定路線内に存在するかの最終確認）
+    if station_graph.base_station.get("code") != target_station_code:
+        print(
+            f"[{datetime.now()}] 駅列車データ生成: 指定駅{target_station_code}は駅グラフに含まれていません "
+            f"(指定路線 {target_lines} 内に存在しない可能性があります)"
+        )
+        return None
+
+    print(
+        f"[{datetime.now()}] 駅グラフ構築完了: {station_graph.base_station.get('name')} "
+        f"(code={station_graph.base_station.get('code')}, "
+        f"lines={[line.line_id for line in station_graph.lines]})"
+    )
 
     # 対象路線のリアルタイムデータを取得
     up_trains: List[Dict[str, Any]] = []
@@ -224,8 +259,8 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
             continue
 
         for train in line_data.trains:
-            # 行先コードを取得
-            destination_code = train.dest.code if train.dest else None
+            # 行先コードを取得（プロパティを使用して互換性を確保）
+            destination_code = train.dest_code if train.dest else None
 
             # 指定駅を経路上に持つか判定（行先ベース）
             if not is_train_on_route_to_station(
@@ -270,7 +305,7 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
                 "train_type": train_type_converted,
                 "nickname": train.nickname or "",
                 "car_count": train.number_of_cars,
-                "destination": train.dest.text if train.dest else "",
+                "destination": train.dest_text if train.dest else "",
                 "location": location_str,
                 "scheduled": scheduled_str,
                 "estimated": estimated_str,

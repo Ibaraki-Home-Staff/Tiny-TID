@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     cache_dir: str = "./cache"
 
     # JR西日本リアルタイム設定
-    wjrc_area: str = "kinki"
+    wjrc_area: str = "kinki"  # カンマ区切りで複数指定可能: "kinki,hokuriku"
     wjrc_line: str = "kyoto,hokurikubiwako,kosei,kobesanyo"
     wjrc_stcode: str = ""  # 起点駅コード
     wjrc_polling_interval: int = 10  # 秒
@@ -20,6 +21,11 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    @property
+    def wjrc_areas(self) -> List[str]:
+        """複数エリアをリストで返す"""
+        return [a.strip() for a in self.wjrc_area.split(",") if a.strip()]
 
 
 @lru_cache()
