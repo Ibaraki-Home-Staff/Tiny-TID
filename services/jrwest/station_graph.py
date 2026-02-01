@@ -83,24 +83,43 @@ def find_station_in_target_lines(
     return None
 
 
-def collect_jr_lines_from_transfer(area_data: Any, target_line_ids: List[str]) -> set:
+def collect_jr_lines_from_transfer(
+    area_data: Any,
+    target_line_ids: List[str],
+    max_depth: int = 2,
+    visited_lines: set = None,
+) -> set:
     """
-    駅のtransfer情報からtype:0（JR路線）の路線を収集
+    駅のtransfer情報からtype:0（JR路線）の路線を再帰的に収集
 
     Args:
         area_data: エリアデータ
-        target_line_ids: 指定路線IDリスト
+        target_line_ids: 探索対象の路線IDリスト
+        max_depth: 最大探索深度（1=子路線のみ、2=孫路線まで、など）
+        visited_lines: 既に訪問した路線（再帰用、循環防止）
 
     Returns:
         追加すべきJR路線IDのセット
     """
+    if visited_lines is None:
+        visited_lines = set()
+
+    if max_depth <= 0:
+        return set()
+
     additional_lines = set()
 
     for line_id in target_line_ids:
+        # 循環防止：既に訪問した路線はスキップ
+        if line_id in visited_lines:
+            continue
+        visited_lines.add(line_id)
+
         station_list = area_data.stations.get(line_id)
         if not station_list:
             continue
 
+        child_lines = set()
         for station in station_list.stations:
             if station.info.transfer:
                 for transfer in station.info.transfer:
@@ -109,7 +128,15 @@ def collect_jr_lines_from_transfer(area_data: Any, target_line_ids: List[str]) -
                         linked_line_id = transfer.link
                         # エリア内に存在する路線のみ追加
                         if linked_line_id in area_data.stations:
+                            child_lines.add(linked_line_id)
                             additional_lines.add(linked_line_id)
+
+        # 子路線についても再帰的に探索（孫路線など）
+        if child_lines and max_depth > 1:
+            grandchild_lines = collect_jr_lines_from_transfer(
+                area_data, list(child_lines), max_depth - 1, visited_lines
+            )
+            additional_lines.update(grandchild_lines)
 
     return additional_lines
 
@@ -146,6 +173,14 @@ def build_station_graph(
     if additional_jr_lines:
         print(f"  - transferからJR路線を追加: {additional_jr_lines}")
 
+    # 重要: 処理順序を制御
+    # 1. まず指定路線を処理（起点駅を含む）
+    # 2. 次にtransfer路線を処理（接続駅から距離を計算するため）
+    lines_to_process_first = target_line_ids  # 第1パス: 指定路線
+    lines_to_process_second = list(
+        additional_jr_lines - set(target_line_ids)
+    )  # 第2パス: transfer路線
+
     # 起点駅を検索（指定路線上を優先）
     base_info = find_station_in_target_lines(base_station_code, area, target_line_ids)
     if not base_info:
@@ -163,12 +198,15 @@ def build_station_graph(
 
     lines_data = []  # 各線の生データを保存
 
-    for line_id in all_line_ids:
+    def process_line(line_id):
+        """単一路線を処理してlines_dataに追加"""
+        nonlocal station_distance_registry, station_info_registry
+
         station_list = area_data.stations.get(line_id)
         line_info = area_data.master.lines.get(line_id)
 
         if not station_list or not line_info:
-            continue
+            return None
 
         # この路線上での起点駅の位置を特定
         base_idx_in_line = None
@@ -195,14 +233,24 @@ def build_station_graph(
                     # 既に登録済みの駅は、路線リストに追加
                     station_info_registry[code]["lines"].append(line_id)
 
-        lines_data.append(
-            {
-                "line_id": line_id,
-                "line_info": line_info,
-                "station_list": station_list,
-                "base_idx": base_idx_in_line,
-            }
-        )
+        return {
+            "line_id": line_id,
+            "line_info": line_info,
+            "station_list": station_list,
+            "base_idx": base_idx_in_line,
+        }
+
+    # 第1パス: 指定路線を処理（起点駅を含む路線）
+    for line_id in lines_to_process_first:
+        line_data = process_line(line_id)
+        if line_data:
+            lines_data.append(line_data)
+
+    # 第2パス: transfer路線を処理（接続駅から距離を計算するため、指定路線の後に処理）
+    for line_id in lines_to_process_second:
+        line_data = process_line(line_id)
+        if line_data:
+            lines_data.append(line_data)
 
     # 第二段階：統一された距離値を使用して駅グラフを構築
     lines = []
@@ -302,6 +350,22 @@ def build_station_graph(
                     if transfer_station_idx is not None:
                         break
 
+            # フォールバック: 接続駅が見つからない場合、起点駅のtransfer情報から探す
+            if transfer_station_idx is None and base_station_data.info.transfer:
+                for transfer in base_station_data.info.transfer:
+                    if transfer.link == line_id:
+                        # 起点駅がこの路線と接続している
+                        # link_codeがこの路線上の駅コード
+                        link_station_code = transfer.link_code
+                        if link_station_code:
+                            for idx, station in enumerate(station_list.stations):
+                                if station.info.code == link_station_code:
+                                    transfer_station_idx = idx
+                                    transfer_station_distance = 0  # 起点駅扱い
+                                    connected_line_id = line_id
+                                    break
+                        break
+
             # 2. 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
                 stop_trains = []
@@ -352,17 +416,37 @@ def build_station_graph(
                 stations.append(node)
 
         if stations:
-            line_segment = LineSegment(
-                line_id=line_id,
-                line_name=line_info.name,
-                line_range=line_info.range,
-                direction={
-                    "upper": line_info.dest.upper,
-                    "lower": line_info.dest.lower,
-                },
-                stations=stations,
-            )
-            lines.append(line_segment)
+            # 重複区間の検出と統合
+            # 同じ駅シーケンスを持つ既存セグメントを探す
+            station_codes = tuple(s.code for s in stations)
+            existing_idx = None
+            for idx, existing in enumerate(lines):
+                existing_codes = tuple(s.code for s in existing.stations)
+                if existing_codes == station_codes:
+                    existing_idx = idx
+                    break
+
+            if existing_idx is not None:
+                # 重複区間を統合：既存セグメントの路線情報を更新
+                existing = lines[existing_idx]
+                # 路線情報を追加（カンマ区切りで複数路線を表記）
+                existing.line_id = f"{existing.line_id},{line_id}"
+                existing.line_name = f"{existing.line_name}/{line_info.name}"
+                # 営業キロ範囲も統合
+                existing.line_range = f"{existing.line_range},{line_info.range}"
+            else:
+                # 新規セグメントを追加
+                line_segment = LineSegment(
+                    line_id=line_id,
+                    line_name=line_info.name,
+                    line_range=line_info.range,
+                    direction={
+                        "upper": line_info.dest.upper,
+                        "lower": line_info.dest.lower,
+                    },
+                    stations=stations,
+                )
+                lines.append(line_segment)
             processed_lines.add(line_id)
 
     # 接続路線を追加（起点駅の乗換情報から）
@@ -415,17 +499,42 @@ def build_station_graph(
                             stations.append(node)
 
                         if stations:
-                            line_segment = LineSegment(
-                                line_id=linked_line_id,
-                                line_name=line_info.name,
-                                line_range=line_info.range,
-                                direction={
-                                    "upper": line_info.dest.upper,
-                                    "lower": line_info.dest.lower,
-                                },
-                                stations=stations,
-                            )
-                            lines.append(line_segment)
+                            # 重複区間の検出と統合
+                            station_codes = tuple(s.code for s in stations)
+                            existing_idx = None
+                            for idx, existing in enumerate(lines):
+                                existing_codes = tuple(
+                                    s.code for s in existing.stations
+                                )
+                                if existing_codes == station_codes:
+                                    existing_idx = idx
+                                    break
+
+                            if existing_idx is not None:
+                                # 重複区間を統合
+                                existing = lines[existing_idx]
+                                existing.line_id = (
+                                    f"{existing.line_id},{linked_line_id}"
+                                )
+                                existing.line_name = (
+                                    f"{existing.line_name}/{line_info.name}"
+                                )
+                                existing.line_range = (
+                                    f"{existing.line_range},{line_info.range}"
+                                )
+                            else:
+                                # 新規セグメントを追加
+                                line_segment = LineSegment(
+                                    line_id=linked_line_id,
+                                    line_name=line_info.name,
+                                    line_range=line_info.range,
+                                    direction={
+                                        "upper": line_info.dest.upper,
+                                        "lower": line_info.dest.lower,
+                                    },
+                                    stations=stations,
+                                )
+                                lines.append(line_segment)
                             processed_lines.add(linked_line_id)
 
     return StationGraph(
@@ -520,12 +629,21 @@ def build_station_graph_multi_area(
     base_line_info = base_info["line_info"]
     base_line_id = base_info["line_id"]
 
+    # 重要: 処理順序を制御
+    # 1. まず指定路線を処理（起点駅を含む）
+    # 2. 次にtransfer路線を処理（接続駅から距離を計算するため）
+    lines_to_process_first = target_line_ids  # 第1パス: 指定路線
+    lines_to_process_second = list(
+        additional_jr_lines - set(target_line_ids)
+    )  # 第2パス: transfer路線
+
     # 第一段階：全路線の駅データを収集し、同一駅を検出
     # station_code -> 距離値のマッピング（最初に見つかった距離を使用）
     station_distance_registry: Dict[str, int] = {}
     lines_data = []  # 各線の生データを保存
 
-    for line_id in all_line_ids:
+    def process_line_multi(line_id):
+        """単一路線を処理してlines_dataに追加（マルチエリア版）"""
         # 路線が存在するエリアを探す
         line_area_data = None
         for area, area_data in all_area_data.items():
@@ -534,13 +652,13 @@ def build_station_graph_multi_area(
                 break
 
         if not line_area_data:
-            continue
+            return None
 
         station_list = line_area_data.stations.get(line_id)
         line_info = line_area_data.master.lines.get(line_id)
 
         if not station_list or not line_info:
-            continue
+            return None
 
         # 起点駅がこの路線上にあるか確認
         base_idx_in_line = None
@@ -559,15 +677,25 @@ def build_station_graph_multi_area(
                     # 初めて見つかった駅は登録
                     station_distance_registry[code] = distance
 
-        lines_data.append(
-            {
-                "line_id": line_id,
-                "line_info": line_info,
-                "station_list": station_list,
-                "base_idx": base_idx_in_line,
-                "line_area_data": line_area_data,
-            }
-        )
+        return {
+            "line_id": line_id,
+            "line_info": line_info,
+            "station_list": station_list,
+            "base_idx": base_idx_in_line,
+            "line_area_data": line_area_data,
+        }
+
+    # 第1パス: 指定路線を処理（起点駅を含む路線）
+    for line_id in lines_to_process_first:
+        line_data = process_line_multi(line_id)
+        if line_data:
+            lines_data.append(line_data)
+
+    # 第2パス: transfer路線を処理（接続駅から距離を計算するため、指定路線の後に処理）
+    for line_id in lines_to_process_second:
+        line_data = process_line_multi(line_id)
+        if line_data:
+            lines_data.append(line_data)
 
     # 第二段階：統一された距離値を使用して駅グラフを構築
     lines = []
@@ -644,6 +772,20 @@ def build_station_graph_multi_area(
                     transfer_station_distance = station_distance_registry[code]
                     break
 
+            # フォールバック: 接続駅が見つからない場合、起点駅のtransfer情報から探す
+            if transfer_station_idx is None and base_station_data.info.transfer:
+                for transfer in base_station_data.info.transfer:
+                    if transfer.link == line_id:
+                        # 起点駅がこの路線と接続している
+                        link_station_code = transfer.link_code
+                        if link_station_code:
+                            for idx, station in enumerate(station_list.stations):
+                                if station.info.code == link_station_code:
+                                    transfer_station_idx = idx
+                                    transfer_station_distance = 0
+                                    break
+                        break
+
             # 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
                 code = station.info.code
@@ -704,17 +846,34 @@ def build_station_graph_multi_area(
                 stations.append(node)
 
         if stations:
-            line_segment = LineSegment(
-                line_id=line_id,
-                line_name=line_info.name,
-                line_range=line_info.range,
-                direction={
-                    "upper": line_info.dest.upper,
-                    "lower": line_info.dest.lower,
-                },
-                stations=stations,
-            )
-            lines.append(line_segment)
+            # 重複区間の検出と統合
+            station_codes = tuple(s.code for s in stations)
+            existing_idx = None
+            for idx, existing in enumerate(lines):
+                existing_codes = tuple(s.code for s in existing.stations)
+                if existing_codes == station_codes:
+                    existing_idx = idx
+                    break
+
+            if existing_idx is not None:
+                # 重複区間を統合：既存セグメントの路線情報を更新
+                existing = lines[existing_idx]
+                existing.line_id = f"{existing.line_id},{line_id}"
+                existing.line_name = f"{existing.line_name}/{line_info.name}"
+                existing.line_range = f"{existing.line_range},{line_info.range}"
+            else:
+                # 新規セグメントを追加
+                line_segment = LineSegment(
+                    line_id=line_id,
+                    line_name=line_info.name,
+                    line_range=line_info.range,
+                    direction={
+                        "upper": line_info.dest.upper,
+                        "lower": line_info.dest.lower,
+                    },
+                    stations=stations,
+                )
+                lines.append(line_segment)
             processed_lines.add(line_id)
 
     # 接続路線を追加（起点駅の乗換情報から、全エリアで検索）
@@ -774,17 +933,34 @@ def build_station_graph_multi_area(
                             stations.append(node)
 
                         if stations:
-                            line_segment = LineSegment(
-                                line_id=linked_line_id,
-                                line_name=line_info.name,
-                                line_range=line_info.range,
-                                direction={
-                                    "upper": line_info.dest.upper,
-                                    "lower": line_info.dest.lower,
-                                },
-                                stations=stations,
-                            )
-                            lines.append(line_segment)
+                            # 重複区間の検出と統合
+                            station_codes = tuple(s.code for s in stations)
+                            existing_idx = None
+                            for idx, existing in enumerate(lines):
+                                existing_codes = tuple(s.code for s in existing.stations)
+                                if existing_codes == station_codes:
+                                    existing_idx = idx
+                                    break
+                            
+                            if existing_idx is not None:
+                                # 重複区間を統合
+                                existing = lines[existing_idx]
+                                existing.line_id = f"{existing.line_id},{linked_line_id}"
+                                existing.line_name = f"{existing.line_name}/{line_info.name}"
+                                existing.line_range = f"{existing.line_range},{line_info.range}"
+                            else:
+                                # 新規セグメントを追加
+                                line_segment = LineSegment(
+                                    line_id=linked_line_id,
+                                    line_name=line_info.name,
+                                    line_range=line_info.range,
+                                    direction={
+                                        "upper": line_info.dest.upper,
+                                        "lower": line_info.dest.lower,
+                                    },
+                                    stations=stations,
+                                )
+                                lines.append(line_segment)
                             processed_lines.add(linked_line_id)
 
     return StationGraph(
