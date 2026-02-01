@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # JR西日本リアルタイム設定
     wjrc_area: str = "kinki"
     wjrc_line: str = "kyoto,hokurikubiwako,kosei,kobesanyo"
+    wjrc_stcode: str = ""  # 起点駅コード
     wjrc_polling_interval: int = 10  # 秒
     wjrc_line_interval: float = 2.0  # 秒
 

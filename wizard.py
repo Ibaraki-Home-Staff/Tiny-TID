@@ -304,54 +304,83 @@ def fetch_jr_stations(line_id: str) -> Dict[str, str]:
         return {}
 
 
-def select_jr_station(line_ids: List[str]) -> str:
-    """JR西日本の駅を選択"""
+def select_jr_station(line_ids: List[str], area: str) -> tuple:
+    """JR西日本の駅を選択（エア・路線を指定して正確に選ぶ）"""
     print(f"\n{len(line_ids)}路線から駅を検索します。")
+    print(f"対象エア: {area}")
 
-    # 全路線の駅を収集
-    all_stations = {}
+    # 各路線の駅を個別に収集（路線情報も保持）
+    line_stations = {}  # {line_id: {code: name}}
     for line_id in line_ids:
         stations = fetch_jr_stations(line_id)
-        all_stations.update(stations)
+        if stations:
+            line_stations[line_id] = stations
 
-    if not all_stations:
+    if not line_stations:
         print("駅情報が取得できませんでした。")
-        return ""
+        return "", ""
 
-    print(f"\n駅名で検索してください（{len(all_stations)}駅のデータが取得できました）")
+    total_stations = sum(len(stations) for stations in line_stations.values())
+    print(f"\n{total_stations}駅のデータが取得できました")
+    print("（駅名で検索すると、選択した路線上の駅のみ表示されます）")
 
     while True:
-        search_name = input("駅名（または部分一致キーワード）: ").strip()
+        search_name = input("\n駅名（または部分一致キーワード）: ").strip()
         if not search_name:
             continue
 
-        # 部分一致検索
-        matched = [
-            (code, name) for code, name in all_stations.items() if search_name in name
-        ]
+        # 各路線から検索
+        matched_by_line = {}  # {line_id: [(code, name), ...]}
+        for line_id, stations in line_stations.items():
+            matched = [
+                (code, name) for code, name in stations.items() if search_name in name
+            ]
+            if matched:
+                matched_by_line[line_id] = matched
 
-        if not matched:
+        if not matched_by_line:
             print("該当する駅が見つかりませんでした。別のキーワードを試してください。")
             continue
 
-        print(f"\n{len(matched)}件の駅が見つかりました:\n")
-        for i, (code, name) in enumerate(matched[:20], 1):  # 最大20件表示
-            print(f"  {i}. {name} (コード: {code})")
+        # 結果を表示（路線ごと）
+        all_matched = []
+        print(
+            f"\n{sum(len(m) for m in matched_by_line.values())}件の駅が見つかりました:\n"
+        )
 
-        if len(matched) > 20:
-            print(f"  ... 他 {len(matched) - 20} 件")
+        for line_id, matched in matched_by_line.items():
+            print(f"  [{line_id}] {len(matched)}駅:")
+            for code, name in matched:
+                all_matched.append((line_id, code, name))
+                print(f"    - {name} (コード: {code})")
+            print()
+
+        # 選択
+        if len(all_matched) == 1:
+            # 1件のみの場合は自動選択
+            line_id, code, name = all_matched[0]
+            print(f"選択: {name} (コード: {code}) - {line_id}線上")
+            return code, line_id
+
+        print(f"選択する駅を指定してください（形式: 路線ID,駅コード）")
+        print(f"例: {all_matched[0][0]},{all_matched[0][1]}")
 
         while True:
-            try:
-                choice = input("\n選択する駅の番号を入力してください: ").strip()
-                idx = int(choice) - 1
-                if 0 <= idx < len(matched):
-                    code, name = matched[idx]
-                    print(f"選択: {name} (コード: {code})")
-                    return code
-                print("無効な番号です。")
-            except ValueError:
-                print("数字を入力してください。")
+            choice = input("\n選択: ").strip()
+            parts = choice.split(",")
+            if len(parts) == 2:
+                selected_line, selected_code = parts[0].strip(), parts[1].strip()
+                # 選択が有効か確認
+                found = None
+                for line_id, code, name in all_matched:
+                    if line_id == selected_line and code == selected_code:
+                        found = (line_id, code, name)
+                        break
+                if found:
+                    line_id, code, name = found
+                    print(f"選択: {name} (コード: {code}) - {line_id}線上")
+                    return code, line_id
+            print("無効な選択です。正しい形式で入力してください。")
 
 
 def input_rate_settings() -> tuple:
@@ -452,8 +481,17 @@ def run_wizard() -> bool:
     current_step += 1
     print_step(current_step, total_steps, "JR西日本駅の選択")
     jr_station_code = ""
+    jr_station_line = ""
     if jr_lines:
-        jr_station_code = select_jr_station(jr_lines)
+        jr_station_code, jr_station_line = select_jr_station(jr_lines, jr_area)
+
+        # 選択された駅が路線上にない場合は警告
+        if jr_station_code and not jr_station_line:
+            print("\n警告: 選択された駅が指定路線上に見つかりません。")
+            confirm = input("このまま続行しますか？ (y/n): ").strip().lower()
+            if confirm != "y":
+                print("キャンセルしました。")
+                return False
 
     # ステップ7: レート設定
     current_step += 1

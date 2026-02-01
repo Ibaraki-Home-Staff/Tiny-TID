@@ -42,15 +42,35 @@ class StationGraph:
     lines: List[LineSegment]
 
 
-def find_station_in_lines(station_code: str, area: str) -> Optional[Dict[str, Any]]:
+def find_station_in_target_lines(
+    station_code: str, area: str, target_line_ids: List[str]
+) -> Optional[Dict[str, Any]]:
     """
-    指定されたエリア内で駅を検索
+    指定された路線上で駅を検索（優先順位付き）
+    1. 指定路線上を検索
+    2. 見つからない場合はエア全体を検索
+
     Returns: {"line_id": str, "station_index": int, "station_data": Station}
     """
     area_data = cache.get_area(area)
     if not area_data:
         return None
 
+    # まず指定路線上から検索
+    for line_id in target_line_ids:
+        station_list = area_data.stations.get(line_id)
+        if not station_list:
+            continue
+        for idx, station in enumerate(station_list.stations):
+            if station.info.code == station_code:
+                return {
+                    "line_id": line_id,
+                    "station_index": idx,
+                    "station_data": station,
+                    "line_info": area_data.master.lines.get(line_id),
+                }
+
+    # 指定路線上にない場合はエア全体を検索（フォールバック）
     for line_id, station_list in area_data.stations.items():
         for idx, station in enumerate(station_list.stations):
             if station.info.code == station_code:
@@ -81,8 +101,8 @@ def build_station_graph(
     if not area_data:
         return None
 
-    # 起点駅を検索
-    base_info = find_station_in_lines(base_station_code, area)
+    # 起点駅を検索（指定路線上を優先）
+    base_info = find_station_in_target_lines(base_station_code, area, target_line_ids)
     if not base_info:
         return None
 
