@@ -883,6 +883,8 @@ def format_position(
 
     # 両方不明
     return f"駅{station_a_code} → 駅{station_b_code}"
+
+
 def is_valid_station_interval(
     station_a_code: str,
     station_b_code: str,
@@ -1185,15 +1187,25 @@ def validate_train_position_on_line(
     station_map = {}
     station_order = []
     for station in line_station_list:
-        if isinstance(station, dict) and "info" in station:
-            # {info: {code, name, ...}} 形式
-            info = station["info"]
-            code = info.get("code")
-            name = info.get("name")
+        code = None
+        name = None
+
+        if isinstance(station, dict):
+            if "info" in station:
+                # {info: {code, name, ...}} 形式 (raw JSON)
+                info = station["info"]
+                code = info.get("code")
+                name = info.get("name")
+            else:
+                # 直接 {code, name, ...} 形式 (raw JSON)
+                code = station.get("code")
+                name = station.get("name")
         else:
-            # 直接 {code, name, ...} 形式
-            code = station.get("code")
-            name = station.get("name")
+            # Pydantic Station モデルオブジェクト
+            # Station(info: StationInfo(code, name, ...), design: ...)
+            if hasattr(station, "info"):
+                code = getattr(station.info, "code", None)
+                name = getattr(station.info, "name", None)
 
         if code:
             station_map[code] = name

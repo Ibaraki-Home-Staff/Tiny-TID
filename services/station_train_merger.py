@@ -5,6 +5,7 @@ JR西日本リアルタイムデータと駅すぱあと時刻表データを統
 
 import json
 import os
+import traceback
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from config import get_settings
@@ -395,7 +396,16 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
         return None
 
     # 駅グラフに起点駅が含まれているか確認（指定路線内に存在するかの最終確認）
-    if station_graph.base_station.get("code") != target_station_code:
+    # base_station の型に応じて適切にアクセス
+    if isinstance(station_graph.base_station, dict):
+        base_station_code = station_graph.base_station.get("code")
+        base_station_name = station_graph.base_station.get("name")
+    else:
+        # Station オブジェクトや dataclass の場合は属性アクセス
+        base_station_code = getattr(station_graph.base_station, "code", None)
+        base_station_name = getattr(station_graph.base_station, "name", None)
+
+    if base_station_code != target_station_code:
         print(
             f"[{datetime.now()}] 駅列車データ生成: 指定駅{target_station_code}は駅グラフに含まれていません "
             f"(指定路線 {target_lines} 内に存在しない可能性があります)"
@@ -403,8 +413,8 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
         return None
 
     print(
-        f"[{datetime.now()}] 駅グラフ構築完了: {station_graph.base_station.get('name')} "
-        f"(code={station_graph.base_station.get('code')}, "
+        f"[{datetime.now()}] 駅グラフ構築完了: {base_station_name} "
+        f"(code={base_station_code}, "
         f"lines={[line.line_id for line in station_graph.lines]})"
     )
 
@@ -644,16 +654,21 @@ def generate_and_cache() -> Optional[Dict[str, Any]]:
     Returns:
         生成したデータまたはNone
     """
-    settings = get_settings()
+    try:
+        settings = get_settings()
 
-    # データ生成
-    data = generate_station_train_data()
+        # データ生成
+        data = generate_station_train_data()
 
-    if data:
-        # ファイルに保存
-        save_station_train_data(data, settings.cache_dir)
+        if data:
+            # ファイルに保存
+            save_station_train_data(data, settings.cache_dir)
 
-    return data
+        return data
+    except Exception as e:
+        print(f"[{datetime.now()}] generate_and_cache エラー: {e}")
+        traceback.print_exc()
+        return None
 
 
 def get_cache_status(cache_dir: str) -> Optional[Dict[str, Any]]:
