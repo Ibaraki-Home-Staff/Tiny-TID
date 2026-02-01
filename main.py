@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from services.scheduler import start_scheduler, shutdown_scheduler
-from routers import timetable, jrwest, jrwest_realtime
+from routers import timetable, jrwest, jrwest_realtime, jrwest_station_graph
 
 # .envファイル存在チェックとウィザード起動
 if not os.path.exists(".env"):
@@ -34,6 +34,7 @@ app = FastAPI(
 app.include_router(timetable.router)
 app.include_router(jrwest.router)
 app.include_router(jrwest_realtime.router)
+app.include_router(jrwest_station_graph.router)
 
 
 @app.get("/")
@@ -58,6 +59,11 @@ async def root():
                 "all_lines": "/jrwest/realtime/",
                 "line_detail": "/jrwest/realtime/{line}",
                 "status": "/jrwest/realtime/status",
+            },
+            "jrwest_station_graph": {
+                "station_graph": "/jrwest/station-graph/",
+                "realtime_with_direction": "/jrwest/station-graph/realtime",
+                "direction_lookup": "/jrwest/station-graph/direction/{pos}",
             },
         },
     }
