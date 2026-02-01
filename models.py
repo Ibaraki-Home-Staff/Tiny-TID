@@ -64,7 +64,7 @@ class TimeTable(BaseModel):
     line_destination: Optional[List[LineDestination]] = Field(
         None, alias="LineDestination"
     )
-    line_kind: Optional[LineKind] = Field(None, alias="LineKind")
+    line_kind: Optional[List[LineKind]] = Field(None, alias="LineKind")
     line_name: Optional[LineName] = Field(None, alias="LineName")
 
 
