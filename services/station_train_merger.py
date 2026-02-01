@@ -10,9 +10,47 @@ from datetime import datetime, timedelta
 from config import get_settings
 from services.jrwest.realtime_cache import realtime_cache
 from services.jrwest.cache import cache as jrwest_cache
-from services.jrwest.station_graph import build_station_graph, format_position
+from services.jrwest.station_graph import (
+    build_station_graph,
+    format_position,
+    validate_train_position_on_line,
+)
 from services.jrwest.models import get_stop_train_names, Station
 from services.timetable_cache import cache as timetable_cache
+
+
+def is_train_time_valid(scheduled_time: str, current_time: datetime = None) -> bool:
+    """
+    列車の時刻が有効か（まだ通過していないか）を判定
+
+    Args:
+        scheduled_time: HH:MM形式の定刻時刻
+        current_time: 現在時刻（Noneの場合は現在時刻を使用）
+
+    Returns:
+        True: 列車はまだ到着していない（時刻が未来または現在時刻から5分以内）
+        False: 列車は既に通過した
+    """
+    if not scheduled_time:
+        # 時刻が不明な場合は含める
+        return True
+
+    if current_time is None:
+        current_time = datetime.now()
+
+    try:
+        hour, minute = map(int, scheduled_time.split(":"))
+        scheduled_dt = current_time.replace(
+            hour=hour, minute=minute, second=0, microsecond=0
+        )
+
+        # 現在時刻より5分以内ならまだ含める（遅延を考慮）
+        cutoff_time = current_time - timedelta(minutes=5)
+
+        return scheduled_dt >= cutoff_time
+    except (ValueError, AttributeError):
+        # パース失敗時は含める
+        return True
 
 
 def search_station_in_target_lines(
@@ -106,9 +144,12 @@ def is_train_on_route_to_station(
     destination_code: str,
     target_station_code: str,
     station_graph: Any,
+    current_station_name_hint: Optional[str] = None,
+    destination_name_hint: Optional[str] = None,
 ) -> bool:
     """
     列車が指定駅を「まだ通過していない」か判定（位置ベース）
+    駅コードと駅名の両方を検証（同一駅名で異なる駅コード、または同一駅コードで異なる駅名の問題に対応）
 
     駅グラフの距離情報を使用して、起点駅を通過前の列車のみを判定する。
     - 上り（起点に向かう）: 現在位置が起点より後ろ(distance>0)で、かつ起点に到達していない
@@ -124,6 +165,8 @@ def is_train_on_route_to_station(
         destination_code: 行先駅コード
         target_station_code: 判定対象の駅コード（起点駅）
         station_graph: 駅グラフ
+        current_station_name_hint: 現在位置の駅名ヒント
+        destination_name_hint: 行先駅の名前ヒント
 
     Returns:
         True: 列車が起点駅をまだ通過していない
@@ -138,24 +181,44 @@ def is_train_on_route_to_station(
     current_station, next_station = parts
 
     # 駅グラフから各駅の位置（起点駅からの距離）を取得
-    current_distance = None
-    destination_distance = None
-    target_distance = 0  # 起点駅は常にdistance=0
+    # 同じ駅コードを持つ駅は複数存在する可能性があるため、すべての候補を収集
+    current_station_candidates = []  # [(distance, line_id, station_name), ...]
+    destination_candidates = []  # [(distance, line_id, station_name), ...]
 
     for line in station_graph.lines:
         for station in line.stations:
             if station.distance_from_base is None:
                 continue
 
+            # 現在位置の駅を検索（駅名も一致するか確認）
             if station.code == current_station:
-                current_distance = station.distance_from_base
-            if station.code == destination_code:
-                destination_distance = station.distance_from_base
+                # 駅名ヒントがある場合は、駅名も一致する必要がある
+                if (
+                    current_station_name_hint
+                    and station.name != current_station_name_hint
+                ):
+                    # 駅コードは一致するが駅名が異なる（同一コードで異なる駅）
+                    continue
+                current_station_candidates.append(
+                    (station.distance_from_base, line.line_id, station.name)
+                )
 
-    # 現在位置が駅グラフにない場合は、行先コードと方向で判定（フォールバック）
-    if current_distance is None:
-        # 行先コードが駅グラフにあれば、それを使用して判定
-        if destination_distance is not None:
+            # 行先駅を検索（駅名も一致するか確認）
+            if destination_code and station.code == destination_code:
+                # 駅名ヒントがある場合は、駅名も一致する必要がある
+                if destination_name_hint and station.name != destination_name_hint:
+                    # 駅コードは一致するが駅名が異なる（同一コードで異なる駅）
+                    continue
+                destination_candidates.append(
+                    (station.distance_from_base, line.line_id, station.name)
+                )
+
+    # 候補がない場合は判定不可
+    if not current_station_candidates:
+        # 現在位置が駅グラフにない場合は、行先だけで判定（フォールバック）
+        if destination_candidates:
+            # 同じ路線の行先駅の距離を使用
+            destination_distance = destination_candidates[0][0]
             # 上り：行先が起点または起点より手前（distance <= 0）
             if train_direction == 0:
                 return destination_distance <= 0
@@ -164,8 +227,41 @@ def is_train_on_route_to_station(
                 return destination_distance >= 0
         else:
             # 現在位置も行先も駅グラフにない場合は判定不可
-            # デバッグ出力は抑制（大量に出るため）
             return False
+
+    # 最も適切な候補を選択（同じ路線内の駅を優先）
+    current_distance = None
+    destination_distance = None
+
+    if len(current_station_candidates) == 1:
+        # 候補が1つだけならそれを使用
+        current_distance = current_station_candidates[0][0]
+        current_line_id = current_station_candidates[0][1]
+        # 同じ路線の行先駅を探す
+        for dist, line_id, name in destination_candidates:
+            if line_id == current_line_id:
+                destination_distance = dist
+                break
+        # 同じ路線の行先が見つからなければ、最初の候補を使用
+        if destination_distance is None and destination_candidates:
+            destination_distance = destination_candidates[0][0]
+    else:
+        # 複数の候補がある場合は、行先と同じ路線のものを優先
+        for curr_dist, curr_line, curr_name in current_station_candidates:
+            for dest_dist, dest_line, dest_name in destination_candidates:
+                if curr_line == dest_line:
+                    current_distance = curr_dist
+                    destination_distance = dest_dist
+                    break
+            if current_distance is not None:
+                break
+        # 同じ路線の組み合わせが見つからなければ、最初の候補を使用
+        if current_distance is None:
+            current_distance = current_station_candidates[0][0]
+            if destination_candidates:
+                destination_distance = destination_candidates[0][0]
+
+    target_distance = 0  # 起点駅は常にdistance=0
 
     # 現在位置が起点駅の場合、停車中は含める（通過前とみなす）
     if current_distance == 0:
@@ -317,27 +413,99 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
     down_trains: List[Dict[str, Any]] = []
     seen_train_nos: set = set()  # 重複排除用
 
+    # 現在時刻（時刻フィルタ用）
+    current_time = datetime.now()
+
     for line_id in target_lines:
         line_data = realtime_cache.get_line_data(line_id)
         if not line_data:
             continue
+
+        # 該当路線の駅リストを取得（路線固有の検証用）
+        line_station_list = None
+        for area in areas:
+            area_data = jrwest_cache.get_area(area)
+            if area_data and line_id in area_data.stations:
+                line_station_list = area_data.stations[line_id].stations
+                break
 
         for train in line_data.trains:
             # 重複チェック
             if train.no in seen_train_nos:
                 continue
 
-            # 行先コードを取得（プロパティを使用して互換性を確保）
-            destination_code = train.dest_code if train.dest else None
+            # pos から駅コードを取得し、駅名も解決
+            pos_parts = train.pos.split("_")
+            station_a_name_hint = None
+            station_b_name_hint = None
+            if len(pos_parts) == 2:
+                station_a_code, station_b_code = pos_parts
+                # station_graph から駅名を取得
+                for line_sg in station_graph.lines:
+                    for station in line_sg.stations:
+                        if station.code == station_a_code:
+                            station_a_name_hint = station.name
+                        if station.code == station_b_code:
+                            station_b_name_hint = station.name
 
-            # 指定駅を経路上に持つか判定（行先ベース）
+            # === 1. 路線固有の駅リストで厳密に検証（最優先）===
+            if line_station_list:
+                line_validation = validate_train_position_on_line(
+                    train.pos,
+                    line_id,
+                    line_station_list,
+                    train.no,
+                )
+
+                if not line_validation["is_valid"]:
+                    # 該当路線の駅リストで連続していない区間は除外
+                    continue
+
+                # 駅名ヒントを更新（路線固有の検証結果から）
+                if line_validation["station_a_name"]:
+                    station_a_name_hint = line_validation["station_a_name"]
+                if line_validation["station_b_name"]:
+                    station_b_name_hint = line_validation["station_b_name"]
+
+            # === 2. 駅間区間が指定路線上に連続して存在するか検証（駅名も考慮）===
+            from services.jrwest.station_graph import validate_train_position
+
+            validation_result = validate_train_position(
+                train.pos,
+                station_graph,
+                target_lines,
+                train.no,
+                station_a_name_hint=station_a_name_hint,
+                station_b_name_hint=station_b_name_hint,
+            )
+
+            if not validation_result["is_valid"]:
+                # 不正な位置情報（路線上に連続しない駅間区間）
+                # ただし、停車中（####）で駅が見つからない場合はスキップ
+                if not validation_result["is_station"]:
+                    # ログは validate_train_position 内で出力済み
+                    continue
+                # 停車中で駅が見つからない場合もスキップ（別路線の駅）
+                continue
+
+            # 行先コードと行先駅名を取得
+            destination_code = train.dest_code if train.dest else None
+            destination_name = train.dest_text if train.dest else None
+
+            # === 3. 指定駅を経路上に持つか判定（行先ベース、駅コードと駅名の両方で検証）===
             if not is_train_on_route_to_station(
                 train.pos,
                 train.direction,
                 destination_code,
                 target_station_code,
                 station_graph,
+                current_station_name_hint=station_a_name_hint,  # 現在位置の駅名
+                destination_name_hint=destination_name,  # 行先駅名
             ):
+                print(
+                    f"  - 列車 {train.no}: 経路外のため除外 "
+                    f"(pos={train.pos}, dest={destination_code}({destination_name}), dir={train.direction})"
+                )
                 continue
 
             # 時刻表から定刻を検索
@@ -347,6 +515,14 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
                 if scheduled_time
                 else ""
             )
+
+            # === 4. 時刻フィルタ：既に通過した列車は除外 ===
+            if not is_train_time_valid(scheduled_str, current_time):
+                print(
+                    f"  - 列車 {train.no}: 時刻が過去のため除外 "
+                    f"(scheduled={scheduled_str}, current={current_time.strftime('%H:%M')})"
+                )
+                continue
 
             # 予測時刻を計算
             estimated_str = ""
@@ -364,11 +540,6 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
 
             # 位置情報を整形（進行方向に応じた順序）
             location_str = format_position(train.pos, station_graph, train.direction)
-
-            # 駅グラフに含まれない駅の列車は除外（「駅{コード}」形式の場合）
-            if location_str.startswith("駅") or "→ 駅" in location_str:
-                # 駅名が解決できなかった = 駅グラフに含まれない路線の駅
-                continue
 
             # 列車種別を変換
             train_type_converted = convert_train_type(train.display_type)

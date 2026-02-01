@@ -883,12 +883,378 @@ def format_position(
 
     # 両方不明
     return f"駅{station_a_code} → 駅{station_b_code}"
+def is_valid_station_interval(
+    station_a_code: str,
+    station_b_code: str,
+    station_graph: StationGraph,
+    target_line_ids: Optional[List[str]] = None,
+    station_a_name: Optional[str] = None,
+    station_b_name: Optional[str] = None,
+) -> tuple:
+    """
+    駅間区間が指定路線上に連続して存在するか検証
+    駅コードと駅名の両方を検証（同一駅名で異なる駅コード、または同一駅コードで異なる駅名の問題に対応）
 
-    # 一部しか解決できない場合
-    if station_a_name:
-        return f"{station_a_name} → 駅{station_b_code}"
-    if station_b_name:
-        return f"駅{station_a_code} → {station_b_name}"
+    重要: 同じ駅コードを持つ駅は複数の路線に存在する可能性があるため、
+    すべての組み合わせを検証する必要がある。
+    例: 0447(加古川線の加古川) → 0448(北陸線の近江塩津) は連続していないが、
+        別の路線で 0447(X駅) → 0448(Y駅) が連続している可能性がある。
 
-    # 両方不明
-    return f"駅{station_a_code} → 駅{station_b_code}"
+    Args:
+        station_a_code: 駅Aのコード
+        station_b_code: 駅Bのコード
+        station_graph: 駅グラフ
+        target_line_ids: 検証対象路線IDリスト（Noneの場合は全路線を検証）
+        station_a_name: 駅Aの名前（オプション、指定時は駅名も一致する必要がある）
+        station_b_name: 駅Bの名前（オプション、指定時は駅名も一致する必要がある）
+
+    Returns:
+        (is_valid: bool, line_id: Optional[str], station_a_name: Optional[str], station_b_name: Optional[str], is_continuous_code: bool)
+        - is_valid: 駅間区間が連続して存在する場合True
+        - line_id: 見つかった路線ID（見つからない場合None）
+        - station_a_name: 駅Aの名前
+        - station_b_name: 駅Bの名前
+        - is_continuous_code: 駅コードが連続している場合True（検証用）
+    """
+    if not station_a_code or not station_b_code:
+        return False, None, None, None, False
+
+    # target_line_idsが指定されていれば、その路線のみ検証
+    # 指定されていなければ、駅グラフ内の全路線を検証
+    lines_to_check = []
+    for line in station_graph.lines:
+        if target_line_ids is None or line.line_id in target_line_ids:
+            lines_to_check.append(line)
+
+    # 駅コードが連続しているか確認（0447→0448など）
+    try:
+        code_a = int(station_a_code)
+        code_b = int(station_b_code)
+        is_continuous_code = abs(code_a - code_b) == 1
+    except ValueError:
+        is_continuous_code = False
+
+    # まず、駅コードAと駅コードBを持つすべての駅を収集（複数路線にまたがる可能性がある）
+    # 構造: {line_id: [(idx, station_name), ...]}
+    stations_with_code_a: Dict[str, List[tuple]] = {}  # 駅コードAを持つ駅
+    stations_with_code_b: Dict[str, List[tuple]] = {}  # 駅コードBを持つ駅
+
+    for line in lines_to_check:
+        line_id = line.line_id
+        stations_a_list = []
+        stations_b_list = []
+
+        for idx, station in enumerate(line.stations):
+            # 駅コードAをチェック
+            if station.code == station_a_code:
+                # 駅名が指定されていれば、駅名も一致する必要がある
+                if station_a_name and station.name != station_a_name:
+                    # 駅コードは一致するが駅名が異なる（同一コードで異なる駅）
+                    continue
+                stations_a_list.append((idx, station.name))
+
+            # 駅コードBをチェック
+            if station.code == station_b_code:
+                # 駅名が指定されていれば、駅名も一致する必要がある
+                if station_b_name and station.name != station_b_name:
+                    # 駅コードは一致するが駅名が異なる（同一コードで異なる駅）
+                    continue
+                stations_b_list.append((idx, station.name))
+
+        if stations_a_list:
+            stations_with_code_a[line_id] = stations_a_list
+        if stations_b_list:
+            stations_with_code_b[line_id] = stations_b_list
+
+    # すべての組み合わせで連続性を検証
+    # 同じ路線上で、駅Aと駅Bが連続しているか確認
+    found_non_continuous = []  # 連続していない組み合わせの記録
+
+    for line_id in stations_with_code_a:
+        if line_id not in stations_with_code_b:
+            continue  # この路線には駅Bがない
+
+        stations_a_list = stations_with_code_a[line_id]
+        stations_b_list = stations_with_code_b[line_id]
+
+        # この路線上のすべての駅Aと駅Bの組み合わせをチェック
+        for idx_a, name_a in stations_a_list:
+            for idx_b, name_b in stations_b_list:
+                # 連続しているか（インデックス差が1）
+                if abs(idx_a - idx_b) == 1:
+                    # 連続している組み合わせが見つかった！
+                    return (
+                        True,
+                        line_id,
+                        name_a,
+                        name_b,
+                        is_continuous_code,
+                    )
+                else:
+                    # 連続していない組み合わせを記録
+                    found_non_continuous.append(
+                        {
+                            "line": line_id,
+                            "station_a": {"name": name_a, "idx": idx_a},
+                            "station_b": {"name": name_b, "idx": idx_b},
+                            "distance": abs(idx_a - idx_b),
+                        }
+                    )
+
+    # いずれの路線・組み合わせでも連続していない
+    # デバッグ情報を出力
+    if found_non_continuous:
+        print(
+            f"[駅間区間検証] 駅コード連続だが路線上では非連続: {station_a_code} → {station_b_code}"
+        )
+        print(f"  - 検証した組み合わせ数: {len(found_non_continuous)}")
+        for combo in found_non_continuous[:3]:  # 最初の3件だけ表示
+            print(
+                f"    路線 {combo['line']}: {combo['station_a']['name']}[{combo['station_a']['idx']}] → "
+                f"{combo['station_b']['name']}[{combo['station_b']['idx']}] (インデックス差: {combo['distance']})"
+            )
+        if len(found_non_continuous) > 3:
+            print(f"    ... 他 {len(found_non_continuous) - 3} 件")
+
+    return False, None, None, None, is_continuous_code
+
+
+def validate_train_position(
+    pos: str,
+    station_graph: StationGraph,
+    target_line_ids: Optional[List[str]] = None,
+    train_no: Optional[str] = None,
+    station_a_name_hint: Optional[str] = None,
+    station_b_name_hint: Optional[str] = None,
+) -> dict:
+    """
+    列車の位置情報（pos）を検証
+    駅コードと駅名の両方を検証（同一駅名で異なる駅コード、または同一駅コードで異なる駅名の問題に対応）
+
+    Args:
+        pos: "0415_0416" または "0415_####" 形式の位置情報
+        station_graph: 駅グラフ
+        target_line_ids: 検証対象路線IDリスト
+        train_no: 列車番号（ログ用）
+        station_a_name_hint: 駅Aの名前のヒント（JR西日本APIから取得した駅名など）
+        station_b_name_hint: 駅Bの名前のヒント（JR西日本APIから取得した駅名など）
+
+    Returns:
+        {
+            "is_valid": bool,
+            "is_station": bool,  # #### の場合（停車中）
+            "line_id": Optional[str],
+            "station_a_name": Optional[str],
+            "station_b_name": Optional[str],
+            "error_reason": Optional[str],
+        }
+    """
+    result = {
+        "is_valid": False,
+        "is_station": False,
+        "line_id": None,
+        "station_a_name": None,
+        "station_b_name": None,
+        "error_reason": None,
+    }
+
+    if not pos:
+        result["error_reason"] = "posが空"
+        return result
+
+    parts = pos.split("_")
+    if len(parts) != 2:
+        result["error_reason"] = f"不正なpos形式: {pos}"
+        return result
+
+    station_a, station_b = parts
+
+    # #### の場合は停車中として扱う（駅Aの存在確認のみ）
+    if station_b == "####":
+        result["is_station"] = True
+        # 駅Aが駅グラフ内に存在するか確認（駅名も一致するか確認）
+        for line in station_graph.lines:
+            for station in line.stations:
+                if station.code == station_a:
+                    # 駅名のヒントが提供されている場合は、駅名も一致するか確認
+                    if station_a_name_hint and station.name != station_a_name_hint:
+                        # 駅コードは一致するが駅名が異なる（同一コードで異なる駅）
+                        continue
+                    result["is_valid"] = True
+                    result["line_id"] = line.line_id
+                    result["station_a_name"] = station.name
+                    return result
+        result["error_reason"] = f"停車駅が見つからない: {station_a}"
+        if station_a_name_hint:
+            result["error_reason"] += f" (期待: {station_a_name_hint})"
+        return result
+
+    # 駅間区間の検証（駅名のヒントがあれば使用）
+    is_valid, line_id, station_a_name, station_b_name, is_continuous_code = (
+        is_valid_station_interval(
+            station_a,
+            station_b,
+            station_graph,
+            target_line_ids,
+            station_a_name=station_a_name_hint,
+            station_b_name=station_b_name_hint,
+        )
+    )
+
+    result["is_valid"] = is_valid
+    result["line_id"] = line_id
+    result["station_a_name"] = station_a_name
+    result["station_b_name"] = station_b_name
+    result["is_continuous_code"] = is_continuous_code  # 駅コードが連続しているか
+
+    if not is_valid:
+        # 駅名を解決してエラーメッセージを改善
+        a_name = station_a_name or station_a_name_hint or f"駅{station_a}"
+        b_name = station_b_name or station_b_name_hint or f"駅{station_b}"
+
+        # 駅コードが連続しているが路線上では連続していないケース
+        if is_continuous_code:
+            result["error_reason"] = (
+                f"駅コード連続だが路線上では非連続: {a_name}({station_a}) → {b_name}({station_b}) "
+                f"(異なる路線の駅である可能性)"
+            )
+        else:
+            result["error_reason"] = (
+                f"路線上に連続しない区間: {a_name}({station_a}) → {b_name}({station_b})"
+            )
+
+        # ログ出力
+        train_info = f" (列車 {train_no})" if train_no else ""
+        print(
+            f"[駅間区間検証] 不正な位置情報を検出{train_info}: "
+            f"{pos} - {result['error_reason']}"
+        )
+
+    return result
+
+
+def validate_train_position_on_line(
+    pos: str,
+    line_id: str,
+    line_station_list: List[Dict[str, Any]],  # {code, name, ...} のリスト
+    train_no: Optional[str] = None,
+) -> dict:
+    """
+    列車の位置情報を特定路線の駅リストで厳密に検証
+
+    この関数は、JR西日本APIから取得したリアルタイムデータのposフィールドが、
+    該当路線の駅リスト（*_st.json）で実際に連続している区間かを検証する。
+
+    Args:
+        pos: "0415_0416" または "0415_####" 形式の位置情報
+        line_id: 路線ID（検証対象の路線）
+        line_station_list: 路線の駅リスト（JR西日本APIから取得した*_st.jsonのデータ）
+        train_no: 列車番号（ログ用）
+
+    Returns:
+        {
+            "is_valid": bool,
+            "is_station": bool,  # #### の場合（停車中）
+            "station_a_name": Optional[str],
+            "station_b_name": Optional[str],
+            "line_id": str,
+            "error_reason": Optional[str],
+        }
+    """
+    result = {
+        "is_valid": False,
+        "is_station": False,
+        "station_a_name": None,
+        "station_b_name": None,
+        "line_id": line_id,
+        "error_reason": None,
+    }
+
+    if not pos:
+        result["error_reason"] = "posが空"
+        return result
+
+    parts = pos.split("_")
+    if len(parts) != 2:
+        result["error_reason"] = f"不正なpos形式: {pos}"
+        return result
+
+    station_a_code, station_b_code = parts
+
+    # 駅リストから駅コードと駅名のマップを作成
+    station_map = {}
+    station_order = []
+    for station in line_station_list:
+        if isinstance(station, dict) and "info" in station:
+            # {info: {code, name, ...}} 形式
+            info = station["info"]
+            code = info.get("code")
+            name = info.get("name")
+        else:
+            # 直接 {code, name, ...} 形式
+            code = station.get("code")
+            name = station.get("name")
+
+        if code:
+            station_map[code] = name
+            station_order.append(code)
+
+    # #### の場合は停車中として扱う
+    if station_b_code == "####":
+        result["is_station"] = True
+        # 駅Aが駅リストに存在するか確認
+        if station_a_code in station_map:
+            result["is_valid"] = True
+            result["station_a_name"] = station_map[station_a_code]
+            return result
+        result["error_reason"] = f"停車駅が路線駅リストに見つからない: {station_a_code}"
+        return result
+
+    # 駅Aと駅Bが駅リストに存在するか確認
+    station_a_name = station_map.get(station_a_code)
+    station_b_name = station_map.get(station_b_code)
+
+    if not station_a_name:
+        result["error_reason"] = f"駅Aが路線駅リストに見つからない: {station_a_code}"
+        return result
+
+    if not station_b_name:
+        result["error_reason"] = f"駅Bが路線駅リストに見つからない: {station_b_code}"
+        return result
+
+    result["station_a_name"] = station_a_name
+    result["station_b_name"] = station_b_name
+
+    # 駅Aと駅Bが路線上で隣り合っているか確認
+    idx_a = None
+    idx_b = None
+    for idx, code in enumerate(station_order):
+        if code == station_a_code:
+            idx_a = idx
+        elif code == station_b_code:
+            idx_b = idx
+
+    if idx_a is None or idx_b is None:
+        result["error_reason"] = (
+            f"駅が路線駅リストで見つからない: {station_a_code} または {station_b_code}"
+        )
+        return result
+
+    # 隣り合っているかチェック（インデックス差が1）
+    if abs(idx_a - idx_b) == 1:
+        result["is_valid"] = True
+        return result
+
+    # 隣り合っていない
+    result["error_reason"] = (
+        f"路線上で非連続な区間: {station_a_name}({station_a_code})[{idx_a}] → "
+        f"{station_b_name}({station_b_code})[{idx_b}] (インデックス差: {abs(idx_a - idx_b)})"
+    )
+
+    train_info = f" (列車 {train_no})" if train_no else ""
+    print(
+        f"[路線固有検証] 不正な位置情報を検出{train_info}: "
+        f"路線 {line_id}: {pos} - {result['error_reason']}"
+    )
+
+    return result
