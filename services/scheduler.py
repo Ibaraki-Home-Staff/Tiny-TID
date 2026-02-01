@@ -4,7 +4,8 @@ from apscheduler.triggers.cron import CronTrigger
 import jpholiday
 from services.ekispert import fetch_timetable_directions, fetch_timetable_detail
 from services.timetable_cache import cache as ekispert_cache
-from services.jrwest import fetch_all_areas, cache as jrwest_cache
+from services.jrwest import fetch_all_area_data, cache as jrwest_cache, AREAS
+from services.jrwest.models import AreaData
 from config import get_settings
 
 scheduler = BackgroundScheduler()
@@ -71,18 +72,38 @@ def fetch_daily_timetable():
 def fetch_jrwest_daily():
     """
     毎日3:21に実行されるJR西日本データ取得処理
+    全エリアの全路線の駅一覧を取得
     """
     print(f"[{datetime.now()}] JR西日本データの取得を開始します...")
+    print(f"  - 対象エリア: {', '.join(AREAS)}")
 
     try:
-        # 全エリアデータを取得
-        areas = fetch_all_areas()
+        areas_data = {}
 
-        if areas:
+        for area in AREAS:
+            print(f"  - {area}エリアの取得を開始...")
+            area_data = fetch_all_area_data(area)
+
+            if area_data:
+                areas_data[area] = AreaData(**area_data)
+                station_count = sum(
+                    len(sl.stations) for sl in area_data["stations"].values()
+                )
+                print(f"    → {len(area_data['stations'])}路線, {station_count}駅")
+            else:
+                print(f"    → 取得失敗")
+
+        if areas_data:
             # キャッシュを更新
-            jrwest_cache.update(areas)
+            jrwest_cache.update(areas_data)
+            total_lines = sum(len(ad.stations) for ad in areas_data.values())
+            total_stations = sum(
+                sum(len(sl.stations) for sl in ad.stations.values())
+                for ad in areas_data.values()
+            )
             print(
-                f"[{datetime.now()}] JR西日本データの取得が完了しました ({len(areas)}エリア)"
+                f"[{datetime.now()}] JR西日本データの取得が完了しました "
+                f"({len(areas_data)}エリア, {total_lines}路線, {total_stations}駅)"
             )
         else:
             print(

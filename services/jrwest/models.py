@@ -49,6 +49,40 @@ class LongTimeStoppingInfo(BaseModel):
     threshold_minutes: LongTimeStoppingThreshold = Field(..., alias="thresholdMinutes")
 
 
+class TransferInfo(BaseModel):
+    name: str
+    type: int
+    code: str
+    link: Optional[str] = None
+    link_code: Optional[str] = Field(None, alias="linkCode")
+
+
+class StationInfo(BaseModel):
+    name: str
+    code: str
+    stop_trains: Optional[List[int]] = Field(None, alias="stopTrains")
+    type_notice: Optional[str] = Field(None, alias="typeNotice")
+    transfer: Optional[List[TransferInfo]] = None
+    line: Optional[str] = None
+    pair_display: Optional[Any] = Field(None, alias="pairDisplay")
+    lines: Optional[Any] = None
+
+
+class StationDesign(BaseModel):
+    mark: Optional[str] = None
+    upside: Optional[List[Dict[str, Any]]] = None
+    downside: Optional[List[Dict[str, Any]]] = None
+
+
+class Station(BaseModel):
+    info: StationInfo
+    design: StationDesign
+
+
+class StationList(BaseModel):
+    stations: List[Station]
+
+
 class AreaMaster(BaseModel):
     lines: Dict[str, LineInfo]
     traffic_info: TrafficInfo = Field(..., alias="trafficInfo")
@@ -62,12 +96,32 @@ class AreaMaster(BaseModel):
     )
 
 
+class AreaData(BaseModel):
+    master: AreaMaster
+    stations: Dict[str, StationList]  # line_id -> StationList
+
+
 class CachedJRWestData(BaseModel):
-    areas: Dict[str, AreaMaster]
+    areas: Dict[str, AreaData]
     fetched_at: datetime
 
 
 class JRWestCacheStatus(BaseModel):
     area_count: int
     areas: List[str]
+    total_lines: int
+    total_stations: int
     fetched_at: datetime
+
+
+class StationInArea(BaseModel):
+    area: str
+    line: str
+    line_name: str
+    station: Station
+
+
+class StationSearchResult(BaseModel):
+    station_code: str
+    station_name: str
+    areas: List[StationInArea]

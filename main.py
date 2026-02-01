@@ -29,13 +29,19 @@ async def root():
     return {
         "message": "Tiny-TID API",
         "endpoints": {
-            "timetable_directions": "/timetable/",
-            "timetable_detail": "/timetable/detail/{code}",
-            "timetable_train": "/timetable/train/{train_id}",
-            "timetable_status": "/timetable/status",
-            "jrwest_areas": "/jrwest/",
-            "jrwest_area": "/jrwest/{area}",
-            "jrwest_status": "/jrwest/status",
+            "ekispert": {
+                "timetable_directions": "/timetable/",
+                "timetable_detail": "/timetable/detail/{code}",
+                "timetable_train": "/timetable/train/{train_id}",
+                "timetable_status": "/timetable/status",
+            },
+            "jrwest": {
+                "all_areas": "/jrwest/",
+                "area_detail": "/jrwest/{area}",
+                "station_search_all": "/jrwest/station/{station_code}",
+                "station_search_in_area": "/jrwest/{area}/station/{station_code}",
+                "cache_status": "/jrwest/status",
+            },
         },
     }
 
