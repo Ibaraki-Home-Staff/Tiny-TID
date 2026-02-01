@@ -786,6 +786,23 @@ def build_station_graph_multi_area(
                                     break
                         break
 
+            # 接続駅が見つからない場合、既存の路線との接続を探す
+            if transfer_station_idx is None:
+                for existing_line in lines:
+                    for existing_station in existing_line.stations:
+                        if existing_station.distance_from_base is not None:
+                            for idx, station in enumerate(station_list.stations):
+                                if station.info.code == existing_station.code:
+                                    transfer_station_idx = idx
+                                    transfer_station_distance = (
+                                        existing_station.distance_from_base
+                                    )
+                                    break
+                            if transfer_station_idx is not None:
+                                break
+                    if transfer_station_idx is not None:
+                        break
+
             # 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
                 code = station.info.code
@@ -810,8 +827,22 @@ def build_station_graph_multi_area(
                     and transfer_station_distance is not None
                 ):
                     # 接続駅からの相対距離を計算
+                    # 親路線の符号を継承して計算
                     relative_distance = idx - transfer_station_idx
-                    distance = transfer_station_distance + relative_distance
+                    if transfer_station_distance >= 0:
+                        # 親路線がプラスならプラス方向に累積
+                        distance = (
+                            transfer_station_distance + abs(relative_distance)
+                            if relative_distance >= 0
+                            else transfer_station_distance - abs(relative_distance)
+                        )
+                    else:
+                        # 親路線がマイナスならマイナス方向に累積
+                        distance = (
+                            transfer_station_distance - abs(relative_distance)
+                            if relative_distance >= 0
+                            else transfer_station_distance + abs(relative_distance)
+                        )
 
                     if distance < 0:
                         direction = "upper"
@@ -820,9 +851,16 @@ def build_station_graph_multi_area(
                     else:
                         direction = "transfer"
                 else:
-                    # 接続駅が見つからない場合は不明
-                    distance = None
-                    direction = "unknown"
+                    # 接続駅が見つからない場合は路線内での相対距離を設定
+                    # 路線の中央を0として相対的な距離を設定
+                    mid_idx = len(station_list.stations) // 2
+                    distance = idx - mid_idx
+                    if distance < 0:
+                        direction = "upper"
+                    elif distance > 0:
+                        direction = "lower"
+                    else:
+                        direction = "transfer"
 
                 node = StationNode(
                     code=code,
@@ -937,17 +975,25 @@ def build_station_graph_multi_area(
                             station_codes = tuple(s.code for s in stations)
                             existing_idx = None
                             for idx, existing in enumerate(lines):
-                                existing_codes = tuple(s.code for s in existing.stations)
+                                existing_codes = tuple(
+                                    s.code for s in existing.stations
+                                )
                                 if existing_codes == station_codes:
                                     existing_idx = idx
                                     break
-                            
+
                             if existing_idx is not None:
                                 # 重複区間を統合
                                 existing = lines[existing_idx]
-                                existing.line_id = f"{existing.line_id},{linked_line_id}"
-                                existing.line_name = f"{existing.line_name}/{line_info.name}"
-                                existing.line_range = f"{existing.line_range},{line_info.range}"
+                                existing.line_id = (
+                                    f"{existing.line_id},{linked_line_id}"
+                                )
+                                existing.line_name = (
+                                    f"{existing.line_name}/{line_info.name}"
+                                )
+                                existing.line_range = (
+                                    f"{existing.line_range},{line_info.range}"
+                                )
                             else:
                                 # 新規セグメントを追加
                                 line_segment = LineSegment(
