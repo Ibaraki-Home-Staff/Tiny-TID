@@ -61,63 +61,85 @@ def calculate_estimated_time(scheduled: str, delay_minutes: int) -> str:
 
 
 def is_train_on_route_to_station(
-    train_pos: str, target_station_code: str, station_graph: Any
+    train_pos: str,
+    train_direction: int,
+    destination_code: str,
+    target_station_code: str,
+    station_graph: Any,
 ) -> bool:
     """
-    列車が指定駅を経路上に持つか判定
+    列車が指定駅を経路上に持つか判定（行先ベース）
 
     Args:
         train_pos: "0410_0411" または "0410_####" 形式の位置情報
+        train_direction: 0=上り, 1=下り
+        destination_code: 行先駅コード
         target_station_code: 判定対象の駅コード
         station_graph: 駅グラフ
 
     Returns:
-        True: 経路上に駅が存在する
+        True: 対象駅が現在位置から行先までの間にある
     """
-    if not train_pos or not station_graph:
+    if not train_pos or not station_graph or not destination_code:
         return False
 
     parts = train_pos.split("_")
     if len(parts) != 2:
         return False
 
-    current_station, next_station = parts
+    current_station, _ = parts
 
-    # 現在位置または次の駅が対象駅の場合
-    if current_station == target_station_code or next_station == target_station_code:
+    # 現在位置が対象駅の場合
+    if current_station == target_station_code:
         return True
 
-    # 駅グラフから対象駅の位置を取得
+    # 駅グラフから各駅の位置（起点駅からの距離）を取得
     target_distance = None
     current_distance = None
-    next_distance = None
+    destination_distance = None
 
     for line in station_graph.lines:
         for station in line.stations:
-            if (
-                station.code == target_station_code
-                and station.distance_from_base is not None
-            ):
-                target_distance = station.distance_from_base
-            if (
-                station.code == current_station
-                and station.distance_from_base is not None
-            ):
-                current_distance = station.distance_from_base
-            if station.code == next_station and station.distance_from_base is not None:
-                next_distance = station.distance_from_base
+            if station.distance_from_base is None:
+                continue
 
-    # 距離情報が揃っていれば、対象駅が現在位置と次駅の間にあるか判定
-    if target_distance is not None and current_distance is not None:
-        if next_distance is not None:
-            # 進行方向を判定
-            if next_distance > current_distance:  # 下り方向
-                return current_distance <= target_distance <= next_distance
-            elif next_distance < current_distance:  # 上り方向
-                return next_distance <= target_distance <= current_distance
+            if station.code == target_station_code:
+                target_distance = station.distance_from_base
+            if station.code == current_station:
+                current_distance = station.distance_from_base
+            if station.code == destination_code:
+                destination_distance = station.distance_from_base
+
+    # 必要な情報が揃っていない場合は経路上にあると判定（安全側に倒す）
+    if target_distance is None or current_distance is None:
+        return True  # 情報不足時は対象に含める
+
+    # 行先が不明の場合は現在位置のみで判定
+    if destination_distance is None:
+        # 対象駅が現在位置と同じか、その先にあるか
+        # 方向に応じて判定
+        if train_direction == 0:  # 上り（起点駅に向かう方向）
+            return target_distance <= current_distance
+        else:  # 下り（起点駅から離れる方向）
+            return target_distance >= current_distance
+
+    # 方向に応じて「現在位置 → 行先」の間に対象駅があるか判定
+    if train_direction == 0:  # 上り（起点駅に向かう）
+        # 行先 <= 対象駅 <= 現在位置
+        # または：行先と現在位置の間に対象駅がある
+        if destination_distance <= current_distance:
+            return destination_distance <= target_distance <= current_distance
         else:
-            # #### の場合は現在駅と同じ距離とみなす
-            return current_distance == target_distance
+            # 行先が現在位置より先にある場合（特殊ケース）
+            return current_distance <= target_distance <= destination_distance
+    else:  # 下り（起点駅から離れる）
+        # 現在位置 <= 対象駅 <= 行先
+        # または：現在位置と行先の間に対象駅がある
+        if current_distance <= destination_distance:
+            return current_distance <= target_distance <= destination_distance
+        else:
+            # 行先が現在位置より手前にある場合（特殊ケース）
+            return destination_distance <= target_distance <= current_distance
 
     return False
 
@@ -202,9 +224,16 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
             continue
 
         for train in line_data.trains:
-            # 指定駅を経路上に持つか判定
+            # 行先コードを取得
+            destination_code = train.dest.code if train.dest else None
+
+            # 指定駅を経路上に持つか判定（行先ベース）
             if not is_train_on_route_to_station(
-                train.pos, target_station_code, station_graph
+                train.pos,
+                train.direction,
+                destination_code,
+                target_station_code,
+                station_graph,
             ):
                 continue
 
