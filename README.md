@@ -1,42 +1,67 @@
-# Tiny-TID (Plain HTML/CSS/JS)
+# Tiny-TID
 
-このテンプレートは、プレーンなHTML/CSS/JSで作る小規模サイト向けの、わかりやすいフォルダ構成例です。共通ヘッダー/フッターをコンポーネント化し、ページから読み込みます。
+駅すぱあとAPIを利用して、茨木駅の時刻表データを取得・提供するFastAPIアプリケーションです。
 
-## フォルダ構成
-- `index.html` … トップページ（エリア・路線選択）
-- `TID.html` … 運行情報ページ（ルート直下）
-- `pages/` … 下層ページ（今は未使用）
-- `components/` … 共通パーツ（`header.html`/`footer.html`）
-- `assets/css/` … CSS（`main.css`がエントリ、他は分割）
-- `assets/js/` … JS（`main.js`がエントリ、`area.js` 等）
-- `assets/img/` … 画像アセット
+## 機能
 
-## 利用方法（デプロイ）
-JR西日本のAPIはCORSヘッダーを返さないため、フロント（ブラウザ）から直接 `https://www.train-guide.westjr.co.jp/api/v3/` を fetch するとブロックされます。以下のいずれかで「同一オリジンに見せるプロキシ」を用意してください。
+- **自動時刻表取得**: 毎日午前3:21に駅すぱあとAPIから時刻表を自動取得
+- **祝日判定**: `jpholiday`ライブラリを使用して祝日を自動判定
+- **インメモリキャッシュ**: 取得した時刻表を当日中キャッシュし、高速レスポンスを実現
+- **dateGroup自動判定**: 平日/土曜/日祝日を自動的に判定し、適切な時刻表を取得
 
-- Cloudflare Workers（推奨）
-  - ルート: `example.com/api/v3/*` を Workers のルートに設定
-  - Workerで `https://www.train-guide.westjr.co.jp/api/v3/*` にそのまま中継（GETのみ）
-  - これにより、フロントは相対パス `/api/v3/...` を fetch するだけでCORS対象外になります
-- Apache の mod_proxy（利用可能なレンタルサーバーのみ）
-  - `.htaccess` に `RewriteRule ^api/v3/(.*)$ https://www.train-guide.westjr.co.jp/api/v3/$1 [P,L]`
-  - サーバーで mod_rewrite, mod_proxy, mod_proxy_http が有効であることが前提
+## セットアップ
 
-フロント側のコードは既に `API_BASE = '/api/v3/'` を利用しています（`assets/js/area.js`）。
-- 別パス/サブドメインを使う場合は、`assets/js/main.js` より前に以下を挿入し上書きできます:
-  - `<script>window.TID_API_BASE = 'https://sub.example.com/api/v3/';</script>`
+### 1. 環境変数の設定
 
-## ローカル確認
-- 単純な静的配信でOK（例: `python -m http.server 8000`）
-- ただし、プロキシが無いローカルでは本番APIへの fetch はCORSで失敗します
-- 動作確認は「プロキシが効く本番ドメイン」で行うか、ローカルサンプルJSON（`area_*.json`）で代替してください
+`.env`ファイルを作成し、駅すぱあとAPIのアクセスキーを設定してください。
 
-## ページ追加手順
-1. `pages/` に `foo.html` を作成（`<base href="/">` と `/assets/...` の絶対パスを維持）
-2. `components/header.html` のナビにリンクを追加
+```bash
+cp .env.example .env
+```
 
-## カスタマイズ
-- 色や余白: `assets/css/variables.css`
-- 基本タイポ/リンク: `assets/css/base.css`
-- ヘッダー/フッターやレスポンシブ: `assets/css/layout.css`
-- ボタン等UI部品: `assets/css/components.css`
+`.env`ファイルを編集:
+```
+EKISPERT_API_KEY=your_api_key_here
+```
+
+### 2. サーバー起動
+
+```bash
+uvicorn main:app --reload
+```
+
+## APIエンドポイント
+
+### 時刻表方面一覧の取得
+```
+GET /timetable/
+```
+
+### 特定方面の詳細時刻表取得
+```
+GET /timetable/detail/{code}
+```
+
+- `code`: 方面コード（方面一覧取得時に返される`code`値）
+
+### キャッシュ状態の確認
+```
+GET /timetable/status
+```
+
+## 時刻表取得スケジュール
+
+- **実行時間**: 毎日午前3:21
+- **対象駅**: 茨木駅（駅コード: 25834）
+- **dateGroup判定**:
+  - 平日 → `weekday`
+  - 土曜 → `saturday`
+  - 日曜・祝日 → `holiday`
+
+## 技術スタック
+
+- FastAPI
+- APScheduler（スケジューリング）
+- jpholiday（祝日判定）
+- pydantic-settings（設定管理）
+- python-dotenv（環境変数読み込み）
