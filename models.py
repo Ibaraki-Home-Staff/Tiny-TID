@@ -104,3 +104,51 @@ class TimeTableCacheStatus(BaseModel):
 class TrainTime(BaseModel):
     hour: str
     minute: str
+
+
+# StationTrain関連モデル（JR西日本+駅すぱあと統合データ）
+
+
+class StationTrain(BaseModel):
+    """駅における個別列車情報"""
+
+    train_no: str
+    train_type: str
+    nickname: str
+    car_count: int
+    destination: str
+    location: str
+    scheduled: str  # HH:MM形式
+    estimated: str  # HH:MM形式
+    delay_minutes: int
+    pass_: bool = Field(..., alias="pass")  # passは予約語なのでalias使用
+
+    class Config:
+        populate_by_name = True
+
+
+class StationTrainDirection(BaseModel):
+    """方向別列車リスト"""
+
+    up: List[StationTrain]
+    down: List[StationTrain]
+
+
+class StationTrainData(BaseModel):
+    """駅の列車統合データ（rest_sample.json形式）"""
+
+    gentime: str  # ISO 8601形式
+    version: str
+    trains: StationTrainDirection
+
+
+class StationTrainCacheStatus(BaseModel):
+    """駅列車データキャッシュステータス"""
+
+    station_code: str
+    station_name: str
+    line_count: int
+    up_count: int
+    down_count: int
+    generated_at: datetime
+    last_update: datetime

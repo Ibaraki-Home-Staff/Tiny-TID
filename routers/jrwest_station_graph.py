@@ -11,6 +11,7 @@ from services.jrwest import cache
 from services.jrwest.station_graph import (
     build_station_graph,
     get_train_direction_from_graph,
+    format_position,
 )
 
 router = APIRouter(prefix="/jrwest/station-graph", tags=["jrwest-station-graph"])
@@ -62,6 +63,7 @@ class StationGraphResponse(BaseModel):
 
 class TrainWithDirection(BaseModel):
     pos: str
+    position_text: str  # 「駅A → 駅B」の形式
     direction: str  # "upper", "lower", "stopped", "unknown"
     raw_direction: str  # APIから返ってきた元のdirection値
     delay: int
@@ -199,9 +201,13 @@ async def get_station_graph_realtime():
             # 駅グラフに基づいて方向を判定
             calculated_direction = get_train_direction_from_graph(pos, graph)
 
+            # posを整形して人間が読める形式に
+            position_text = format_position(pos, graph)
+
             trains_with_direction.append(
                 TrainWithDirection(
                     pos=pos,
+                    position_text=position_text,
                     direction=calculated_direction or "unknown",
                     raw_direction=raw_direction,
                     delay=train.get("delay", 0),

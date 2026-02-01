@@ -187,6 +187,15 @@ def realtime_polling_loop():
 
                 line_index += 1
 
+                # 全路線取得完了時に駅列車データを生成
+                if line_index >= len(lines):
+                    from services.station_train_merger import generate_and_cache
+
+                    try:
+                        generate_and_cache()
+                    except Exception as e:
+                        print(f"[{datetime.now()}] 駅列車データ生成エラー: {e}")
+
             # 次の取得まで待機
             sleep_time = min(
                 line_interval, polling_interval - (time.time() - last_cycle_start)

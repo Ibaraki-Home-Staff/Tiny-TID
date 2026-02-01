@@ -353,5 +353,58 @@ def get_train_direction_from_graph(
             return dir_b
         elif dir_b == "base":
             return dir_a
-
     return "unknown"
+
+
+def format_position(pos: str, station_graph: StationGraph) -> str:
+    """
+    posフィールドを「駅A → 駅B」の形式に整形
+
+    Args:
+        pos: "0415_0416" または "0415_####" 形式
+        station_graph: 駅グラフ（駅名解決用）
+
+    Returns:
+        "駅A → 駅B" または "駅A" または "不明"
+    """
+    if not pos:
+        return "不明"
+
+    parts = pos.split("_")
+    if len(parts) != 2:
+        return "不明"
+
+    station_a_code, station_b_code = parts
+
+    # 駅コードから駅名を解決
+    station_a_name = None
+    station_b_name = None
+
+    for line in station_graph.lines:
+        for station in line.stations:
+            if station.code == station_a_code:
+                station_a_name = station.name
+            if station.code == station_b_code:
+                station_b_name = station.name
+        # 両方見つかったら早期終了
+        if station_a_name and station_b_name:
+            break
+
+    # #### の場合は単独駅表示
+    if station_b_code == "####":
+        if station_a_name:
+            return station_a_name
+        return f"駅{station_a_code}"
+
+    # 両駅名が解決できた場合
+    if station_a_name and station_b_name:
+        return f"{station_a_name} → {station_b_name}"
+
+    # 一部しか解決できない場合
+    if station_a_name:
+        return f"{station_a_name} → 駅{station_b_code}"
+    if station_b_name:
+        return f"駅{station_a_code} → {station_b_name}"
+
+    # 両方不明
+    return f"駅{station_a_code} → 駅{station_b_code}"

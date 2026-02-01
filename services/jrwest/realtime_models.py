@@ -12,6 +12,7 @@ class TrainDestination(BaseModel):
 class TrainInfo(BaseModel):
     no: str  # 列車番号
     pos: str  # 位置（駅コード_次の駅コード、####は区間内）
+    position_text: str = ""  # 「駅A → 駅B」の整形済み位置情報
     direction: int  # 0=上り、1=下り
     nickname: str  # 列車愛称
     type: str  # 種別コード
