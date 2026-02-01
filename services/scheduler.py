@@ -3,7 +3,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import jpholiday
 from services.ekispert import fetch_timetable_directions, fetch_timetable_detail
-from services.timetable_cache import cache
+from services.timetable_cache import cache as ekispert_cache
+from services.jrwest import fetch_all_areas, cache as jrwest_cache
 from config import get_settings
 
 scheduler = BackgroundScheduler()
@@ -58,7 +59,7 @@ def fetch_daily_timetable():
                     print(f"  - 詳細時刻表取得失敗: code={code}, error={e}")
 
         # キャッシュを更新
-        cache.update(date_str, date_group, directions, detailed_timetables)
+        ekispert_cache.update(date_str, date_group, directions, detailed_timetables)
         print(
             f"[{datetime.now()}] 時刻表データの取得が完了しました (date_group={date_group})"
         )
@@ -67,11 +68,36 @@ def fetch_daily_timetable():
         print(f"[{datetime.now()}] 時刻表データの取得に失敗しました: {e}")
 
 
+def fetch_jrwest_daily():
+    """
+    毎日3:21に実行されるJR西日本データ取得処理
+    """
+    print(f"[{datetime.now()}] JR西日本データの取得を開始します...")
+
+    try:
+        # 全エリアデータを取得
+        areas = fetch_all_areas()
+
+        if areas:
+            # キャッシュを更新
+            jrwest_cache.update(areas)
+            print(
+                f"[{datetime.now()}] JR西日本データの取得が完了しました ({len(areas)}エリア)"
+            )
+        else:
+            print(
+                f"[{datetime.now()}] JR西日本データの取得に失敗しました: データが空です"
+            )
+
+    except Exception as e:
+        print(f"[{datetime.now()}] JR西日本データの取得に失敗しました: {e}")
+
+
 def start_scheduler():
     """
     スケジューラーを開始
     """
-    # 毎日3:21に実行
+    # 毎日3:21に実行（駅すぱあと）
     trigger = CronTrigger(hour=3, minute=21)
     scheduler.add_job(
         fetch_daily_timetable,
@@ -80,11 +106,20 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # 毎日3:21に実行（JR西日本）
+    scheduler.add_job(
+        fetch_jrwest_daily,
+        trigger=trigger,
+        id="jrwest_fetch",
+        replace_existing=True,
+    )
+
     scheduler.start()
     print(f"[{datetime.now()}] スケジューラーを開始しました (毎日3:21に実行)")
 
     # 初回は即座に取得
     fetch_daily_timetable()
+    fetch_jrwest_daily()
 
 
 def shutdown_scheduler():

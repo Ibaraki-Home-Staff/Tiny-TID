@@ -18,6 +18,7 @@ class Stop(BaseModel):
     kind_code: str = Field(..., alias="kindCode")
     platform_no: Optional[str] = Field(None, alias="platformNo")
     line_code: str = Field(..., alias="lineCode")
+    train_id: Optional[str] = Field(None, alias="trainID")
     name_code: str = Field(..., alias="nameCode")
     destination_code: str = Field(..., alias="destinationCode")
     extra: Optional[bool] = None

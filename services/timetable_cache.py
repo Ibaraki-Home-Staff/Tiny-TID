@@ -58,9 +58,9 @@ class TimeTableCache:
             "fetched_at": self._cache.fetched_at.isoformat(),
         }
 
-    def get_train_time(self, line_code: str) -> Optional[TrainTime]:
+    def get_train_time(self, train_id: str) -> Optional[TrainTime]:
         """
-        列車コードから時刻を検索
+        列車番号(trainID)から時刻を検索
         """
         if self._cache is None:
             return None
@@ -72,7 +72,7 @@ class TimeTableCache:
 
             for hour_table in timetable.hour_table:
                 for minute_table in hour_table.minute_table:
-                    if minute_table.stop.line_code == line_code:
+                    if minute_table.stop.train_id == train_id:
                         return TrainTime(
                             hour=hour_table.hour, minute=minute_table.minute
                         )

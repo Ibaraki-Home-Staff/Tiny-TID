@@ -33,16 +33,16 @@ async def get_timetable_detail(code: str):
     return timetable
 
 
-@router.get("/train/{line_code}", response_model=TrainTime)
-async def get_train_time(line_code: str):
+@router.get("/train/{train_id}", response_model=TrainTime)
+async def get_train_time(train_id: str):
     """
-    列車コードから時刻を取得
+    列車番号から時刻を取得
     """
-    train_time = cache.get_train_time(line_code)
+    train_time = cache.get_train_time(train_id)
     if train_time is None:
         raise HTTPException(
             status_code=404,
-            detail=f"指定された列車コード '{line_code}' の時刻が見つかりません。",
+            detail=f"指定された列車番号 '{train_id}' の時刻が見つかりません。",
         )
     return train_time
 
