@@ -83,6 +83,37 @@ def find_station_in_target_lines(
     return None
 
 
+def collect_jr_lines_from_transfer(area_data: Any, target_line_ids: List[str]) -> set:
+    """
+    駅のtransfer情報からtype:0（JR路線）の路線を収集
+
+    Args:
+        area_data: エリアデータ
+        target_line_ids: 指定路線IDリスト
+
+    Returns:
+        追加すべきJR路線IDのセット
+    """
+    additional_lines = set()
+
+    for line_id in target_line_ids:
+        station_list = area_data.stations.get(line_id)
+        if not station_list:
+            continue
+
+        for station in station_list.stations:
+            if station.info.transfer:
+                for transfer in station.info.transfer:
+                    # type: 0 = JR路線
+                    if transfer.type == 0 and transfer.link:
+                        linked_line_id = transfer.link
+                        # エリア内に存在する路線のみ追加
+                        if linked_line_id in area_data.stations:
+                            additional_lines.add(linked_line_id)
+
+    return additional_lines
+
+
 def build_station_graph(
     base_station_code: str, target_line_ids: List[str], area: str
 ) -> Optional[StationGraph]:
@@ -104,6 +135,17 @@ def build_station_graph(
     if not area_data:
         return None
 
+    # transfer情報からtype:0（JR路線）を収集
+    additional_jr_lines = collect_jr_lines_from_transfer(area_data, target_line_ids)
+
+    # 指定路線 + JR transfer路線をマージ（重複排除）
+    all_line_ids = list(target_line_ids) + list(
+        additional_jr_lines - set(target_line_ids)
+    )
+
+    if additional_jr_lines:
+        print(f"  - transferからJR路線を追加: {additional_jr_lines}")
+
     # 起点駅を検索（指定路線上を優先）
     base_info = find_station_in_target_lines(base_station_code, area, target_line_ids)
     if not base_info:
@@ -121,7 +163,7 @@ def build_station_graph(
 
     lines_data = []  # 各線の生データを保存
 
-    for line_id in target_line_ids:
+    for line_id in all_line_ids:
         station_list = area_data.stations.get(line_id)
         line_info = area_data.master.lines.get(line_id)
 
@@ -430,6 +472,20 @@ def build_station_graph_multi_area(
     if not all_area_data:
         return None
 
+    # transfer情報からtype:0（JR路線）を全エリアで収集
+    additional_jr_lines = set()
+    for area_data in all_area_data.values():
+        jr_lines = collect_jr_lines_from_transfer(area_data, target_line_ids)
+        additional_jr_lines.update(jr_lines)
+
+    # 指定路線 + JR transfer路線をマージ（重複排除）
+    all_line_ids = list(target_line_ids) + list(
+        additional_jr_lines - set(target_line_ids)
+    )
+
+    if additional_jr_lines:
+        print(f"  - transferからJR路線を追加: {additional_jr_lines}")
+
     # 起点駅を検索（全エリアから）
     base_info = None
     base_area = None
@@ -469,7 +525,7 @@ def build_station_graph_multi_area(
     station_distance_registry: Dict[str, int] = {}
     lines_data = []  # 各線の生データを保存
 
-    for line_id in target_line_ids:
+    for line_id in all_line_ids:
         # 路線が存在するエリアを探す
         line_area_data = None
         for area, area_data in all_area_data.items():
