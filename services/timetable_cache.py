@@ -29,9 +29,11 @@ class TimeTableCache:
             data = {
                 "date": self._cache.date,
                 "date_group": self._cache.date_group,
-                "direction_list": [d.model_dump() for d in self._cache.direction_list],
+                "direction_list": [
+                    d.model_dump(by_alias=True) for d in self._cache.direction_list
+                ],
                 "detailed_timetables": {
-                    k: v.model_dump()
+                    k: v.model_dump(by_alias=True)
                     for k, v in self._cache.detailed_timetables.items()
                 },
                 "fetched_at": self._cache.fetched_at.isoformat(),

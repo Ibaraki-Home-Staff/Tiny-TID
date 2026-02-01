@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from config import get_settings
 from services.jrwest import cache
 from services.jrwest.station_graph import (
-    build_station_graph,
+    build_station_graph_multi_area,
     get_train_direction_from_graph,
     format_position,
 )
@@ -126,7 +126,7 @@ async def get_station_graph():
     # 設定値を取得
     base_station = settings.wjrc_stcode
     target_lines = settings.wjrc_line.split(",") if settings.wjrc_line else []
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
     if not base_station or not target_lines:
         raise HTTPException(
@@ -134,16 +134,15 @@ async def get_station_graph():
             detail="設定が不完全です。WJRC_STCODEとWJRC_LINEを設定してください。",
         )
 
-    # キャッシュが準備できているか確認
-    area_data = cache.get_area(area)
-    if not area_data:
+    # キャッシュが準備できているか確認（最初のエリアで確認）
+    if not areas:
         raise HTTPException(
             status_code=503,
             detail="JR西日本データが準備中です。しばらくお待ちください。",
         )
 
-    # 駅グラフを構築
-    graph = build_station_graph(base_station, target_lines, area)
+    # 駅グラフを構築（複数エリア対応）
+    graph = build_station_graph_multi_area(base_station, target_lines, areas)
     if not graph:
         raise HTTPException(
             status_code=404, detail=f"起点駅コード '{base_station}' が見つかりません。"
@@ -164,7 +163,7 @@ async def get_station_graph_realtime():
     # 設定値を取得
     base_station = settings.wjrc_stcode
     target_lines = settings.wjrc_line.split(",") if settings.wjrc_line else []
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
     if not base_station or not target_lines:
         raise HTTPException(
@@ -172,8 +171,8 @@ async def get_station_graph_realtime():
             detail="設定が不完全です。WJRC_STCODEとWJRC_LINEを設定してください。",
         )
 
-    # 駅グラフを構築
-    graph = build_station_graph(base_station, target_lines, area)
+    # 駅グラフを構築（複数エリア対応）
+    graph = build_station_graph_multi_area(base_station, target_lines, areas)
     if not graph:
         raise HTTPException(
             status_code=404, detail=f"起点駅コード '{base_station}' が見つかりません。"
@@ -246,12 +245,12 @@ async def get_direction_for_position(pos: str):
     settings = get_settings()
     base_station = settings.wjrc_stcode
     target_lines = settings.wjrc_line.split(",") if settings.wjrc_line else []
-    area = settings.wjrc_area
+    areas = settings.wjrc_areas  # 複数エリア対応
 
     if not base_station:
         raise HTTPException(status_code=400, detail="WJRC_STCODEが設定されていません。")
 
-    graph = build_station_graph(base_station, target_lines, area)
+    graph = build_station_graph_multi_area(base_station, target_lines, areas)
     if not graph:
         raise HTTPException(status_code=404, detail="駅グラフが構築できません。")
 

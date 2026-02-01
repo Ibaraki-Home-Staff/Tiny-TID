@@ -87,7 +87,10 @@ def build_station_graph(
     base_station_code: str, target_line_ids: List[str], area: str
 ) -> Optional[StationGraph]:
     """
-    駅グラフを構築
+    駅グラフを構築（同一駅結合版）
+
+    複数路線にまたがる同一駅（同じコード・同じ名前）は結合され、
+    距離値が統一されます。
 
     Args:
         base_station_code: 起点駅コード（WJRC_STCODE）
@@ -111,33 +114,82 @@ def build_station_graph(
     base_station_data = base_info["station_data"]
     base_line_info = base_info["line_info"]
 
-    lines = []
-    processed_lines = set()
+    # 第一段階：全路線の駅データを収集し、同一駅を検出
+    # station_code -> 距離値のマッピング（最初に見つかった距離を使用）
+    station_distance_registry: Dict[str, int] = {}
+    station_info_registry: Dict[str, Dict] = {}
 
-    # 対象路線ごとに処理
+    lines_data = []  # 各線の生データを保存
+
     for line_id in target_line_ids:
-        if line_id in processed_lines:
-            continue
-
         station_list = area_data.stations.get(line_id)
         line_info = area_data.master.lines.get(line_id)
 
         if not station_list or not line_info:
             continue
 
-        # 起点駅がこの路線上にあるか確認
+        # この路線上での起点駅の位置を特定
         base_idx_in_line = None
         for idx, station in enumerate(station_list.stations):
             if station.info.code == base_station_code:
                 base_idx_in_line = idx
                 break
 
+        if base_idx_in_line is not None:
+            # 起点駅が見つかった場合、距離を計算して登録
+            for idx, station in enumerate(station_list.stations):
+                distance = idx - base_idx_in_line
+                code = station.info.code
+
+                if code not in station_distance_registry:
+                    # 初めて見つかった駅は登録
+                    station_distance_registry[code] = distance
+                    station_info_registry[code] = {
+                        "name": station.info.name,
+                        "station": station,
+                        "lines": [line_id],
+                    }
+                else:
+                    # 既に登録済みの駅は、路線リストに追加
+                    station_info_registry[code]["lines"].append(line_id)
+
+        lines_data.append(
+            {
+                "line_id": line_id,
+                "line_info": line_info,
+                "station_list": station_list,
+                "base_idx": base_idx_in_line,
+            }
+        )
+
+    # 第二段階：統一された距離値を使用して駅グラフを構築
+    lines = []
+    processed_lines = set()
+
+    for line_data in lines_data:
+        line_id = line_data["line_id"]
+        line_info = line_data["line_info"]
+        station_list = line_data["station_list"]
+        base_idx_in_line = line_data["base_idx"]
+
+        if line_id in processed_lines:
+            continue
+
+        if not station_list or not line_info:
+            continue
+
         stations = []
 
         if base_idx_in_line is not None:
             # 起点駅がこの路線上にある場合
             for idx, station in enumerate(station_list.stations):
-                distance = idx - base_idx_in_line
+                code = station.info.code
+
+                # 統一された距離値を使用（レジストリにあれば使用、なければ計算）
+                if code in station_distance_registry:
+                    distance = station_distance_registry[code]
+                else:
+                    distance = idx - base_idx_in_line
 
                 if distance < 0:
                     direction = "upper"
@@ -154,7 +206,7 @@ def build_station_graph(
                     stop_trains = get_stop_train_names(station.info.stop_trains)
 
                 node = StationNode(
-                    code=station.info.code,
+                    code=code,
                     name=station.info.name,
                     line_id=line_id,
                     line_name=line_info.name,
@@ -410,15 +462,14 @@ def build_station_graph_multi_area(
     base_station_idx = base_info["station_index"]
     base_station_data = base_info["station_data"]
     base_line_info = base_info["line_info"]
+    base_line_id = base_info["line_id"]
 
-    lines = []
-    processed_lines = set()
+    # 第一段階：全路線の駅データを収集し、同一駅を検出
+    # station_code -> 距離値のマッピング（最初に見つかった距離を使用）
+    station_distance_registry: Dict[str, int] = {}
+    lines_data = []  # 各線の生データを保存
 
-    # 対象路線ごとに処理（全エリアから検索）
     for line_id in target_line_ids:
-        if line_id in processed_lines:
-            continue
-
         # 路線が存在するエリアを探す
         line_area_data = None
         for area, area_data in all_area_data.items():
@@ -442,12 +493,52 @@ def build_station_graph_multi_area(
                 base_idx_in_line = idx
                 break
 
+        if base_idx_in_line is not None:
+            # 起点駅が見つかった場合、距離を計算して登録
+            for idx, station in enumerate(station_list.stations):
+                distance = idx - base_idx_in_line
+                code = station.info.code
+
+                if code not in station_distance_registry:
+                    # 初めて見つかった駅は登録
+                    station_distance_registry[code] = distance
+
+        lines_data.append(
+            {
+                "line_id": line_id,
+                "line_info": line_info,
+                "station_list": station_list,
+                "base_idx": base_idx_in_line,
+                "line_area_data": line_area_data,
+            }
+        )
+
+    # 第二段階：統一された距離値を使用して駅グラフを構築
+    lines = []
+    processed_lines = set()
+
+    for line_data in lines_data:
+        line_id = line_data["line_id"]
+        line_info = line_data["line_info"]
+        station_list = line_data["station_list"]
+        base_idx_in_line = line_data["base_idx"]
+        line_area_data = line_data["line_area_data"]
+
+        if line_id in processed_lines:
+            continue
+
+        if not station_list or not line_info:
+            continue
+
         stations = []
 
         if base_idx_in_line is not None:
             # 起点駅がこの路線上にある場合
             for idx, station in enumerate(station_list.stations):
-                distance = idx - base_idx_in_line
+                code = station.info.code
+
+                # 統一された距離値を使用
+                distance = station_distance_registry.get(code, idx - base_idx_in_line)
 
                 if distance < 0:
                     direction = "upper"
@@ -464,7 +555,7 @@ def build_station_graph_multi_area(
                     stop_trains = get_stop_train_names(station.info.stop_trains)
 
                 node = StationNode(
-                    code=station.info.code,
+                    code=code,
                     name=station.info.name,
                     line_id=line_id,
                     line_name=line_info.name,
@@ -485,41 +576,21 @@ def build_station_graph_multi_area(
                 stations.append(node)
         else:
             # 起点駅がこの路線上にない場合（接続路線など）
-            # この路線と「起点駅の路線」または「既に処理済みの路線」の接続駅を探す
-            # 1. まず接続駅を探す
+            # 接続駅を探す（距離レジストリに存在する駅）
             transfer_station_idx = None
             transfer_station_distance = None
-            connected_line_id = None
 
             for idx, station in enumerate(station_list.stations):
-                # この駅が他の路線と接続しているか確認
-                if station.info.transfer:
-                    for transfer in station.info.transfer:
-                        # 起点駅の路線または既に処理済みの路線と接続しているか
-                        if (
-                            transfer.link == base_line_id
-                            or transfer.link in processed_lines
-                        ):
-                            # この路線が接続している
-                            transfer_station_idx = idx
-                            connected_line_id = transfer.link
-                            # 接続駅のdistance_from_baseを取得（接続先の路線上の駅として）
-                            for line in lines:
-                                if line.line_id == transfer.link:
-                                    for s in line.stations:
-                                        if s.code == station.info.code:
-                                            transfer_station_distance = (
-                                                s.distance_from_base
-                                            )
-                                            break
-                                if transfer_station_distance is not None:
-                                    break
-                            break
-                    if transfer_station_idx is not None:
-                        break
+                code = station.info.code
+                # 統一距離レジストリに存在する駅を接続駅として使用
+                if code in station_distance_registry:
+                    transfer_station_idx = idx
+                    transfer_station_distance = station_distance_registry[code]
+                    break
 
-            # 2. 各駅の距離を計算
+            # 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
+                code = station.info.code
                 stop_trains = []
                 if station.info.stop_trains:
                     from .models import get_stop_train_names
@@ -527,7 +598,16 @@ def build_station_graph_multi_area(
                     stop_trains = get_stop_train_names(station.info.stop_trains)
 
                 # 距離計算
-                if (
+                if code in station_distance_registry:
+                    # 統一距離値レジストリに存在する場合はそれを使用
+                    distance = station_distance_registry[code]
+                    if distance < 0:
+                        direction = "upper"
+                    elif distance > 0:
+                        direction = "lower"
+                    else:
+                        direction = "base"
+                elif (
                     transfer_station_idx is not None
                     and transfer_station_distance is not None
                 ):
@@ -547,7 +627,7 @@ def build_station_graph_multi_area(
                     direction = "unknown"
 
                 node = StationNode(
-                    code=station.info.code,
+                    code=code,
                     name=station.info.name,
                     line_id=line_id,
                     line_name=line_info.name,
@@ -731,13 +811,14 @@ def format_position(
 ) -> str:
     """
     posフィールドを「駅A → 駅B」の形式に整形
-    posは進行方向を表さず、単に「駅Aと駅Bの間」を示す
-    常に距離の小さい駅 → 距離の大きい駅 の順に表示
+    進行方向に応じて表示順を変更
+    - 上り（起点に向かう）: 距離大 → 距離小（遠い駅 → 近い駅）
+    - 下り（起点から離れる）: 距離小 → 距離大（近い駅 → 遠い駅）
 
     Args:
         pos: "0415_0416" または "0415_####" 形式
         station_graph: 駅グラフ（駅名解決用）
-        train_direction: 未使用（互換性のため残す）
+        train_direction: 0=上り（起点に向かう）、1=下り（起点から離れる）
 
     Returns:
         "駅A → 駅B" または "駅A" または "不明"
@@ -777,12 +858,20 @@ def format_position(
 
     # 両駅名が解決できた場合
     if station_a_name and station_b_name:
-        # 距離情報が両方あれば、距離の小さい方 → 大きい方の順に表示
+        # 距離情報が両方あれば、進行方向に応じた順序で表示
         if station_a_distance is not None and station_b_distance is not None:
-            if station_a_distance <= station_b_distance:
-                return f"{station_a_name} → {station_b_name}"
+            if train_direction == 0:
+                # 上り（起点に向かう）: 距離大 → 距離小
+                if station_a_distance >= station_b_distance:
+                    return f"{station_a_name} → {station_b_name}"
+                else:
+                    return f"{station_b_name} → {station_a_name}"
             else:
-                return f"{station_b_name} → {station_a_name}"
+                # 下り（起点から離れる）: 距離小 → 距離大
+                if station_a_distance <= station_b_distance:
+                    return f"{station_a_name} → {station_b_name}"
+                else:
+                    return f"{station_b_name} → {station_a_name}"
         # 距離情報がなければ元の順序で表示
         return f"{station_a_name} → {station_b_name}"
 

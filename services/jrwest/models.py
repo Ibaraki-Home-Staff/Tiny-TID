@@ -112,9 +112,9 @@ class StationList(BaseModel):
 
 class AreaMaster(BaseModel):
     lines: Dict[str, LineInfo]
-    traffic_info: TrafficInfo = Field(..., alias="trafficInfo")
-    delay_text: List[DelayText] = Field(..., alias="delayText")
-    no_update_alert: NoUpdateAlert = Field(..., alias="noUpdateAlert")
+    traffic_info: Optional[TrafficInfo] = Field(None, alias="trafficInfo")
+    delay_text: Optional[List[DelayText]] = Field(None, alias="delayText")
+    no_update_alert: Optional[NoUpdateAlert] = Field(None, alias="noUpdateAlert")
     trainmonitorinfo_lines: Optional[Dict[str, TrainMonitorInfo]] = Field(
         None, alias="trainmonitorinfoLines"
     )

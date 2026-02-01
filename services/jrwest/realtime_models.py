@@ -24,7 +24,7 @@ class TrainInfo(BaseModel):
     delay_minutes: int = Field(default=0, alias="delayMinutes")  # 遅延（分）
     a_seat_info: str = ""  # A席情報
     type_change: str = ""  # 種別変更情報
-    number_of_cars: int = 0  # 両数
+    number_of_cars: int = 0  # 編成数
     stop_time: str = ""  # 停車時刻
     icon_id: str = ""  # アイコンID
 
