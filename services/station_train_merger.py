@@ -343,7 +343,7 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
             # 時刻表から定刻を検索
             scheduled_time = timetable_cache.get_train_time(train.no)
             scheduled_str = (
-                f"{scheduled_time.hour}:{scheduled_time.minute}"
+                f"{int(scheduled_time.hour):02d}:{int(scheduled_time.minute):02d}"
                 if scheduled_time
                 else ""
             )
@@ -364,6 +364,11 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
 
             # 位置情報を整形（進行方向に応じた順序）
             location_str = format_position(train.pos, station_graph, train.direction)
+
+            # 駅グラフに含まれない駅の列車は除外（「駅{コード}」形式の場合）
+            if location_str.startswith("駅") or "→ 駅" in location_str:
+                # 駅名が解決できなかった = 駅グラフに含まれない路線の駅
+                continue
 
             # 列車種別を変換
             train_type_converted = convert_train_type(train.display_type)
