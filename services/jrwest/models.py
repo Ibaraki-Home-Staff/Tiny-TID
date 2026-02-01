@@ -2,6 +2,33 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
+# 停車列車種別テーブル
+# stopTrains のインデックスと列車種別の対応
+# null または [] の場合は "普通列車"（各駅停車）
+STOP_TRAIN_TYPES = {
+    0: "",  # null時は強制的に0番（普通列車）
+    1: "新快速",
+    2: "快速",
+    3: "区間快速",
+    4: "直通快速",
+    5: "特急",
+    6: "急行",
+    7: "寝台",
+    8: "SL",
+    9: "観光列車",
+    10: "瑞風",
+}
+
+
+def get_stop_train_names(stop_trains: Optional[List[int]]) -> List[str]:
+    """
+    stopTrainsのインデックスリストから列車種別名のリストを取得
+    """
+    if stop_trains is None or stop_trains == []:
+        return ["普通列車"]
+
+    return [STOP_TRAIN_TYPES.get(i, "") for i in stop_trains if i in STOP_TRAIN_TYPES]
+
 
 class LineDestination(BaseModel):
     upper: str
