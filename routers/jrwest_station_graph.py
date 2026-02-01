@@ -34,6 +34,7 @@ class StationNodeResponse(BaseModel):
     is_base_station: bool
     transfers: List[StationTransfer]
     stop_trains: List[str]
+    distances_by_parent: Optional[Dict[str, int]] = None  # 親路線ごとの距離値
 
 
 class LineDirection(BaseModel):
@@ -104,6 +105,7 @@ def convert_to_response(graph) -> StationGraphResponse:
                         is_base_station=station.is_base_station,
                         transfers=[StationTransfer(**t) for t in station.transfers],
                         stop_trains=station.stop_trains,
+                        distances_by_parent=station.distances_by_parent,
                     )
                     for station in line.stations
                 ],

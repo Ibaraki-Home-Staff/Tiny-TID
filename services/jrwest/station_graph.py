@@ -16,11 +16,14 @@ class StationNode:
     name: str
     line_id: str
     line_name: str
-    distance_from_base: int  # 起点駅からの距離（駅数）
-    direction_from_base: str  # "upper", "lower", "base"
+    distance_from_base: Optional[int]  # 起点駅からの距離（駅数）
+    direction_from_base: str  # "upper", "lower", "base", "transfer", "unknown"
     is_base_station: bool = False
     transfers: List[Dict[str, Any]] = field(default_factory=list)
     stop_trains: List[str] = field(default_factory=list)
+    distances_by_parent: Optional[Dict[str, int]] = (
+        None  # 親路線ごとの距離値 {parent_line_id: distance}
+    )
 
 
 @dataclass
@@ -760,48 +763,71 @@ def build_station_graph_multi_area(
                 stations.append(node)
         else:
             # 起点駅がこの路線上にない場合（接続路線など）
-            # 接続駅を探す（距離レジストリに存在する駅）
-            transfer_station_idx = None
-            transfer_station_distance = None
+            # 全ての親路線との接続駅を探索
+            # 親路線ごとの接続駅情報: {parent_line_id: (transfer_idx, transfer_distance)}
+            connections_by_parent: Dict[str, tuple] = {}
 
+            # 1. 統一距離レジストリ（親路線の駅）との接続を探索
             for idx, station in enumerate(station_list.stations):
                 code = station.info.code
-                # 統一距離レジストリに存在する駅を接続駅として使用
                 if code in station_distance_registry:
-                    transfer_station_idx = idx
-                    transfer_station_distance = station_distance_registry[code]
-                    break
+                    # この駅は親路線と共通している
+                    # 親路線を特定するために、どの路線がこの駅を持っているか確認
+                    for parent_line in lines:
+                        for parent_station in parent_line.stations:
+                            if (
+                                parent_station.code == code
+                                and parent_station.distance_from_base is not None
+                            ):
+                                connections_by_parent[parent_line.line_id] = (
+                                    idx,
+                                    station_distance_registry[code],
+                                )
+                                break
 
-            # フォールバック: 接続駅が見つからない場合、起点駅のtransfer情報から探す
-            if transfer_station_idx is None and base_station_data.info.transfer:
+            # 2. 既存の処理済み路線との直接接続を探索（transfer情報を持つ駅）
+            for parent_line in lines:
+                for idx, station in enumerate(station_list.stations):
+                    if station.info.transfer:
+                        for transfer in station.info.transfer:
+                            # この駅のtransfer情報に親路線が含まれているか
+                            if transfer.link == parent_line.line_id:
+                                # 親路線上の対応駅を探して距離を取得
+                                for parent_station in parent_line.stations:
+                                    if (
+                                        parent_station.code == transfer.link_code
+                                        and parent_station.distance_from_base
+                                        is not None
+                                    ):
+                                        connections_by_parent[parent_line.line_id] = (
+                                            idx,
+                                            parent_station.distance_from_base,
+                                        )
+                                        break
+                                break
+
+            # 3. 起点駅のtransfer情報からの接続（直接接続している場合）
+            if base_station_data.info.transfer:
                 for transfer in base_station_data.info.transfer:
                     if transfer.link == line_id:
-                        # 起点駅がこの路線と接続している
                         link_station_code = transfer.link_code
                         if link_station_code:
                             for idx, station in enumerate(station_list.stations):
                                 if station.info.code == link_station_code:
-                                    transfer_station_idx = idx
-                                    transfer_station_distance = 0
+                                    # 起点駅からの距離は0
+                                    connections_by_parent[base_line_id] = (idx, 0)
                                     break
                         break
 
-            # 接続駅が見つからない場合、既存の路線との接続を探す
-            if transfer_station_idx is None:
-                for existing_line in lines:
-                    for existing_station in existing_line.stations:
-                        if existing_station.distance_from_base is not None:
-                            for idx, station in enumerate(station_list.stations):
-                                if station.info.code == existing_station.code:
-                                    transfer_station_idx = idx
-                                    transfer_station_distance = (
-                                        existing_station.distance_from_base
-                                    )
-                                    break
-                            if transfer_station_idx is not None:
-                                break
-                    if transfer_station_idx is not None:
-                        break
+            # 主要な接続駅（最初に見つかった親路線の接続駅）を決定
+            primary_transfer_idx = None
+            primary_transfer_distance = None
+            if connections_by_parent:
+                # 最初に見つかった親路線の接続を使用
+                first_parent = list(connections_by_parent.keys())[0]
+                primary_transfer_idx, primary_transfer_distance = connections_by_parent[
+                    first_parent
+                ]
 
             # 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
@@ -812,55 +838,58 @@ def build_station_graph_multi_area(
 
                     stop_trains = get_stop_train_names(station.info.stop_trains)
 
-                # 距離計算
-                if code in station_distance_registry:
-                    # 統一距離値レジストリに存在する場合はそれを使用
-                    distance = station_distance_registry[code]
-                    if distance < 0:
-                        direction = "upper"
-                    elif distance > 0:
-                        direction = "lower"
-                    else:
-                        direction = "base"
-                elif (
-                    transfer_station_idx is not None
-                    and transfer_station_distance is not None
-                ):
-                    # 接続駅からの相対距離を計算
-                    # 親路線の符号を継承して計算
-                    relative_distance = idx - transfer_station_idx
-                    if transfer_station_distance >= 0:
-                        # 親路線がプラスならプラス方向に累積
-                        distance = (
-                            transfer_station_distance + abs(relative_distance)
-                            if relative_distance >= 0
-                            else transfer_station_distance - abs(relative_distance)
-                        )
-                    else:
-                        # 親路線がマイナスならマイナス方向に累積
-                        distance = (
-                            transfer_station_distance - abs(relative_distance)
-                            if relative_distance >= 0
-                            else transfer_station_distance + abs(relative_distance)
-                        )
+                # 親路線ごとの距離値を計算
+                distances_by_parent: Dict[str, int] = {}
 
-                    if distance < 0:
-                        direction = "upper"
-                    elif distance > 0:
-                        direction = "lower"
-                    else:
-                        direction = "transfer"
+                if code in station_distance_registry:
+                    # 統一距離レジストリに存在する場合
+                    distance = station_distance_registry[code]
+                    # 全ての親路線について、この駅までの距離を計算
+                    for parent_line_id, (
+                        transfer_idx,
+                        transfer_distance,
+                    ) in connections_by_parent.items():
+                        relative_distance = idx - transfer_idx
+                        if transfer_distance >= 0:
+                            distances_by_parent[parent_line_id] = (
+                                transfer_distance + relative_distance
+                            )
+                        else:
+                            distances_by_parent[parent_line_id] = (
+                                transfer_distance - relative_distance
+                            )
+                elif connections_by_parent:
+                    # 親路線との接続がある場合
+                    for parent_line_id, (
+                        transfer_idx,
+                        transfer_distance,
+                    ) in connections_by_parent.items():
+                        relative_distance = idx - transfer_idx
+                        if transfer_distance >= 0:
+                            # 親路線がプラスならプラス方向に累積
+                            distances_by_parent[parent_line_id] = (
+                                transfer_distance + relative_distance
+                            )
+                        else:
+                            # 親路線がマイナスならマイナス方向に累積
+                            distances_by_parent[parent_line_id] = (
+                                transfer_distance - relative_distance
+                            )
+                    # 主要な距離値を使用
+                    distance = distances_by_parent.get(first_parent, 0)
                 else:
-                    # 接続駅が見つからない場合は路線内での相対距離を設定
-                    # 路線の中央を0として相対的な距離を設定
+                    # 接続が見つからない場合は路線内相対距離
                     mid_idx = len(station_list.stations) // 2
                     distance = idx - mid_idx
-                    if distance < 0:
-                        direction = "upper"
-                    elif distance > 0:
-                        direction = "lower"
-                    else:
-                        direction = "transfer"
+                    distances_by_parent = {"local": distance}
+
+                # 方向の決定
+                if distance < 0:
+                    direction = "upper"
+                elif distance > 0:
+                    direction = "lower"
+                else:
+                    direction = "transfer"
 
                 node = StationNode(
                     code=code,
@@ -880,6 +909,10 @@ def build_station_graph_multi_area(
                         for t in (station.info.transfer or [])
                     ],
                     stop_trains=stop_trains,
+                    distances_by_parent=distances_by_parent
+                    if len(distances_by_parent) > 1
+                    or "local" not in distances_by_parent
+                    else None,
                 )
                 stations.append(node)
 
