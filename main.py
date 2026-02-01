@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from services.scheduler import start_scheduler, shutdown_scheduler
-from routers import timetable, jrwest
+from routers import timetable, jrwest, jrwest_realtime
 
 
 @asynccontextmanager
@@ -22,6 +22,7 @@ app = FastAPI(
 
 app.include_router(timetable.router)
 app.include_router(jrwest.router)
+app.include_router(jrwest_realtime.router)
 
 
 @app.get("/")
@@ -41,6 +42,11 @@ async def root():
                 "station_search_all": "/jrwest/station/{station_code}",
                 "station_search_in_area": "/jrwest/{area}/station/{station_code}",
                 "cache_status": "/jrwest/status",
+            },
+            "jrwest_realtime": {
+                "all_lines": "/jrwest/realtime/",
+                "line_detail": "/jrwest/realtime/{line}",
+                "status": "/jrwest/realtime/status",
             },
         },
     }

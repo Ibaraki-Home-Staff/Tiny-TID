@@ -1,15 +1,21 @@
-import os
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 import jpholiday
+import time
+import threading
 from services.ekispert import fetch_timetable_directions, fetch_timetable_detail
 from services.timetable_cache import cache as ekispert_cache
 from services.jrwest import fetch_all_area_data, cache as jrwest_cache, AREAS
 from services.jrwest.models import AreaData
+from services.jrwest.realtime_client import fetch_train_positions
+from services.jrwest.realtime_cache import realtime_cache
 from config import get_settings
 
 scheduler = BackgroundScheduler()
+realtime_thread = None
+realtime_stop_event = threading.Event()
 
 
 def get_date_group(date_str: str) -> str:
@@ -121,11 +127,85 @@ def fetch_jrwest_daily():
         print(f"[{datetime.now()}] JR西日本データの取得に失敗しました: {e}")
 
 
+def realtime_polling_loop():
+    """
+    リアルタイムデータポーリングループ（別スレッドで実行）
+    """
+    settings = get_settings()
+    lines = [line.strip() for line in settings.wjrc_line.split(",")]
+    line_interval = settings.wjrc_line_interval
+    polling_interval = settings.wjrc_polling_interval
+    area = settings.wjrc_area
+
+    # 路線名を取得
+    area_data = jrwest_cache.get_area(area)
+    line_names = {}
+    if area_data:
+        for line_id in lines:
+            if line_id in area_data.master.lines:
+                line_names[line_id] = area_data.master.lines[line_id].name
+            else:
+                line_names[line_id] = line_id
+    else:
+        line_names = {line_id: line_id for line_id in lines}
+
+    print(f"[{datetime.now()}] リアルタイムポーリング開始")
+    print(f"  - エリア: {area}")
+    print(f"  - 路線: {', '.join(lines)}")
+    print(f"  - 路線間隔: {line_interval}秒")
+    print(f"  - 総サイクル: {polling_interval}秒")
+
+    line_index = 0
+    last_cycle_start = time.time()
+
+    while not realtime_stop_event.is_set():
+        try:
+            current_time = time.time()
+
+            # 新しいサイクル開始時刻を計算
+            if current_time - last_cycle_start >= polling_interval:
+                last_cycle_start = current_time
+                line_index = 0
+
+            # 現在の路線を取得
+            if line_index < len(lines):
+                line_id = lines[line_index]
+                line_name = line_names.get(line_id, line_id)
+
+                # データ取得
+                data = fetch_train_positions(line_id)
+                realtime_cache.update_line(line_id, line_name, data)
+
+                if data:
+                    print(
+                        f"  [{datetime.now().strftime('%H:%M:%S')}] {line_id}: {len(data.trains)}両"
+                    )
+                else:
+                    print(
+                        f"  [{datetime.now().strftime('%H:%M:%S')}] {line_id}: 取得失敗"
+                    )
+
+                line_index += 1
+
+            # 次の取得まで待機
+            sleep_time = min(
+                line_interval, polling_interval - (time.time() - last_cycle_start)
+            )
+            if sleep_time > 0:
+                realtime_stop_event.wait(sleep_time)
+
+        except Exception as e:
+            print(f"[{datetime.now()}] リアルタイムポーリングエラー: {e}")
+            time.sleep(1)
+
+
 def start_scheduler():
     """
     スケジューラーを開始
     起動時はファイルからキャッシュを読み込み
     """
+    import os
+
     settings = get_settings()
     cache_dir = settings.cache_dir
 
@@ -180,10 +260,23 @@ def start_scheduler():
         print(f"[{datetime.now()}] JR西日本初回データ取得を開始...")
         fetch_jrwest_daily()
 
+    # リアルタイムポーリングを開始
+    global realtime_thread
+    realtime_stop_event.clear()
+    realtime_thread = threading.Thread(target=realtime_polling_loop, daemon=True)
+    realtime_thread.start()
+
 
 def shutdown_scheduler():
     """
     スケジューラーを停止
     """
+    global realtime_thread
+
+    # リアルタイムポーリングを停止
+    realtime_stop_event.set()
+    if realtime_thread and realtime_thread.is_alive():
+        realtime_thread.join(timeout=5)
+
     scheduler.shutdown()
     print(f"[{datetime.now()}] スケジューラーを停止しました")

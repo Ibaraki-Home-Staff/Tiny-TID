@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     # キャッシュ設定
     cache_dir: str = "./cache"
 
+    # JR西日本リアルタイム設定
+    wjrc_area: str = "kinki"
+    wjrc_line: str = "kyoto,hokurikubiwako,kosei,kobesanyo"
+    wjrc_polling_interval: int = 10  # 秒
+    wjrc_line_interval: float = 2.0  # 秒
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
