@@ -32,10 +32,12 @@ async def get_all_realtime_data():
     if base_station and target_lines:
         graph = build_station_graph_multi_area(base_station, target_lines, areas)
         if graph:
-            # 各列車のposition_textを設定
+            # 各列車のposition_textを設定（進行方向に応じた順序）
             for line_id, line_data in data.items():
                 for train in line_data.trains:
-                    train.position_text = format_position(train.pos, graph)
+                    train.position_text = format_position(
+                        train.pos, graph, train.direction
+                    )
 
     return data
 
@@ -63,9 +65,9 @@ async def get_line_realtime(line: str):
     if base_station and target_lines:
         graph = build_station_graph_multi_area(base_station, target_lines, areas)
         if graph:
-            # 各列車のposition_textを設定
+            # 各列車のposition_textを設定（進行方向に応じた順序）
             for train in data.trains:
-                train.position_text = format_position(train.pos, graph)
+                train.position_text = format_position(train.pos, graph, train.direction)
 
     return data
 

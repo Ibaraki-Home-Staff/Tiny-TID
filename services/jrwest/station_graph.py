@@ -175,7 +175,40 @@ def build_station_graph(
                 stations.append(node)
         else:
             # 起点駅がこの路線上にない場合（接続路線など）
-            # その路線の全駅を取得し、起点駅からは「不明」として扱う
+            # この路線と「起点駅の路線」または「既に処理済みの路線」の接続駅を探す
+            # 1. まず接続駅を探す
+            transfer_station_idx = None
+            transfer_station_distance = None
+            connected_line_id = None
+
+            for idx, station in enumerate(station_list.stations):
+                # この駅が他の路線と接続しているか確認
+                if station.info.transfer:
+                    for transfer in station.info.transfer:
+                        # 起点駅の路線または既に処理済みの路線と接続しているか
+                        if (
+                            transfer.link == base_line_id
+                            or transfer.link in processed_lines
+                        ):
+                            # この路線が接続している
+                            transfer_station_idx = idx
+                            connected_line_id = transfer.link
+                            # 接続駅のdistance_from_baseを取得（接続先の路線上の駅として）
+                            for line in lines:
+                                if line.line_id == transfer.link:
+                                    for s in line.stations:
+                                        if s.code == station.info.code:
+                                            transfer_station_distance = (
+                                                s.distance_from_base
+                                            )
+                                            break
+                                if transfer_station_distance is not None:
+                                    break
+                            break
+                    if transfer_station_idx is not None:
+                        break
+
+            # 2. 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
                 stop_trains = []
                 if station.info.stop_trains:
@@ -183,13 +216,33 @@ def build_station_graph(
 
                     stop_trains = get_stop_train_names(station.info.stop_trains)
 
+                # 距離計算
+                if (
+                    transfer_station_idx is not None
+                    and transfer_station_distance is not None
+                ):
+                    # 接続駅からの相対距離を計算
+                    relative_distance = idx - transfer_station_idx
+                    distance = transfer_station_distance + relative_distance
+
+                    if distance < 0:
+                        direction = "upper"
+                    elif distance > 0:
+                        direction = "lower"
+                    else:
+                        direction = "transfer"
+                else:
+                    # 接続駅が見つからない場合は不明
+                    distance = None
+                    direction = "unknown"
+
                 node = StationNode(
                     code=station.info.code,
                     name=station.info.name,
                     line_id=line_id,
                     line_name=line_info.name,
-                    distance_from_base=None,  # 不明
-                    direction_from_base="unknown",
+                    distance_from_base=distance,
+                    direction_from_base=direction,
                     is_base_station=False,
                     transfers=[
                         {
@@ -431,7 +484,41 @@ def build_station_graph_multi_area(
                 )
                 stations.append(node)
         else:
-            # 起点駅がこの路線上にない場合
+            # 起点駅がこの路線上にない場合（接続路線など）
+            # この路線と「起点駅の路線」または「既に処理済みの路線」の接続駅を探す
+            # 1. まず接続駅を探す
+            transfer_station_idx = None
+            transfer_station_distance = None
+            connected_line_id = None
+
+            for idx, station in enumerate(station_list.stations):
+                # この駅が他の路線と接続しているか確認
+                if station.info.transfer:
+                    for transfer in station.info.transfer:
+                        # 起点駅の路線または既に処理済みの路線と接続しているか
+                        if (
+                            transfer.link == base_line_id
+                            or transfer.link in processed_lines
+                        ):
+                            # この路線が接続している
+                            transfer_station_idx = idx
+                            connected_line_id = transfer.link
+                            # 接続駅のdistance_from_baseを取得（接続先の路線上の駅として）
+                            for line in lines:
+                                if line.line_id == transfer.link:
+                                    for s in line.stations:
+                                        if s.code == station.info.code:
+                                            transfer_station_distance = (
+                                                s.distance_from_base
+                                            )
+                                            break
+                                if transfer_station_distance is not None:
+                                    break
+                            break
+                    if transfer_station_idx is not None:
+                        break
+
+            # 2. 各駅の距離を計算
             for idx, station in enumerate(station_list.stations):
                 stop_trains = []
                 if station.info.stop_trains:
@@ -439,13 +526,33 @@ def build_station_graph_multi_area(
 
                     stop_trains = get_stop_train_names(station.info.stop_trains)
 
+                # 距離計算
+                if (
+                    transfer_station_idx is not None
+                    and transfer_station_distance is not None
+                ):
+                    # 接続駅からの相対距離を計算
+                    relative_distance = idx - transfer_station_idx
+                    distance = transfer_station_distance + relative_distance
+
+                    if distance < 0:
+                        direction = "upper"
+                    elif distance > 0:
+                        direction = "lower"
+                    else:
+                        direction = "transfer"
+                else:
+                    # 接続駅が見つからない場合は不明
+                    distance = None
+                    direction = "unknown"
+
                 node = StationNode(
                     code=station.info.code,
                     name=station.info.name,
                     line_id=line_id,
                     line_name=line_info.name,
-                    distance_from_base=None,
-                    direction_from_base="unknown",
+                    distance_from_base=distance,
+                    direction_from_base=direction,
                     is_base_station=False,
                     transfers=[
                         {
@@ -619,13 +726,18 @@ def get_train_direction_from_graph(
     return "unknown"
 
 
-def format_position(pos: str, station_graph: StationGraph) -> str:
+def format_position(
+    pos: str, station_graph: StationGraph, train_direction: int = 0
+) -> str:
     """
     posフィールドを「駅A → 駅B」の形式に整形
+    posは進行方向を表さず、単に「駅Aと駅Bの間」を示す
+    常に距離の小さい駅 → 距離の大きい駅 の順に表示
 
     Args:
         pos: "0415_0416" または "0415_####" 形式
         station_graph: 駅グラフ（駅名解決用）
+        train_direction: 未使用（互換性のため残す）
 
     Returns:
         "駅A → 駅B" または "駅A" または "不明"
@@ -639,16 +751,20 @@ def format_position(pos: str, station_graph: StationGraph) -> str:
 
     station_a_code, station_b_code = parts
 
-    # 駅コードから駅名を解決
+    # 駅コードから駅名と距離を解決
     station_a_name = None
     station_b_name = None
+    station_a_distance = None
+    station_b_distance = None
 
     for line in station_graph.lines:
         for station in line.stations:
             if station.code == station_a_code:
                 station_a_name = station.name
+                station_a_distance = station.distance_from_base
             if station.code == station_b_code:
                 station_b_name = station.name
+                station_b_distance = station.distance_from_base
         # 両方見つかったら早期終了
         if station_a_name and station_b_name:
             break
@@ -661,7 +777,23 @@ def format_position(pos: str, station_graph: StationGraph) -> str:
 
     # 両駅名が解決できた場合
     if station_a_name and station_b_name:
+        # 距離情報が両方あれば、距離の小さい方 → 大きい方の順に表示
+        if station_a_distance is not None and station_b_distance is not None:
+            if station_a_distance <= station_b_distance:
+                return f"{station_a_name} → {station_b_name}"
+            else:
+                return f"{station_b_name} → {station_a_name}"
+        # 距離情報がなければ元の順序で表示
         return f"{station_a_name} → {station_b_name}"
+
+    # 一部しか解決できない場合
+    if station_a_name:
+        return f"{station_a_name} → 駅{station_b_code}"
+    if station_b_name:
+        return f"駅{station_a_code} → {station_b_name}"
+
+    # 両方不明
+    return f"駅{station_a_code} → 駅{station_b_code}"
 
     # 一部しか解決できない場合
     if station_a_name:

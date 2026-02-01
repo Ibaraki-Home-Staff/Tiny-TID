@@ -201,8 +201,9 @@ async def get_station_graph_realtime():
             # 駅グラフに基づいて方向を判定
             calculated_direction = get_train_direction_from_graph(pos, graph)
 
-            # posを整形して人間が読める形式に
-            position_text = format_position(pos, graph)
+            # posを整形して人間が読める形式に（進行方向に応じた順序）
+            direction_int = train.get("direction", 0)
+            position_text = format_position(pos, graph, direction_int)
 
             trains_with_direction.append(
                 TrainWithDirection(

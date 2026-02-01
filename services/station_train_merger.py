@@ -11,8 +11,48 @@ from config import get_settings
 from services.jrwest.realtime_cache import realtime_cache
 from services.jrwest.cache import cache as jrwest_cache
 from services.jrwest.station_graph import build_station_graph, format_position
-from services.jrwest.models import get_stop_train_names
+from services.jrwest.models import get_stop_train_names, Station
 from services.timetable_cache import cache as timetable_cache
+
+
+def search_station_in_target_lines(
+    areas: List[str], target_lines: List[str], station_code: str
+) -> tuple:
+    """
+    指定路線内で駅を優先的に検索
+
+    Returns: (station_data, found_area, found_line)
+    """
+    # まず指定路線内を検索
+    for area in areas:
+        area_data = jrwest_cache.get_area(area)
+        if not area_data:
+            continue
+
+        for line_id in target_lines:
+            station_list = area_data.stations.get(line_id)
+            if not station_list:
+                continue
+
+            for station in station_list.stations:
+                if station.info.code == station_code:
+                    print(
+                        f"  - {area}エリアの{line_id}路線で見つかりました: "
+                        f"{station.info.name} (code={station.info.code})"
+                    )
+                    return station, area, line_id
+
+    # 指定路線内に見つからない場合は全エリアから検索（フォールバック）
+    for area in areas:
+        station_data = jrwest_cache.search_station_in_area(area, station_code)
+        if station_data:
+            print(
+                f"  - {area}エリアで見つかりました（フォールバック）: "
+                f"{station_data.info.name} (code={station_data.info.code})"
+            )
+            return station_data, area, None
+
+    return None, None, None
 
 
 # 列車種別コード→表示名の変換テーブル（拡張性のため分離）
@@ -68,80 +108,108 @@ def is_train_on_route_to_station(
     station_graph: Any,
 ) -> bool:
     """
-    列車が指定駅を経路上に持つか判定（行先ベース）
+    列車が指定駅を「まだ通過していない」か判定（位置ベース）
+
+    駅グラフの距離情報を使用して、起点駅を通過前の列車のみを判定する。
+    - 上り（起点に向かう）: 現在位置が起点より後ろ(distance>0)で、かつ起点に到達していない
+    - 下り（起点から離れる）: 現在位置が起点より手前(distance<0)で、かつ起点に到達していない
+
+    つまり「正->0->負」または「負->0->正」のパターンになる列車のみを対象とする。
+
+    駅グラフに現在位置が含まれない場合は、行先コードと方向から判定する。
 
     Args:
         train_pos: "0410_0411" または "0410_####" 形式の位置情報
-        train_direction: 0=上り, 1=下り
+        train_direction: 0=上り(起点に向かう), 1=下り(起点から離れる)
         destination_code: 行先駅コード
-        target_station_code: 判定対象の駅コード
+        target_station_code: 判定対象の駅コード（起点駅）
         station_graph: 駅グラフ
 
     Returns:
-        True: 対象駅が現在位置から行先までの間にある
+        True: 列車が起点駅をまだ通過していない
     """
-    if not train_pos or not station_graph or not destination_code:
+    if not train_pos or not station_graph:
         return False
 
     parts = train_pos.split("_")
     if len(parts) != 2:
         return False
 
-    current_station, _ = parts
-
-    # 現在位置が対象駅の場合
-    if current_station == target_station_code:
-        return True
+    current_station, next_station = parts
 
     # 駅グラフから各駅の位置（起点駅からの距離）を取得
-    target_distance = None
     current_distance = None
     destination_distance = None
+    target_distance = 0  # 起点駅は常にdistance=0
 
     for line in station_graph.lines:
         for station in line.stations:
             if station.distance_from_base is None:
                 continue
 
-            if station.code == target_station_code:
-                target_distance = station.distance_from_base
             if station.code == current_station:
                 current_distance = station.distance_from_base
             if station.code == destination_code:
                 destination_distance = station.distance_from_base
 
-    # 必要な情報が揃っていない場合は経路上にあると判定（安全側に倒す）
-    if target_distance is None or current_distance is None:
-        return True  # 情報不足時は対象に含める
-
-    # 行先が不明の場合は現在位置のみで判定
-    if destination_distance is None:
-        # 対象駅が現在位置と同じか、その先にあるか
-        # 方向に応じて判定
-        if train_direction == 0:  # 上り（起点駅に向かう方向）
-            return target_distance <= current_distance
-        else:  # 下り（起点駅から離れる方向）
-            return target_distance >= current_distance
-
-    # 方向に応じて「現在位置 → 行先」の間に対象駅があるか判定
-    if train_direction == 0:  # 上り（起点駅に向かう）
-        # 行先 <= 対象駅 <= 現在位置
-        # または：行先と現在位置の間に対象駅がある
-        if destination_distance <= current_distance:
-            return destination_distance <= target_distance <= current_distance
+    # 現在位置が駅グラフにない場合は、行先コードと方向で判定（フォールバック）
+    if current_distance is None:
+        # 行先コードが駅グラフにあれば、それを使用して判定
+        if destination_distance is not None:
+            # 上り：行先が起点または起点より手前（distance <= 0）
+            if train_direction == 0:
+                return destination_distance <= 0
+            # 下り：行先が起点または起点より後（distance >= 0）
+            else:
+                return destination_distance >= 0
         else:
-            # 行先が現在位置より先にある場合（特殊ケース）
-            return current_distance <= target_distance <= destination_distance
-    else:  # 下り（起点駅から離れる）
-        # 現在位置 <= 対象駅 <= 行先
-        # または：現在位置と行先の間に対象駅がある
-        if current_distance <= destination_distance:
-            return current_distance <= target_distance <= destination_distance
-        else:
-            # 行先が現在位置より手前にある場合（特殊ケース）
-            return destination_distance <= target_distance <= current_distance
+            # 現在位置も行先も駅グラフにない場合は判定不可
+            # デバッグ出力は抑制（大量に出るため）
+            return False
 
-    return False
+    # 現在位置が起点駅の場合、停車中は含める（通過前とみなす）
+    if current_distance == 0:
+        # 停車中（####）の場合は通過前とみなす
+        if next_station == "####":
+            return True
+        # 走行中に起点駅にいる場合は、次の駅で方向を判定
+        # 次の駅の距離を取得
+        next_distance = None
+        for line in station_graph.lines:
+            for station in line.stations:
+                if (
+                    station.code == next_station
+                    and station.distance_from_base is not None
+                ):
+                    next_distance = station.distance_from_base
+                    break
+        # 上りなら次の駅が負（起点側）、下りなら次の駅が正（起点から離れる側）
+        if train_direction == 0:  # 上り
+            return next_distance is not None and next_distance < 0
+        else:  # 下り
+            return next_distance is not None and next_distance > 0
+
+    # 上り（起点に向かう）: distance>0（起点より後ろ）からdistance<=0（起点または手前）へ
+    if train_direction == 0:
+        # 現在位置が起点より後(distance>0)であり、行先が起点または起点より手前(distance<=0)
+        if destination_distance is not None:
+            # 行先が判明している場合：現在位置が正で、行先が負または0
+            return current_distance > 0 and destination_distance <= 0
+        else:
+            # 行先不明の場合：現在位置が正（起点より後ろ）であれば対象
+            # 行先が不明でも起点に向かっていると判定
+            return current_distance > 0
+
+    # 下り（起点から離れる）: distance<0（起点より手前）からdistance>=0（起点または後ろ）へ
+    else:
+        # 現在位置が起点より手前(distance<0)であり、行先が起点または起点より後(distance>=0)
+        if destination_distance is not None:
+            # 行先が判明している場合：現在位置が負で、行先が正または0
+            return current_distance < 0 and destination_distance >= 0
+        else:
+            # 行先不明の場合：現在位置が負（起点より手前）であれば対象
+            # 行先が不明でも起点から離れていると判定
+            return current_distance < 0
 
 
 def check_is_passing_train(
@@ -197,32 +265,27 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
         )
         return None
 
-    # 駅データを取得（全エリアから検索）
-    station_data = None
-    found_area = None
+    # 駅データを取得（指定路線内を優先的に検索）
     print(
-        f"[{datetime.now()}] 駅データ検索開始: station_code={target_station_code}, areas={areas}"
+        f"[{datetime.now()}] 駅データ検索開始: station_code={target_station_code}, "
+        f"areas={areas}, target_lines={target_lines}"
     )
-    for area in areas:
-        print(f"  - {area}エリアで検索中...")
-        station_data = jrwest_cache.search_station_in_area(area, target_station_code)
-        if station_data:
-            found_area = area
-            print(
-                f"  - {area}エリアで見つかりました: {station_data.info.name} (code={station_data.info.code})"
-            )
-            break
+    station_data, found_area, found_line = search_station_in_target_lines(
+        areas, target_lines, target_station_code
+    )
 
     if not station_data:
         print(
-            f"[{datetime.now()}] 駅列車データ生成: 駅データが見つかりません (station_code={target_station_code}, areas={areas})"
+            f"[{datetime.now()}] 駅列車データ生成: 駅データが見つかりません "
+            f"(station_code={target_station_code}, areas={areas}, target_lines={target_lines})"
         )
         return None
 
     station_name = station_data.info.name
     station_stop_trains = station_data.info.stop_trains
     print(
-        f"[{datetime.now()}] 駅データ確定: {station_name} (code={target_station_code}, area={found_area})"
+        f"[{datetime.now()}] 駅データ確定: {station_name} "
+        f"(code={target_station_code}, area={found_area}, line={found_line})"
     )
 
     # 駅グラフを構築（複数エリア対応）
@@ -252,6 +315,7 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
     # 対象路線のリアルタイムデータを取得
     up_trains: List[Dict[str, Any]] = []
     down_trains: List[Dict[str, Any]] = []
+    seen_train_nos: set = set()  # 重複排除用
 
     for line_id in target_lines:
         line_data = realtime_cache.get_line_data(line_id)
@@ -259,6 +323,10 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
             continue
 
         for train in line_data.trains:
+            # 重複チェック
+            if train.no in seen_train_nos:
+                continue
+
             # 行先コードを取得（プロパティを使用して互換性を確保）
             destination_code = train.dest_code if train.dest else None
 
@@ -294,8 +362,8 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
                 station_stop_trains,
             )
 
-            # 位置情報を整形
-            location_str = format_position(train.pos, station_graph)
+            # 位置情報を整形（進行方向に応じた順序）
+            location_str = format_position(train.pos, station_graph, train.direction)
 
             # 列車種別を変換
             train_type_converted = convert_train_type(train.display_type)
@@ -312,6 +380,9 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
                 "delay_minutes": train.delay_minutes,
                 "pass": is_pass,
             }
+
+            # 重複を記録
+            seen_train_nos.add(train.no)
 
             # 方向で分類（0=上り、1=下り）
             if train.direction == 0:
