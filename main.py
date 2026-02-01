@@ -1,7 +1,18 @@
+import os
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from services.scheduler import start_scheduler, shutdown_scheduler
 from routers import timetable, jrwest, jrwest_realtime
+
+# .envファイル存在チェックとウィザード起動
+if not os.path.exists(".env"):
+    print(".envファイルが見つかりません。初期設定ウィザードを起動します...")
+    from wizard import run_wizard
+
+    if not run_wizard():
+        print("初期設定がキャンセルされたか、エラーが発生しました。")
+        print("手動で.envファイルを作成するか、再度実行してください。")
+        exit(1)
 
 
 @asynccontextmanager
