@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -36,6 +37,12 @@ def fetch_daily_timetable():
     print(f"[{datetime.now()}] 時刻表データの取得を開始します...")
 
     settings = get_settings()
+
+    # APIキーがダミーの場合はスキップ
+    if settings.ekispert_api_key == "dummy_key_for_initial_fetch":
+        print(f"  - APIキーが設定されていないため、取得をスキップします")
+        return
+
     today = datetime.now()
     date_str = today.strftime("%Y%m%d")
     date_group = get_date_group(date_str)
@@ -59,7 +66,7 @@ def fetch_daily_timetable():
                 except Exception as e:
                     print(f"  - 詳細時刻表取得失敗: code={code}, error={e}")
 
-        # キャッシュを更新
+        # キャッシュを更新（ファイルにも保存）
         ekispert_cache.update(date_str, date_group, directions, detailed_timetables)
         print(
             f"[{datetime.now()}] 時刻表データの取得が完了しました (date_group={date_group})"
@@ -94,7 +101,7 @@ def fetch_jrwest_daily():
                 print(f"    → 取得失敗")
 
         if areas_data:
-            # キャッシュを更新
+            # キャッシュを更新（ファイルにも保存）
             jrwest_cache.update(areas_data)
             total_lines = sum(len(ad.stations) for ad in areas_data.values())
             total_stations = sum(
@@ -117,7 +124,33 @@ def fetch_jrwest_daily():
 def start_scheduler():
     """
     スケジューラーを開始
+    起動時はファイルからキャッシュを読み込み
     """
+    settings = get_settings()
+    cache_dir = settings.cache_dir
+
+    # キャッシュディレクトリを作成
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+        print(f"[{datetime.now()}] キャッシュディレクトリを作成しました: {cache_dir}")
+
+    print(f"[{datetime.now()}] キャッシュデータを読み込み中...")
+
+    # 駅すぱあとキャッシュを読み込み
+    ekispert_loaded = ekispert_cache.load_from_file()
+    if not ekispert_loaded:
+        print(f"  - 駅すぱあと: ファイルキャッシュなし")
+
+    # JR西日本キャッシュを読み込み
+    jrwest_loaded = jrwest_cache.load_from_file()
+    if not jrwest_loaded:
+        print(f"  - JR西日本: ファイルキャッシュなし")
+
+    if not ekispert_loaded and not jrwest_loaded:
+        print(
+            f"[{datetime.now()}] キャッシュファイルがありません。初回起動時に取得します。"
+        )
+
     # 毎日3:21に実行（駅すぱあと）
     trigger = CronTrigger(hour=3, minute=21)
     scheduler.add_job(
@@ -138,9 +171,14 @@ def start_scheduler():
     scheduler.start()
     print(f"[{datetime.now()}] スケジューラーを開始しました (毎日3:21に実行)")
 
-    # 初回は即座に取得
-    fetch_daily_timetable()
-    fetch_jrwest_daily()
+    # キャッシュがない場合のみ初回取得を実行
+    if not ekispert_loaded:
+        print(f"[{datetime.now()}] 駅すぱあと初回データ取得を開始...")
+        fetch_daily_timetable()
+
+    if not jrwest_loaded:
+        print(f"[{datetime.now()}] JR西日本初回データ取得を開始...")
+        fetch_jrwest_daily()
 
 
 def shutdown_scheduler():

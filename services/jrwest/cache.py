@@ -1,3 +1,5 @@
+import json
+import os
 from typing import Dict, Optional, List
 from datetime import datetime
 from .models import (
@@ -8,17 +10,89 @@ from .models import (
     StationSearchResult,
     StationInArea,
 )
+from config import get_settings
 
 
 class JRWestCache:
     def __init__(self):
         self._cache: Optional[CachedJRWestData] = None
+        self._cache_file = None
+        self._ensure_cache_dir()
+
+    def _ensure_cache_dir(self):
+        """キャッシュディレクトリを作成"""
+        settings = get_settings()
+        cache_dir = settings.cache_dir
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+        self._cache_file = os.path.join(cache_dir, "jrwest_cache.json")
+
+    def _serialize_area_data(self, area_data: AreaData) -> dict:
+        """AreaDataをシリアライズ"""
+        return {
+            "master": area_data.master.model_dump(),
+            "stations": {k: v.model_dump() for k, v in area_data.stations.items()},
+        }
+
+    def _deserialize_area_data(self, data: dict) -> AreaData:
+        """AreaDataをデシリアライズ"""
+        from .models import AreaMaster, StationList
+
+        return AreaData(
+            master=AreaMaster(**data["master"]),
+            stations={k: StationList(**v) for k, v in data["stations"].items()},
+        )
+
+    def _save_to_file(self):
+        """キャッシュをファイルに保存"""
+        if self._cache is None:
+            return
+
+        try:
+            data = {
+                "areas": {
+                    k: self._serialize_area_data(v)
+                    for k, v in self._cache.areas.items()
+                },
+                "fetched_at": self._cache.fetched_at.isoformat(),
+            }
+            with open(self._cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"  - JR西日本キャッシュをファイルに保存しました: {self._cache_file}")
+        except Exception as e:
+            print(f"  - JR西日本キャッシュファイル保存失敗: {e}")
+
+    def load_from_file(self) -> bool:
+        """キャッシュをファイルから読み込み"""
+        if not os.path.exists(self._cache_file):
+            return False
+
+        try:
+            with open(self._cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            areas = {
+                k: self._deserialize_area_data(v) for k, v in data["areas"].items()
+            }
+
+            self._cache = CachedJRWestData(
+                areas=areas, fetched_at=datetime.fromisoformat(data["fetched_at"])
+            )
+            print(
+                f"  - JR西日本キャッシュをファイルから読み込みました: {self._cache_file}"
+            )
+            return True
+        except Exception as e:
+            print(f"  - JR西日本キャッシュファイル読み込み失敗: {e}")
+            return False
 
     def update(self, areas: Dict[str, AreaData]):
         """
         キャッシュを更新
         """
         self._cache = CachedJRWestData(areas=areas, fetched_at=datetime.now())
+        # ファイルに保存
+        self._save_to_file()
 
     def get_area(self, area: str) -> Optional[AreaData]:
         """
@@ -123,6 +197,11 @@ class JRWestCache:
         キャッシュをクリア
         """
         self._cache = None
+        if os.path.exists(self._cache_file):
+            try:
+                os.remove(self._cache_file)
+            except Exception as e:
+                print(f"  - JR西日本キャッシュファイル削除失敗: {e}")
 
 
 # グローバルキャッシュインスタンス
