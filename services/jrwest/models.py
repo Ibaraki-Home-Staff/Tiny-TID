@@ -25,7 +25,7 @@ def get_stop_train_names(stop_trains: Optional[List[int]]) -> List[str]:
     stopTrainsのインデックスリストから列車種別名のリストを取得
     """
     if stop_trains is None or stop_trains == []:
-        return ["普通列車"]
+        return ["普通"]
 
     return [STOP_TRAIN_TYPES.get(i, "") for i in stop_trains if i in STOP_TRAIN_TYPES]
 
