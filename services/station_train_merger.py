@@ -527,7 +527,15 @@ def generate_station_train_data() -> Optional[Dict[str, Any]]:
             )
 
             # === 4. 時刻フィルタ：既に通過した列車は除外 ===
-            if not is_train_time_valid(scheduled_str, current_time):
+            # 普通列車で時刻表にない場合は、その駅を通過するため除外
+            if not scheduled_str and train.display_type == "普通":
+                print(
+                    f"  - 列車 {train.no}: 普通列車だが時刻表にないため除外 "
+                    f"(対象駅を通過)"
+                )
+                continue
+
+            if scheduled_str and not is_train_time_valid(scheduled_str, current_time):
                 print(
                     f"  - 列車 {train.no}: 時刻が過去のため除外 "
                     f"(scheduled={scheduled_str}, current={current_time.strftime('%H:%M')})"

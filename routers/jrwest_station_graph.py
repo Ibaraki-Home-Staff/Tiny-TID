@@ -184,9 +184,9 @@ async def get_station_graph_realtime():
         )
 
     # リアルタイムデータを取得
-    from services.jrwest.realtime_cache import get_all_realtime_data
+    from services.jrwest.realtime_cache import realtime_cache
 
-    realtime_data = get_all_realtime_data()
+    realtime_data = realtime_cache.get_all_data()
 
     lines_with_trains = []
     for line_id in target_lines:
