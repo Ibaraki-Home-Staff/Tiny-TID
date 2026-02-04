@@ -13,6 +13,7 @@ from services.jrwest.station_graph import (
     get_train_direction_from_graph,
     format_position,
 )
+from typing import Optional
 
 router = APIRouter(prefix="/jrwest/station-graph", tags=["jrwest-station-graph"])
 
@@ -48,6 +49,7 @@ class LineSegmentResponse(BaseModel):
     line_range: str
     direction: LineDirection
     stations: List[StationNodeResponse]
+    source_lines: List[str] = []  # 統合元の路線IDリスト
 
 
 class BaseStationInfo(BaseModel):
@@ -109,6 +111,7 @@ def convert_to_response(graph) -> StationGraphResponse:
                     )
                     for station in line.stations
                 ],
+                source_lines=line.source_lines if line.source_lines else [line.line_id],
             )
             for line in graph.lines
         ],
@@ -199,12 +202,16 @@ async def get_station_graph_realtime():
             pos = train.get("pos", "")
             raw_direction = train.get("direction", "")
 
-            # 駅グラフに基づいて方向を判定
-            calculated_direction = get_train_direction_from_graph(pos, graph)
+            # 駅グラフに基づいて方向を判定（列車の路線IDを優先）
+            calculated_direction = get_train_direction_from_graph(
+                pos, graph, preferred_line_id=line_id
+            )
 
             # posを整形して人間が読める形式に（進行方向に応じた順序）
             direction_int = train.get("direction", 0)
-            position_text = format_position(pos, graph, direction_int)
+            position_text = format_position(
+                pos, graph, direction_int, preferred_line_id=line_id
+            )
 
             trains_with_direction.append(
                 TrainWithDirection(

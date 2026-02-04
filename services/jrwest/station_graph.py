@@ -35,6 +35,7 @@ class LineSegment:
     line_range: str
     direction: Dict[str, str]  # {"upper": "終点名", "lower": "終点名"}
     stations: List[StationNode]
+    source_lines: List[str] = field(default_factory=list)  # 統合元の路線IDリスト
 
 
 @dataclass
@@ -437,6 +438,10 @@ def build_station_graph(
                 existing.line_name = f"{existing.line_name}/{line_info.name}"
                 # 営業キロ範囲も統合
                 existing.line_range = f"{existing.line_range},{line_info.range}"
+                # 統合元の路線IDを追加
+                if not existing.source_lines:
+                    existing.source_lines = [existing.line_id.split(",")[0]]
+                existing.source_lines.append(line_id)
             else:
                 # 新規セグメントを追加
                 line_segment = LineSegment(
@@ -448,6 +453,7 @@ def build_station_graph(
                         "lower": line_info.dest.lower,
                     },
                     stations=stations,
+                    source_lines=[line_id],  # 初期状態では自身が唯一のソース
                 )
                 lines.append(line_segment)
             processed_lines.add(line_id)
@@ -525,6 +531,12 @@ def build_station_graph(
                                 existing.line_range = (
                                     f"{existing.line_range},{line_info.range}"
                                 )
+                                # 統合元の路線IDを追加
+                                if not existing.source_lines:
+                                    existing.source_lines = [
+                                        existing.line_id.split(",")[0]
+                                    ]
+                                existing.source_lines.append(linked_line_id)
                             else:
                                 # 新規セグメントを追加
                                 line_segment = LineSegment(
@@ -536,6 +548,7 @@ def build_station_graph(
                                         "lower": line_info.dest.lower,
                                     },
                                     stations=stations,
+                                    source_lines=[linked_line_id],
                                 )
                                 lines.append(line_segment)
                             processed_lines.add(linked_line_id)
@@ -1027,6 +1040,12 @@ def build_station_graph_multi_area(
                                 existing.line_range = (
                                     f"{existing.line_range},{line_info.range}"
                                 )
+                                # 統合元の路線IDを追加
+                                if not existing.source_lines:
+                                    existing.source_lines = [
+                                        existing.line_id.split(",")[0]
+                                    ]
+                                existing.source_lines.append(linked_line_id)
                             else:
                                 # 新規セグメントを追加
                                 line_segment = LineSegment(
@@ -1038,6 +1057,7 @@ def build_station_graph_multi_area(
                                         "lower": line_info.dest.lower,
                                     },
                                     stations=stations,
+                                    source_lines=[linked_line_id],
                                 )
                                 lines.append(line_segment)
                             processed_lines.add(linked_line_id)
@@ -1054,7 +1074,7 @@ def build_station_graph_multi_area(
 
 
 def get_train_direction_from_graph(
-    train_pos: str, station_graph: StationGraph
+    train_pos: str, station_graph: StationGraph, preferred_line_id: Optional[str] = None
 ) -> Optional[str]:
     """
     列車位置情報から方向（上り/下り）を判定
@@ -1062,6 +1082,7 @@ def get_train_direction_from_graph(
     Args:
         train_pos: "0415_0416" または "0415_####" 形式
         station_graph: 駅グラフ
+        preferred_line_id: 優先的に使用する路線ID（列車が走行している路線）
 
     Returns:
         "upper", "lower", "stopped", "unknown"
@@ -1081,7 +1102,19 @@ def get_train_direction_from_graph(
     dist_a = None
     dist_b = None
 
-    for line in station_graph.lines:
+    # preferred_line_id が指定されている場合、該当する路線を優先的に検索
+    lines_to_search = station_graph.lines
+    if preferred_line_id:
+        # source_lines に preferred_line_id を含む路線を優先
+        preferred_lines = [
+            line
+            for line in station_graph.lines
+            if preferred_line_id in (line.source_lines or [line.line_id])
+        ]
+        if preferred_lines:
+            lines_to_search = preferred_lines
+
+    for line in lines_to_search:
         for station in line.stations:
             if station.code == station_a:
                 dir_a = station.direction_from_base
@@ -1118,7 +1151,10 @@ def get_train_direction_from_graph(
 
 
 def format_position(
-    pos: str, station_graph: StationGraph, train_direction: int = 0
+    pos: str,
+    station_graph: StationGraph,
+    train_direction: int = 0,
+    preferred_line_id: Optional[str] = None,
 ) -> str:
     """
     posフィールドを「駅A → 駅B」の形式に整形
@@ -1130,6 +1166,7 @@ def format_position(
         pos: "0415_0416" または "0415_####" 形式
         station_graph: 駅グラフ（駅名解決用）
         train_direction: 0=上り（起点に向かう）、1=下り（起点から離れる）
+        preferred_line_id: 優先的に使用する路線ID（列車が走行している路線）
 
     Returns:
         "駅A → 駅B" または "駅A" または "不明"
@@ -1149,7 +1186,19 @@ def format_position(
     station_a_distance = None
     station_b_distance = None
 
-    for line in station_graph.lines:
+    # preferred_line_id が指定されている場合、該当する路線を優先的に検索
+    lines_to_search = station_graph.lines
+    if preferred_line_id:
+        # source_lines に preferred_line_id を含む路線を優先
+        preferred_lines = [
+            line
+            for line in station_graph.lines
+            if preferred_line_id in (line.source_lines or [line.line_id])
+        ]
+        if preferred_lines:
+            lines_to_search = preferred_lines
+
+    for line in lines_to_search:
         for station in line.stations:
             if station.code == station_a_code:
                 station_a_name = station.name
