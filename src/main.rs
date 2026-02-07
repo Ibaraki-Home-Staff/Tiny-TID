@@ -1,4 +1,8 @@
 mod app;
+mod route;
+mod pages;
+mod components;
+mod process;
 
 use app::App;
 use tracing_subscriber::{filter::Targets, prelude::*};
@@ -18,7 +22,7 @@ fn main() {
 
     tracing_subscriber::registry().with(fmt_layer).init();
 
-    tracing::info!("Starting Yew application");
+    tracing::info!("Starting Tiny TID application...");
     yew::Renderer::<App>::new().render();
 }
 
