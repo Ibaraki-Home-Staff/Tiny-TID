@@ -3,13 +3,19 @@ use yew_router::prelude::*;
 
 use crate::route::{switch, Route};
 
+use crate::components::Navigation;
+
 #[component]
 pub fn App() -> Html {
     html! {
-        <main>
-            <BrowserRouter>
+        <>
+        <BrowserRouter>
+            <Navigation />
+            <main>
                 <Switch<Route> render={switch} />
-            </BrowserRouter>
-        </main>
+            </main>
+        </BrowserRouter>
+        <script src="materialize.min.js"></script>
+        </>
     }
 }

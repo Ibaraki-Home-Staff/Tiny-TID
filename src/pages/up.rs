@@ -1,14 +1,11 @@
 use yew::prelude::*;
 
-use super::Navigation;
-
 #[function_component]
 pub fn Up() -> Html {
     html! {
         <>
-        <Navigation />
-        <div>
-            <h1>{ "Up" }</h1>
+        <div class="container">
+            <h2>{ "列車運行情報 上り" }</h2>
             <p>{ "This is the Up page." }</p>
         </div>
         </>
