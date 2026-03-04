@@ -11,6 +11,14 @@ const STORAGE_KEYS = Object.freeze({
   selectedDirection: (area, line) => `selectedDirection:${area}:${line}`
 });
 
+function storageGet(key){
+  try{ return localStorage.getItem(key); }catch{ return null; }
+}
+
+function storageSet(key, value){
+  try{ localStorage.setItem(key, value); }catch{}
+}
+
 export function initAreaAndLineSelectors(){
   const areaSelect = document.getElementById('areaSelect');
   const lineSelect = document.getElementById('lineSelect');
@@ -24,7 +32,7 @@ export function initAreaAndLineSelectors(){
 
   areaSelect.addEventListener('change', async () => {
     const area = areaSelect.value;
-    localStorage.setItem(STORAGE_KEYS.selectedArea, area);
+    storageSet(STORAGE_KEYS.selectedArea, area);
 
     await populateLinesForArea(area, lineSelect);
     const restored = restoreSavedLine(area, lineSelect);
@@ -41,7 +49,7 @@ export function initAreaAndLineSelectors(){
     const line = lineSelect.value;
 
     if(area && line){
-      localStorage.setItem(STORAGE_KEYS.selectedLine(area), line);
+      storageSet(STORAGE_KEYS.selectedLine(area), line);
       if(!restoreSavedDirection(area, line, directionInputs)){
         setDirection(directionInputs, 'both');
       }
@@ -67,7 +75,7 @@ export function initAreaAndLineSelectors(){
 }
 
 async function restoreInitialSelection({ areaSelect, lineSelect, directionInputs, showButton }){
-  const savedArea = localStorage.getItem(STORAGE_KEYS.selectedArea);
+  const savedArea = storageGet(STORAGE_KEYS.selectedArea);
   if(!savedArea || !hasOption(areaSelect, savedArea)) return;
 
   areaSelect.value = savedArea;
@@ -88,7 +96,7 @@ function hasOption(select, value){
 }
 
 function restoreSavedLine(area, lineSelect){
-  const savedLine = localStorage.getItem(STORAGE_KEYS.selectedLine(area));
+  const savedLine = storageGet(STORAGE_KEYS.selectedLine(area));
   if(!savedLine || !hasOption(lineSelect, savedLine)) return false;
   lineSelect.value = savedLine;
   return true;
@@ -116,7 +124,7 @@ function getDirection(directionInputs){
 }
 
 function restoreSavedDirection(area, line, directionInputs){
-  const savedDirection = localStorage.getItem(STORAGE_KEYS.selectedDirection(area, line));
+  const savedDirection = storageGet(STORAGE_KEYS.selectedDirection(area, line));
   if(!savedDirection) return false;
   setDirection(directionInputs, savedDirection);
   return true;
@@ -135,7 +143,7 @@ document.addEventListener('change', (event) => {
   const line = document.getElementById('lineSelect')?.value;
   if(!area || !line) return;
 
-  localStorage.setItem(STORAGE_KEYS.selectedDirection(area, line), target.value);
+  storageSet(STORAGE_KEYS.selectedDirection(area, line), target.value);
 });
 
 async function populateLinesForArea(area, lineSelect){
