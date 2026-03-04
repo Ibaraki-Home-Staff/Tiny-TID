@@ -1,4 +1,4 @@
-import { U_TOKEN_TYPE_MAP } from './tid-rules.js';
+import { U_TOKEN_TYPE_MAP } from './tid-rules.js?v=39';
 
 export const CATEGORY = Object.freeze({
   LOCAL: 0,
