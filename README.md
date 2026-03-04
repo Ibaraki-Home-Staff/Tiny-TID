@@ -32,7 +32,8 @@ JR西日本のAPIはCORSヘッダーを返さないため、フロント（ブ�
 - 動作確認は「プロキシが効く本番ドメイン」で行うか、ローカルサンプルJSON（`area_*.json`）で代替してください
 
 ## 古いブラウザ向け（Legacy Bundle）
-- このリポジトリは `index.html` / `TID.html` で `assets/js/legacy-*.js` を読み込みます（module未対応環境向け）。
+- このリポジトリは `assets/js/runtime-loader.js` で `modern/legacy` を自動判定し、右下バッジで現在モードを表示します。
+- modern非対応環境では `assets/js/legacy-*.js` を読み込みます（module未対応環境向け）。
 - JSを変更したら、以下でバンドルを再生成してください。
   - `pwsh ./build-legacy.ps1`
 
