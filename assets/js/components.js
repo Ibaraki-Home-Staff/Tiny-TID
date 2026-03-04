@@ -1,63 +1,72 @@
+const APP_VERSION_META_SELECTOR = 'meta[name="app:version"]';
+const COMPONENTS = Object.freeze([
+  { selector: '[data-include="header"]', path: '/components/header.html' },
+  { selector: '[data-include="footer"]', path: '/components/footer.html' }
+]);
+
 function getAssetVersion(){
-  try{
-    const m = document.querySelector('meta[name="app:version"]');
-    const v = m && m.getAttribute('content');
-    return (v && String(v)) || '';
-  }catch{ return ''; }
+  const meta = document.querySelector(APP_VERSION_META_SELECTOR);
+  return meta?.getAttribute('content')?.trim() || '';
 }
-function withVersion(u){
-  try{
-    const v = getAssetVersion();
-    if(!v) return u;
-    return u + (u.includes('?') ? `&v=${encodeURIComponent(v)}` : `?v=${encodeURIComponent(v)}`);
-  }catch{ return u; }
+
+function withVersion(url){
+  const version = getAssetVersion();
+  if(!version) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}v=${encodeURIComponent(version)}`;
 }
 
 export async function loadComponents(){
-  await Promise.all([
-    include('[data-include="header"]', withVersion('/components/header.html')),
-    include('[data-include="footer"]', withVersion('/components/footer.html'))
-  ]);
+  await Promise.all(
+    COMPONENTS.map(({ selector, path }) => include(selector, withVersion(path)))
+  );
   setActiveNav();
   initNavToggle();
 }
 
 async function include(selector, url){
-  const el = document.querySelector(selector);
-  if(!el) return;
+  const element = document.querySelector(selector);
+  if(!element) return;
+
   try{
-    const res = await fetch(url, {cache:'no-store'});
-    if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    el.innerHTML = await res.text();
-  }catch(err){
-    el.innerHTML = `<div class="component-error">読み込みエラー: ${url}</div>`;
-    console.error('Component load failed', url, err);
+    const response = await fetch(url, { cache: 'no-store' });
+    if(!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    element.innerHTML = await response.text();
+  }catch(error){
+    element.innerHTML = `<div class="component-error">読み込みエラー: ${url}</div>`;
+    console.error('Component load failed', { selector, url, error });
   }
 }
 
 function setActiveNav(){
   const nav = document.querySelector('[data-nav]');
   if(!nav) return;
-  const current = new URL(window.location.href);
+
+  const currentPath = new URL(window.location.href).pathname;
   for(const link of nav.querySelectorAll('a[href]')){
+    const href = link.getAttribute('href');
+    if(!href) continue;
+
     try{
-      const url = new URL(link.getAttribute('href'), window.location.origin);
-      if(url.pathname === current.pathname){
+      const linkPath = new URL(href, window.location.origin).pathname;
+      if(linkPath === currentPath){
         link.classList.add('active');
-        link.setAttribute('aria-current','page');
+        link.setAttribute('aria-current', 'page');
       }
-    }catch{ /* noop */ }
+    }catch{
+      // Ignore malformed href values.
+    }
   }
 }
 
 function initNavToggle(){
-  const btn = document.querySelector('[data-nav-toggle]');
+  const button = document.querySelector('[data-nav-toggle]');
   const nav = document.querySelector('[data-nav]');
-  if(!btn || !nav) return;
-  const toggle = () => {
-    const expanded = btn.getAttribute('aria-expanded') === 'true';
-    btn.setAttribute('aria-expanded', String(!expanded));
+  if(!button || !nav) return;
+
+  button.addEventListener('click', () => {
+    const expanded = button.getAttribute('aria-expanded') === 'true';
+    button.setAttribute('aria-expanded', String(!expanded));
     nav.classList.toggle('open', !expanded);
-  };
-  btn.addEventListener('click', toggle);
+  });
 }
