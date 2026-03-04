@@ -37,11 +37,62 @@ export function createAlarmSystem(deps){
   const alarmPlayQueue = [];
   const alarmQueueKeys = new Set();
   let alarmPlaying = false;
+  const ALARM_STALE_THRESHOLD_MS = 5 * 60 * 1000;
+  const ALARM_RECENT_GRACE_MS = 3 * 60 * 1000;
 
   // Track last shown trains and context to validate queued alarms
   let lastShownTrains = { up: [], down: [] };
-  let lastSelectedCode = null;
   let lastIndexes = null;
+
+  function parseAlarmQueueKey(key){
+    const parts = String(key || '').split(':');
+    if(parts.length < 2) return null;
+    const no = String(parts[0] || '').trim();
+    const dirNum = Number(parts[1]);
+    if(!no || (dirNum !== 0 && dirNum !== 1)) return null;
+    return { no, dirNum };
+  }
+
+  function createAlarmQueueItem({ key, message, meta, onDone, queuedAt } = {}){
+    return {
+      key: String(key || ''),
+      message: String(message || ''),
+      meta: meta || null,
+      onDone,
+      queuedAt: Number.isFinite(queuedAt) ? queuedAt : Date.now()
+    };
+  }
+
+  function isQueueItemStale(item){
+    try{
+      const parsed = parseAlarmQueueKey(item?.key);
+      if(!parsed) return false;
+      const age = Date.now() - Number(item?.queuedAt || 0);
+      if(age > ALARM_STALE_THRESHOLD_MS){
+        try{ dbg && dbg('ALARM_SKIP_STALE_AGE', { key: item?.key, ageMs: age }); }catch{}
+        return true;
+      }
+      const list = (parsed.dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
+      const found = list.some(t => String(t.no || '') === parsed.no);
+      if(!found && age < ALARM_RECENT_GRACE_MS){
+        try{ dbg && dbg('ALARM_QUEUE_NOT_STALE_YET', { key: item?.key, ageMs: age, found }); }catch{}
+        return false;
+      }
+      if(!found){
+        try{
+          dbg && dbg('ALARM_SKIP_STALE', {
+            time: new Date().toISOString(),
+            key: item?.key || '',
+            dir: parsed.dirNum,
+            ageMs: age,
+            shownUp: lastShownTrains.up?.length || 0,
+            shownDown: lastShownTrains.down?.length || 0
+          });
+        }catch{}
+      }
+      return !found;
+    }catch{ return false; }
+  }
 
   // Lightweight alarm modal (auto-dismiss ~3s with confirm button)
   let alarmModalEl = null;
@@ -492,50 +543,11 @@ export function createAlarmSystem(deps){
     try{
       // Preempt any ongoing low-priority delay TTS
       try{ preemptDelayTts && preemptDelayTts(); }catch{}
-      const isStale = (item) => {
-        try{
-          // Expect key format: `${no}:${dir}:${targetCode}` where dir is 0/1
-          const parts = String(item?.key||'').split(':');
-          if(parts.length < 2) return false; // unknown format -> play
-          const no = parts[0];
-          const dirNum = Number(parts[1]);
-
-          // Time-based stale check: if item was queued more than 5 minutes ago, it's stale
-          const queuedAt = item.queuedAt || 0;
-          const age = Date.now() - queuedAt;
-          const STALE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-          if(age > STALE_THRESHOLD){
-            try{ dbg && dbg('ALARM_SKIP_STALE_AGE', { key: item?.key, ageMs: age }); }catch{}
-            return true;
-          }
-
-          const list = (dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
-          const found = list.some(t => String(t.no||'') === String(no));
-
-          // Relax stale check: if train not found but queued less than 3 minutes ago, still play
-          if(!found && age < 3 * 60 * 1000){
-            try{ dbg && dbg('ALARM_QUEUE_NOT_STALE_YET', { key: item?.key, ageMs: age, found }); }catch{}
-            return false;
-          }
-
-          if(!found){
-            try{ dbg && dbg('ALARM_SKIP_STALE', {
-              time: new Date().toISOString(),
-              key: item?.key||'',
-              dir: dirNum,
-              ageMs: age,
-              shownUp: lastShownTrains.up?.length||0,
-              shownDown: lastShownTrains.down?.length||0
-            }); }catch{}
-          }
-          return !found;
-        }catch{ return false; }
-      };
       while(alarmPlayQueue.length){
         const it = alarmPlayQueue.shift();
         if(!it) continue;
         // Skip stale items (train already passed or no longer eligible)
-        if(isStale(it)){
+        if(isQueueItemStale(it)){
           try{ if(it && it.key) alarmQueueKeys.delete(it.key); }catch{}
           continue;
         }
@@ -586,7 +598,13 @@ export function createAlarmSystem(deps){
     if(set.has(key)) return false;
     if(key && alarmQueueKeys.has(key)) return false;
     if(key) alarmQueueKeys.add(key);
-    alarmPlayQueue.push({ key, message, meta, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
+    alarmPlayQueue.push(createAlarmQueueItem({
+      key,
+      message,
+      meta,
+      queuedAt: Date.now(),
+      onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} }
+    }));
     // Kick the queue
     try{ drainAlarmQueue(); }catch{}
     return true;
@@ -623,14 +641,148 @@ export function createAlarmSystem(deps){
         const it = pendingAudioQueue.shift();
         if(!it) continue;
         pendingAudioKeys.delete(it.key);
-        try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay, it.meta); })(); }catch{}
+        try{
+          (async()=>{
+            const queuedAt = Number.isFinite(it.queuedAt) ? it.queuedAt : Date.now();
+            const set = it.dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
+            if(set.has(it.key)) return;
+            if(it.key && alarmQueueKeys.has(it.key)) return;
+            if(it.key) alarmQueueKeys.add(it.key);
+            alarmPlayQueue.push(createAlarmQueueItem({
+              key: it.key,
+              message: it.message,
+              meta: it.meta,
+              queuedAt,
+              onDone: () => {
+                try{ set.add(it.key); }catch{}
+                try{ if(typeof it.afterPlay === 'function') it.afterPlay(); }catch{}
+              }
+            }));
+            try{ drainAlarmQueue(); }catch{}
+          })();
+        }catch{}
       }
     }catch{}
   }
 
+  function nextStationCandidates(order, code, dir, count = 3){
+    const list = Array.isArray(order) ? order : [];
+    const idx = list.indexOf(String(code));
+    const out = [];
+    if(idx < 0) return out;
+    if(dir === 0){
+      for(let k = 1; k <= count; k += 1){ if(idx + k < list.length) out.push(list[idx + k]); }
+    }else{
+      for(let k = 1; k <= count; k += 1){ if(idx - k >= 0) out.push(list[idx - k]); }
+    }
+    return out;
+  }
+
+  function directionMatchesFilter(direction, dirParam){
+    if(dirParam === 'up') return direction === 0;
+    if(dirParam === 'down') return direction === 1;
+    return true;
+  }
+
+  function passesCarsAlarmFilter(train){
+    try{
+      if(!(isCarsFilterEnabled && isCarsFilterEnabled())) return true;
+      const threshold = getCarsThreshold ? getCarsThreshold() : 0;
+      const cars = (typeof train?.cars === 'number') ? train.cars : 0;
+      if(cars < threshold){
+        try{ dbg && dbg('ALARM_CARS_FILTERED', { trainNo: train?.no, cars, threshold }); }catch{}
+        return false;
+      }
+      return true;
+    }catch{ return true; }
+  }
+
+  function boundaryMatchForTrain(train, dir, targetCode){
+    const here = String(train?.atCode || '');
+    const nxt = train?.nextCode != null ? String(train.nextCode) : '';
+    const tgt = String(targetCode || '');
+    const stopped = !!train?.stopped && here === tgt;
+    const moving = !train?.stopped && (dir === 0 ? (nxt === tgt) : (here === tgt));
+    return {
+      here,
+      nxt,
+      isStoppedAtTarget: stopped,
+      isMovingOnTarget: moving,
+      boundaryMatch: stopped || moving
+    };
+  }
+
+  function rangeMatchForTrain(posIdx, selectedIndex, targetIndex, dir, boundaryMatch){
+    if(boundaryMatch) return false;
+    if(posIdx == null || selectedIndex == null || targetIndex == null) return false;
+    if(dir === 0 && targetIndex < selectedIndex) return false;
+    if(dir === 1 && targetIndex > selectedIndex) return false;
+    const lower = Math.min(selectedIndex, targetIndex);
+    const upper = Math.max(selectedIndex, targetIndex);
+    if(lower === upper) return posIdx === lower;
+    if(dir === 0) return posIdx >= selectedIndex && posIdx <= upper;
+    if(dir === 1) return posIdx <= selectedIndex && posIdx >= lower;
+    return posIdx >= lower && posIdx <= upper;
+  }
+
+  function trainStopsAtTarget(cat, targetCode, indexes){
+    const allowed = stationAllowedCategories ? stationAllowedCategories(indexes?.byCode?.get(String(targetCode))) : null;
+    const stops = (cat !== -1 && allowed && allowed.has(cat)) || (cat === -1);
+    return { stops, allowed };
+  }
+
+  function buildAlarmMeta(train, indexes, dir, targetCode, extras = {}){
+    return {
+      area,
+      line,
+      dir: dir === 0 ? 'up' : 'down',
+      direction: (typeof train?.direction === 'number') ? train.direction : undefined,
+      trainNo: train?.no || '?',
+      atCode: String(train?.atCode || ''),
+      nextCode: String(train?.nextCode || ''),
+      atName: indexes?.byCode?.get(String(train?.atCode || ''))?.name,
+      nextName: indexes?.byCode?.get(String(train?.nextCode || ''))?.name,
+      targetCode: String(targetCode || ''),
+      targetName: indexes?.byCode?.get(String(targetCode || ''))?.name,
+      stopped: !!train?.stopped,
+      displayType: String(train?.displayType || ''),
+      nickname: String(getNickname ? getNickname(train) : ''),
+      delay: (typeof train?.delayMinutes === 'number') ? train.delayMinutes : 0,
+      dest: String(getDestText ? getDestText(train, indexes, 'dest') : ''),
+      ...extras
+    };
+  }
+
+  function dispatchApproachAlarm({ train, dir, targetCode, indexes, selectedCode, prefs, prefsRaw, reason, metaExtras }){
+    if(approachRecentlyAnnounced(train?.no, selectedCode, dir)) return false;
+    const key = `${train?.no || '?'}:${dir}:${targetCode}`;
+    const msg = buildTtsMessage ? buildTtsMessage(train, targetCode, indexes) : '';
+    const afterPlay = () => { try{ markApproachAnnounced(train?.no, selectedCode, dir); }catch{} };
+    const meta = buildAlarmMeta(train, indexes, dir, targetCode, metaExtras || {});
+    try{
+      dbg && dbg('ALARM_TRIGGER', {
+        time: new Date().toISOString(),
+        line,
+        area,
+        selectedStation: String(selectedCode),
+        trainNo: meta.trainNo,
+        displayType: meta.displayType,
+        prefsRaw: Array.from(prefsRaw || []),
+        prefsNow: Array.from(prefs || []),
+        target: { code: meta.targetCode, name: meta.targetName },
+        pos: { at: meta.atCode, next: meta.nextCode },
+        reason
+      });
+    }catch{}
+    notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
+    try{ notifyIfBackground && notifyIfBackground(msg, approachKey(train?.no, selectedCode, dir)); }catch{}
+    return true;
+  }
+
   function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCats, dirParam){
     if(!selectedCode || stationIdx == null) return;
-    const byCode = indexes.byCode;
+    const byCode = indexes?.byCode;
+    if(!byCode) return;
     const stationIndexOf = (code) => {
       if(code == null) return null;
       const rec = byCode.get(String(code));
@@ -638,55 +790,44 @@ export function createAlarmSystem(deps){
       return (typeof idx === 'number') ? idx : null;
     };
     const selectedIndex = (typeof stationIdx === 'number') ? stationIdx : stationIndexOf(selectedCode);
-    for(const t of list){
-      if(typeof t.direction !== 'number') continue;
-      if(dirParam === 'up' && t.direction !== 0) continue;
-      if(dirParam === 'down' && t.direction !== 1) continue;
+    const stationCode = selectedStationCode();
+    const passEnabled = (document.getElementById('passFilter')?.value || 'hide') === 'show';
+    const prefsByDir = {
+      0: getPrefsForDir(0),
+      1: getPrefsForDir(1)
+    };
+    if(!passEnabled){
+      try{ prefsByDir[0].delete('pass'); prefsByDir[1].delete('pass'); }catch{}
+    }
+    const prefsRawByDir = {
+      0: new Set(prefsByDir[0] || []),
+      1: new Set(prefsByDir[1] || [])
+    };
+    const targetsByDir = {
+      0: readAlarmTargets('up', stationCode),
+      1: readAlarmTargets('down', stationCode)
+    };
 
-      // Cars filter: only trigger alarm for trains with cars >= threshold
-      try{
-        if(isCarsFilterEnabled && isCarsFilterEnabled()){
-          const threshold = getCarsThreshold ? getCarsThreshold() : 0;
-          const cars = (typeof t.cars === 'number') ? t.cars : 0;
-          if(cars < threshold){
-            try{ dbg && dbg('ALARM_CARS_FILTERED', { trainNo: t.no, cars, threshold }); }catch{}
-            continue;
-          }
-        }
-      }catch{}
+    for(const t of list){
+      if(typeof t?.direction !== 'number') continue;
+      if(!directionMatchesFilter(t.direction, dirParam)) continue;
+      if(!passesCarsAlarmFilter(t)) continue;
 
       const dir = t.direction;
-      const prefs = getPrefsForDir(dir);
-      const prefsRaw = new Set(prefs);
-      const posIdx = (typeof t.posIndex === 'number') ? t.posIndex : null;
-      // If pass display is hidden, automatically disable pass alarm
-      try{
-        const passSetting = (document.getElementById('passFilter')?.value || 'hide');
-        if(passSetting !== 'show') prefs.delete('pass');
-      }catch{}
-      if(!prefs || prefs.size === 0){
+      const prefs = new Set(prefsByDir[dir] || []);
+      const prefsRaw = prefsRawByDir[dir] || new Set();
+      if(prefs.size === 0){
         try{ dbg && dbg('ALARM_NO_PREFS', { trainNo: t.no, direction: dir, prefs: Array.from(prefs || []) }); }catch{}
         continue;
       }
-      // Determine targets for stop and pass cases
+
       const cat = trainCategoryFromDisplayType ? trainCategoryFromDisplayType(t.displayType) : -1;
-      const st = selectedStationCode();
-      const targets = readAlarmTargets(dir === 0 ? 'up' : 'down', st);
       const catKey = `cat:${cat}`;
-      const ahead = (function(){
-        const order = indexes.order || [];
-        const idx = order.indexOf(String(selectedCode));
-        const out = [];
-        if(idx >= 0){
-          if(dir === 0){ for(let k=1;k<=3;k++){ if(idx+k < order.length) out.push(order[idx+k]); } }
-          else { for(let k=1;k<=3;k++){ if(idx-k >= 0) out.push(order[idx-k]); } }
-        }
-        return out;
-      })();
-      const fallbackTarget = ahead[0] || null;
+      const targets = targetsByDir[dir] || {};
+      const fallbackTarget = nextStationCandidates(indexes.order, selectedCode, dir, 3)[0] || null;
+      const posIdx = (typeof t.posIndex === 'number') ? t.posIndex : null;
       let alerted = false;
 
-      // Debug log for train alarm check
       try{
         dbg && dbg('ALARM_CHECK_TRAIN', {
           trainNo: t.no,
@@ -694,112 +835,69 @@ export function createAlarmSystem(deps){
           category: cat,
           categoryLabel: getCategoryLabel ? getCategoryLabel(cat) : String(cat),
           prefs: Array.from(prefs),
-          hasCategory: prefs.has(`cat:${cat}`),
+          hasCategory: prefs.has(catKey),
           hasPass: prefs.has('pass')
         });
       }catch{}
 
-      // 1) Stop case
-      if(prefs.has(`cat:${cat}`)){
+      if(prefs.has(catKey)){
         const targetCode = targets[catKey] || fallbackTarget;
         if(!targetCode){
           try{ dbg && dbg('ALARM_NO_TARGET', { trainNo: t.no, cat, targets, fallbackTarget }); }catch{}
-        }
-        if(targetCode){
+        }else{
           const targetIndex = stationIndexOf(targetCode);
-          // Direction-aware trigger:
-          //  - stopped: atCode === target
-          //  - moving: up(dir=0) -> nextCode === target (segment A_target : moving toward selected side)
-          //            down(dir=1) -> atCode === target  (segment target_B)
-          const here = String(t.atCode||'');
-          const nxt = t.nextCode != null ? String(t.nextCode) : '';
-          const isStoppedAtTarget = t.stopped && here === String(targetCode);
-          const isMovingOnTarget = (!t.stopped) && (
-            (dir === 0 ? (nxt === String(targetCode)) : (here === String(targetCode)))
-          );
-          const segmentMatch = (() => {
-            if(posIdx == null || selectedIndex == null || targetIndex == null) return false;
-            if(dir === 0 && targetIndex < selectedIndex) return false;
-            if(dir === 1 && targetIndex > selectedIndex) return false;
-            const lower = Math.min(selectedIndex, targetIndex);
-            const upper = Math.max(selectedIndex, targetIndex);
-            if(lower === upper) return posIdx === lower;
-            if(dir === 0){
-              return posIdx >= selectedIndex && posIdx <= upper;
-            }
-            if(dir === 1){
-              return posIdx <= selectedIndex && posIdx >= lower;
-            }
-            return posIdx >= lower && posIdx <= upper;
-          })();
-          const boundaryMatch = isStoppedAtTarget || isMovingOnTarget;
-          const rangeMatch = segmentMatch && !boundaryMatch;
-          if(boundaryMatch || rangeMatch){
-            const targetAllowed = stationAllowedCategories ? stationAllowedCategories(indexes.byCode.get(String(targetCode))) : null;
-            const stopsHere = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
+          const boundary = boundaryMatchForTrain(t, dir, targetCode);
+          const rangeMatch = rangeMatchForTrain(posIdx, selectedIndex, targetIndex, dir, boundary.boundaryMatch);
+          if(boundary.boundaryMatch || rangeMatch){
+            const stopCheck = trainStopsAtTarget(cat, targetCode, indexes);
             try{
               dbg && dbg('ALARM_TARGET_CHECK', {
                 trainNo: t.no,
                 cat,
                 targetCode,
-                targetAllowed: targetAllowed ? Array.from(targetAllowed) : null,
-                stopsHere,
-                boundaryMatch,
+                targetAllowed: stopCheck.allowed ? Array.from(stopCheck.allowed) : null,
+                stopsHere: stopCheck.stops,
+                boundaryMatch: boundary.boundaryMatch,
                 rangeMatch
               });
             }catch{}
-            if(stopsHere){
-              // Suppress duplicates for same line + station filter + train no within 3 minutes
-              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { alerted = true; return; }
-              const key = `${t.no||'?'}:${dir}:${targetCode}`;
-              const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : '';
-              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
-              const meta = {
-                area, line,
-                dir: (dir === 0 ? 'up' : 'down'),
-                direction: (typeof t.direction === 'number') ? t.direction : undefined,
-                trainNo: t.no||'?',
-                atCode: String(t.atCode||''), nextCode: String(t.nextCode||''),
-                atName: indexes.byCode.get(String(t.atCode||''))?.name,
-                nextName: indexes.byCode.get(String(t.nextCode||''))?.name,
-                targetCode: String(targetCode||''),
-                targetName: indexes.byCode.get(String(targetCode||''))?.name,
-                stopped: !!t.stopped,
-                displayType: String(t.displayType||''),
-                nickname: String(getNickname ? getNickname(t) : ''),
-                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0,
-                dest: String(getDestText ? getDestText(t, indexes, 'dest') : ''),
-                triggerReason: rangeMatch ? 'range' : 'segment',
-                selectedIndex: selectedIndex,
-                targetIndex: targetIndex,
-                posIndex: posIdx
-              };
-              try{
-                dbg && dbg('ALARM_TRIGGER', {
-                  time: new Date().toISOString(), line, area,
-                  selectedStation: String(selectedCode),
-                  trainNo: meta.trainNo, displayType: meta.displayType,
-                  prefsRaw: Array.from(prefsRaw||[]), prefsNow: Array.from(prefs||[]),
-                  target: { code: meta.targetCode, name: meta.targetName },
-                  pos: { at: meta.atCode, next: meta.nextCode },
-                  reason: rangeMatch ? 'stop-range' : 'stop-segment'
-                });
-              }catch{}
-              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
-              try{
-                notifyIfBackground && notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
-              }catch{}
-              alerted = true;
-            } else {
-              try{ dbg && dbg('ALARM_NOT_STOPPING', { trainNo: t.no, cat, targetCode, targetAllowed: targetAllowed ? Array.from(targetAllowed) : null }); }catch{}
+            if(stopCheck.stops){
+              alerted = dispatchApproachAlarm({
+                train: t,
+                dir,
+                targetCode,
+                indexes,
+                selectedCode,
+                prefs,
+                prefsRaw,
+                reason: rangeMatch ? 'stop-range' : 'stop-segment',
+                metaExtras: {
+                  triggerReason: rangeMatch ? 'range' : 'segment',
+                  selectedIndex,
+                  targetIndex,
+                  posIndex: posIdx
+                }
+              }) || alerted;
+            }else{
+              try{ dbg && dbg('ALARM_NOT_STOPPING', { trainNo: t.no, cat, targetCode, targetAllowed: stopCheck.allowed ? Array.from(stopCheck.allowed) : null }); }catch{}
             }
-          } else {
-            try{ dbg && dbg('ALARM_NO_MATCH', { trainNo: t.no, boundaryMatch, rangeMatch, here, nxt, targetCode, isStoppedAtTarget, isMovingOnTarget, segmentMatch }); }catch{}
+          }else{
+            try{
+              dbg && dbg('ALARM_NO_MATCH', {
+                trainNo: t.no,
+                boundaryMatch: boundary.boundaryMatch,
+                rangeMatch,
+                here: boundary.here,
+                nxt: boundary.nxt,
+                targetCode,
+                isStoppedAtTarget: boundary.isStoppedAtTarget,
+                isMovingOnTarget: boundary.isMovingOnTarget,
+                segmentMatch: rangeMatch
+              });
+            }catch{}
           }
         }
-      }
-      else {
-        // Category not in prefs - user hasn't checked this train type
+      }else{
         try{
           dbg && dbg('ALARM_CATEGORY_NOT_IN_PREFS', {
             trainNo: t.no,
@@ -810,67 +908,30 @@ export function createAlarmSystem(deps){
           });
         }catch{}
       }
-      // 2) Pass case (only if not alerted)
-      if(!alerted && prefs.has('pass')){
-        const targetCode = targets['pass'] || fallbackTarget;
-        if(targetCode){
-          const here = String(t.atCode||'');
-          const nxt = t.nextCode != null ? String(t.nextCode) : '';
-          const isStoppedAtTarget = t.stopped && here === String(targetCode);
-          const isMovingOnTarget = (!t.stopped) && (
-            (dir === 0 ? (nxt === String(targetCode)) : (here === String(targetCode)))
-          );
-          if(isStoppedAtTarget || isMovingOnTarget){
-            const targetAllowed = stationAllowedCategories ? stationAllowedCategories(indexes.byCode.get(String(targetCode))) : null;
-            const stopsHere2 = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
-            if(!stopsHere2){
-              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { return; }
-              const key = `${t.no||'?'}:${dir}:${targetCode}`;
-              const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : '';
-              const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
-              const meta = {
-                area, line,
-                dir: (dir === 0 ? 'up' : 'down'),
-                direction: (typeof t.direction === 'number') ? t.direction : undefined,
-                trainNo: t.no||'?',
-                atCode: String(t.atCode||''), nextCode: String(t.nextCode||''),
-                atName: indexes.byCode.get(String(t.atCode||''))?.name,
-                nextName: indexes.byCode.get(String(t.nextCode||''))?.name,
-                targetCode: String(targetCode||''),
-                targetName: indexes.byCode.get(String(targetCode||''))?.name,
-                stopped: !!t.stopped,
-                displayType: String(t.displayType||''),
-                nickname: String(getNickname ? getNickname(t) : ''),
-                delay: (typeof t.delayMinutes === 'number') ? t.delayMinutes : 0,
-                dest: String(getDestText ? getDestText(t, indexes, 'dest') : '')
-              };
-              try{
-                dbg && dbg('ALARM_TRIGGER', {
-                  time: new Date().toISOString(), line, area,
-                  selectedStation: String(selectedCode),
-                  trainNo: meta.trainNo, displayType: meta.displayType,
-                  prefsRaw: Array.from(prefsRaw||[]), prefsNow: Array.from(prefs||[]),
-                  target: { code: meta.targetCode, name: meta.targetName },
-                  pos: { at: meta.atCode, next: meta.nextCode },
-                  reason: 'pass'
-                });
-              }catch{}
-              notifyOnce(dir === 0 ? 'up' : 'down', key, msg, afterPlay, meta);
-              try{
-                notifyIfBackground && notifyIfBackground(msg, approachKey(t.no, selectedCode, dir));
-              }catch{}
-              alerted = true;
-            }
-          }
-        }
-      }
+
+      if(alerted || !prefs.has('pass')) continue;
+      const passTargetCode = targets['pass'] || fallbackTarget;
+      if(!passTargetCode) continue;
+      const passBoundary = boundaryMatchForTrain(t, dir, passTargetCode);
+      if(!passBoundary.boundaryMatch) continue;
+      const passStopCheck = trainStopsAtTarget(cat, passTargetCode, indexes);
+      if(passStopCheck.stops) continue;
+      dispatchApproachAlarm({
+        train: t,
+        dir,
+        targetCode: passTargetCode,
+        indexes,
+        selectedCode,
+        prefs,
+        prefsRaw,
+        reason: 'pass'
+      });
     }
   }
 
   function setLastShown({ up = [], down = [] } = {}, selectedCode, indexes){
     try{
       lastShownTrains = { up: up.slice(), down: down.slice() };
-      lastSelectedCode = selectedCode || null;
       lastIndexes = indexes || null;
     }catch{}
   }
