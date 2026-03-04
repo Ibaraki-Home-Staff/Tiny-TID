@@ -1,5 +1,5 @@
-import { loadComponents } from '/assets/js/components.js';
-import { U_TOKEN_TYPE_MAP } from '/assets/js/tid-rules.js';
+import { loadComponents } from '/assets/js/components.js?v=39';
+import { U_TOKEN_TYPE_MAP } from '/assets/js/tid-rules.js?v=39';
 // tid-category.js: カテゴリ判定とデータ正規化
 import {
   trainCategoryFromDisplayType,
@@ -9,9 +9,9 @@ import {
   stationAllowedCategories,
   getNickname,
   CATEGORY
-} from '/assets/js/tid-category.js';
-import { initBackgroundControls, notifyIfBackground } from '/assets/js/tid-background.js';
-import { createAlarmSystem } from '/assets/js/tid-alarm.js';
+} from '/assets/js/tid-category.js?v=39';
+import { initBackgroundControls, notifyIfBackground } from '/assets/js/tid-background.js?v=39';
+import { createAlarmSystem } from '/assets/js/tid-alarm.js?v=39';
 
 // Init
 loadComponents();
@@ -81,20 +81,9 @@ alarmSystem = createAlarmSystem({
 (async () => {
   // migrate legacy localStorage keys once
   try{ migrateLegacySettings(); }catch{}
-  // Restore audioUnlocked state from previous session
-  try{
-    const savedAudioUnlocked = getSetting('ui.audioUnlocked', '0');
-    const sessionAudio = sessionStorage.getItem('tid:audio:session');
-    if(savedAudioUnlocked === '1' || sessionAudio === '1'){
-      try{
-        performAudioUnlock('restored-from-storage');
-        dbg('audio unlocked: restored from storage');
-      }catch(err){
-        dbg('audio unlock restore failed, will bind on gesture', err);
-        bindAudioUnlockOnce(); // Fallback to gesture-based unlock
-      }
-    }
-  }catch(err){ dbg('audio unlock restore error', err); }
+  // iOS/iPadOS の自動再生制限対策:
+  // ユーザー操作前に AudioContext を起動しない（警告・失敗回避）。
+  try{ bindAudioUnlockOnce(); }catch{}
   try{ setupAudioUnlockOverlay(); }catch{}
   if(!line){
     upContainer.textContent = '路線が未指定です';
@@ -779,7 +768,7 @@ function performAudioUnlock(source){
     if(audioCtx && audioCtx.resume){ audioCtx.resume().catch(()=>{}); }
   }catch{}
   audioUnlocked = true;
-  try{ setSetting('ui.audioUnlocked','1'); localStorage.setItem('tid:audio:unlocked','1'); sessionStorage.setItem('tid:audio:session','1'); }catch{}
+  try{ setSetting('ui.audioUnlocked','1'); sessionStorage.setItem('tid:audio:session','1'); }catch{}
   cleanupAudioUnlockListeners();
   try{ dbg('audio unlocked', source||''); }catch{}
   try{ document.dispatchEvent(new CustomEvent('tid:audiounlocked')); }catch{}
@@ -815,8 +804,6 @@ function setupAudioUnlockOverlay(){
   if(!supported){ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); return; }
   const hide = () => { try{ audioOverlay.classList.add('is-hidden'); audioOverlay.setAttribute('aria-hidden','true'); }catch{} };
   const show = () => { try{ audioOverlay.classList.remove('is-hidden'); audioOverlay.removeAttribute('aria-hidden'); }catch{} };
-  // Session-based gating: show each session until user explicitly enables
-  try{ if(sessionStorage.getItem('tid:audio:session') === '1'){ hide(); return; } }catch{}
   // Environment hint
   try{
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator && window.navigator.standalone === true);
@@ -883,7 +870,17 @@ async function playAlarmSound(){
         try{ if(!el.paused){ el.pause(); el.currentTime = 0; } }catch{}
         const p = el.play();
         if(p && typeof p.then === 'function'){
-          p.catch(()=> { cleanup(); done(0); });
+          p.catch(()=> {
+            try{
+              audioUnlocked = false;
+              sessionStorage.removeItem('tid:audio:session');
+              setSetting('ui.audioUnlocked','0');
+              bindAudioUnlockOnce();
+              setupAudioUnlockOverlay();
+            }catch{}
+            cleanup();
+            done(0);
+          });
         }
       }catch{ cleanup(); done(0); }
       setTimeout(() => { cleanup(); done(0); }, 6000); // safety timeout
