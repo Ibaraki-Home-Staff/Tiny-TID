@@ -1,5 +1,5 @@
-import { loadComponents } from '/assets/js/components.js?v=39';
-import { U_TOKEN_TYPE_MAP } from '/assets/js/tid-rules.js?v=39';
+import { loadComponents } from './components.js';
+import { U_TOKEN_TYPE_MAP } from './tid-rules.js';
 // tid-category.js: カテゴリ判定とデータ正規化
 import {
   trainCategoryFromDisplayType,
@@ -9,9 +9,9 @@ import {
   stationAllowedCategories,
   getNickname,
   CATEGORY
-} from '/assets/js/tid-category.js?v=39';
-import { initBackgroundControls, notifyIfBackground } from '/assets/js/tid-background.js?v=39';
-import { createAlarmSystem } from '/assets/js/tid-alarm.js?v=39';
+} from './tid-category.js';
+import { initBackgroundControls, notifyIfBackground } from './tid-background.js';
+import { createAlarmSystem } from './tid-alarm.js';
 
 // Init
 loadComponents();
