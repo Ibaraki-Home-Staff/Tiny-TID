@@ -31,6 +31,11 @@ JR西日本のAPIはCORSヘッダーを返さないため、フロント（ブ�
 - ただし、プロキシが無いローカルでは本番APIへの fetch はCORSで失敗します
 - 動作確認は「プロキシが効く本番ドメイン」で行うか、ローカルサンプルJSON（`area_*.json`）で代替してください
 
+## 古いブラウザ向け（Legacy Bundle）
+- このリポジトリは `index.html` / `TID.html` で `assets/js/legacy-*.js` を読み込みます（module未対応環境向け）。
+- JSを変更したら、以下でバンドルを再生成してください。
+  - `pwsh ./build-legacy.ps1`
+
 ## ページ追加手順
 1. `pages/` に `foo.html` を作成（`<base href="/">` と `/assets/...` の絶対パスを維持）
 2. `components/header.html` のナビにリンクを追加

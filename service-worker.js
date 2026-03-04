@@ -4,46 +4,54 @@
 // - Receive Web Push events and show user-visible notifications
 // - Keep simple lifecycle (no aggressive caching here)
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', function(event){
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
+self.addEventListener('activate', function(event){
   event.waitUntil(self.clients.claim());
 });
 
 function showApproachNotification(payload){
-  const title = payload.title || '列車接近';
-  const body = payload.body || '';
-  const tag = payload.tag || '';
-  const icon = payload.icon || '/assets/img/placeholder.svg';
-  const url = payload.url || '/TID.html';
-  const data = { url };
-  return self.registration.showNotification(title, { body, tag, renotify: true, icon, data });
+  var title = payload.title || '列車接近';
+  var body = payload.body || '';
+  var tag = payload.tag || '';
+  var icon = payload.icon || '/assets/img/placeholder.svg';
+  var url = payload.url || '/TID.html';
+  var data = { url: url };
+  return self.registration.showNotification(title, {
+    body: body,
+    tag: tag,
+    renotify: true,
+    icon: icon,
+    data: data
+  });
 }
 
-self.addEventListener('push', (event) => {
+self.addEventListener('push', function(event){
   if(!event) return;
-  let payload = {};
+  var payload = {};
   try{
     if(event.data){
       try{ payload = event.data.json(); }
-      catch{ payload = { body: String(event.data.text()||'') }; }
+      catch(_err){ payload = { body: String(event.data.text()||'') }; }
     }
-  }catch{}
+  }catch(_err){}
   event.waitUntil(showApproachNotification(payload));
 });
 
-self.addEventListener('notificationclick', (event) => {
-  const n = event.notification;
-  const url = (n && n.data && n.data.url) ? n.data.url : '/';
+self.addEventListener('notificationclick', function(event){
+  var n = event.notification;
+  var url = (n && n.data && n.data.url) ? n.data.url : '/';
   event.notification.close();
-  event.waitUntil((async () => {
-    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for(const c of allClients){
-      if(c.url && c.url.indexOf(url) !== -1){ c.focus(); return; }
-    }
-    await self.clients.openWindow(url);
-  })());
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(allClients){
+      for(var i = 0; i < allClients.length; i += 1){
+        var c = allClients[i];
+        if(c.url && c.url.indexOf(url) !== -1){ return c.focus(); }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
 });
 
