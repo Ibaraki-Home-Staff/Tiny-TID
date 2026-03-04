@@ -37,11 +37,62 @@ export function createAlarmSystem(deps){
   const alarmPlayQueue = [];
   const alarmQueueKeys = new Set();
   let alarmPlaying = false;
+  const ALARM_STALE_THRESHOLD_MS = 5 * 60 * 1000;
+  const ALARM_RECENT_GRACE_MS = 3 * 60 * 1000;
 
   // Track last shown trains and context to validate queued alarms
   let lastShownTrains = { up: [], down: [] };
-  let lastSelectedCode = null;
   let lastIndexes = null;
+
+  function parseAlarmQueueKey(key){
+    const parts = String(key || '').split(':');
+    if(parts.length < 2) return null;
+    const no = String(parts[0] || '').trim();
+    const dirNum = Number(parts[1]);
+    if(!no || (dirNum !== 0 && dirNum !== 1)) return null;
+    return { no, dirNum };
+  }
+
+  function createAlarmQueueItem({ key, message, meta, onDone, queuedAt } = {}){
+    return {
+      key: String(key || ''),
+      message: String(message || ''),
+      meta: meta || null,
+      onDone,
+      queuedAt: Number.isFinite(queuedAt) ? queuedAt : Date.now()
+    };
+  }
+
+  function isQueueItemStale(item){
+    try{
+      const parsed = parseAlarmQueueKey(item?.key);
+      if(!parsed) return false;
+      const age = Date.now() - Number(item?.queuedAt || 0);
+      if(age > ALARM_STALE_THRESHOLD_MS){
+        try{ dbg && dbg('ALARM_SKIP_STALE_AGE', { key: item?.key, ageMs: age }); }catch{}
+        return true;
+      }
+      const list = (parsed.dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
+      const found = list.some(t => String(t.no || '') === parsed.no);
+      if(!found && age < ALARM_RECENT_GRACE_MS){
+        try{ dbg && dbg('ALARM_QUEUE_NOT_STALE_YET', { key: item?.key, ageMs: age, found }); }catch{}
+        return false;
+      }
+      if(!found){
+        try{
+          dbg && dbg('ALARM_SKIP_STALE', {
+            time: new Date().toISOString(),
+            key: item?.key || '',
+            dir: parsed.dirNum,
+            ageMs: age,
+            shownUp: lastShownTrains.up?.length || 0,
+            shownDown: lastShownTrains.down?.length || 0
+          });
+        }catch{}
+      }
+      return !found;
+    }catch{ return false; }
+  }
 
   // Lightweight alarm modal (auto-dismiss ~3s with confirm button)
   let alarmModalEl = null;
@@ -492,50 +543,11 @@ export function createAlarmSystem(deps){
     try{
       // Preempt any ongoing low-priority delay TTS
       try{ preemptDelayTts && preemptDelayTts(); }catch{}
-      const isStale = (item) => {
-        try{
-          // Expect key format: `${no}:${dir}:${targetCode}` where dir is 0/1
-          const parts = String(item?.key||'').split(':');
-          if(parts.length < 2) return false; // unknown format -> play
-          const no = parts[0];
-          const dirNum = Number(parts[1]);
-
-          // Time-based stale check: if item was queued more than 5 minutes ago, it's stale
-          const queuedAt = item.queuedAt || 0;
-          const age = Date.now() - queuedAt;
-          const STALE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-          if(age > STALE_THRESHOLD){
-            try{ dbg && dbg('ALARM_SKIP_STALE_AGE', { key: item?.key, ageMs: age }); }catch{}
-            return true;
-          }
-
-          const list = (dirNum === 0) ? (lastShownTrains.up || []) : (lastShownTrains.down || []);
-          const found = list.some(t => String(t.no||'') === String(no));
-
-          // Relax stale check: if train not found but queued less than 3 minutes ago, still play
-          if(!found && age < 3 * 60 * 1000){
-            try{ dbg && dbg('ALARM_QUEUE_NOT_STALE_YET', { key: item?.key, ageMs: age, found }); }catch{}
-            return false;
-          }
-
-          if(!found){
-            try{ dbg && dbg('ALARM_SKIP_STALE', {
-              time: new Date().toISOString(),
-              key: item?.key||'',
-              dir: dirNum,
-              ageMs: age,
-              shownUp: lastShownTrains.up?.length||0,
-              shownDown: lastShownTrains.down?.length||0
-            }); }catch{}
-          }
-          return !found;
-        }catch{ return false; }
-      };
       while(alarmPlayQueue.length){
         const it = alarmPlayQueue.shift();
         if(!it) continue;
         // Skip stale items (train already passed or no longer eligible)
-        if(isStale(it)){
+        if(isQueueItemStale(it)){
           try{ if(it && it.key) alarmQueueKeys.delete(it.key); }catch{}
           continue;
         }
@@ -586,7 +598,13 @@ export function createAlarmSystem(deps){
     if(set.has(key)) return false;
     if(key && alarmQueueKeys.has(key)) return false;
     if(key) alarmQueueKeys.add(key);
-    alarmPlayQueue.push({ key, message, meta, onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} } });
+    alarmPlayQueue.push(createAlarmQueueItem({
+      key,
+      message,
+      meta,
+      queuedAt: Date.now(),
+      onDone: () => { try{ set.add(key); }catch{} try{ if(typeof afterPlay === 'function') afterPlay(); }catch{} }
+    }));
     // Kick the queue
     try{ drainAlarmQueue(); }catch{}
     return true;
@@ -623,7 +641,26 @@ export function createAlarmSystem(deps){
         const it = pendingAudioQueue.shift();
         if(!it) continue;
         pendingAudioKeys.delete(it.key);
-        try{ (async()=>{ await doAlarmBeepAndSpeak(it.dirStr, it.key, it.message, it.afterPlay, it.meta); })(); }catch{}
+        try{
+          (async()=>{
+            const queuedAt = Number.isFinite(it.queuedAt) ? it.queuedAt : Date.now();
+            const set = it.dirStr === 'up' ? alarmNotified.up : alarmNotified.down;
+            if(set.has(it.key)) return;
+            if(it.key && alarmQueueKeys.has(it.key)) return;
+            if(it.key) alarmQueueKeys.add(it.key);
+            alarmPlayQueue.push(createAlarmQueueItem({
+              key: it.key,
+              message: it.message,
+              meta: it.meta,
+              queuedAt,
+              onDone: () => {
+                try{ set.add(it.key); }catch{}
+                try{ if(typeof it.afterPlay === 'function') it.afterPlay(); }catch{}
+              }
+            }));
+            try{ drainAlarmQueue(); }catch{}
+          })();
+        }catch{}
       }
     }catch{}
   }
@@ -750,7 +787,7 @@ export function createAlarmSystem(deps){
             }catch{}
             if(stopsHere){
               // Suppress duplicates for same line + station filter + train no within 3 minutes
-              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { alerted = true; return; }
+              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { alerted = true; continue; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : '';
               const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
@@ -824,7 +861,7 @@ export function createAlarmSystem(deps){
             const targetAllowed = stationAllowedCategories ? stationAllowedCategories(indexes.byCode.get(String(targetCode))) : null;
             const stopsHere2 = (cat !== -1 && targetAllowed && targetAllowed.has(cat)) || (cat === -1);
             if(!stopsHere2){
-              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { return; }
+              if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { continue; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
               const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : '';
               const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
@@ -870,7 +907,6 @@ export function createAlarmSystem(deps){
   function setLastShown({ up = [], down = [] } = {}, selectedCode, indexes){
     try{
       lastShownTrains = { up: up.slice(), down: down.slice() };
-      lastSelectedCode = selectedCode || null;
       lastIndexes = indexes || null;
     }catch{}
   }
