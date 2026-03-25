@@ -73,12 +73,12 @@
   var modern = supportsModule() && supportsModernSyntax();
 
   var legacyMap = {
-    index: '/assets/js/legacy-index.js?v=1',
-    tid: '/assets/js/legacy-tid.js?v=1'
+    index: '/assets/js/legacy-index.js?v=2',
+    tid: '/assets/js/legacy-tid.js?v=2'
   };
   var modernMap = {
-    index: ['/assets/js/pwa.js?v=3', '/assets/js/main.js?v=39'],
-    tid: ['/assets/js/pwa.js?v=3', '/assets/js/tid.js?v=39']
+    index: ['/assets/js/pwa.js?v=3', '/assets/js/main.js?v=40'],
+    tid: ['/assets/js/pwa.js?v=3', '/assets/js/tid.js?v=40']
   };
 
   if(modern && modernMap[page]){

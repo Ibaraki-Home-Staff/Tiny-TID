@@ -1,4 +1,9 @@
-import { fetchAreaMaster } from './tid-data.js';
+const API_BASE = (typeof window !== 'undefined' && window.TID_API_BASE) || '/api/v3/';
+const AREA_ENDPOINT = (area) => `${API_BASE}area_${area}_master.json`;
+const FALLBACK_AREA_ENDPOINTS = (area) => [
+  `/assets/data/area_${area}_master.json`,
+  `/area_${area}_master.json`
+];
 
 const STORAGE_KEYS = Object.freeze({
   selectedArea: 'selectedArea',
@@ -160,18 +165,35 @@ async function populateLinesForArea(area, lineSelect){
   }
 }
 
+async function fetchAreaMaster(area){
+  const candidates = [AREA_ENDPOINT(area), ...FALLBACK_AREA_ENDPOINTS(area)];
+  let lastError = null;
+
+  for(const url of candidates){
+    try{
+      const response = await fetch(url, { cache: 'no-store' });
+      if(!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      return await response.json();
+    }catch(error){
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error(`Failed to load area master: ${area}`);
+}
+
 function normalizeLines(lines){
   if(!lines) return [];
 
   const normalized = Array.isArray(lines)
     ? lines.map((line) => ({
-      id: line?.id || line?.line || '',
+      id: line?.id || line?.line || inferLineId(line),
       name: line?.name || line?.label || line?.id || '',
       range: line?.range || '',
       index: line?.index ?? 0
     }))
     : Object.entries(lines).map(([id, line]) => ({
-      id,
+      id: id || inferLineId(line),
       name: line?.name || id,
       range: line?.range || '',
       index: line?.index ?? 0
@@ -180,6 +202,15 @@ function normalizeLines(lines){
   return normalized
     .filter((line) => line.id && line.name)
     .sort((a, b) => a.index - b.index);
+}
+
+function inferLineId(line){
+  const st = typeof line?.st === 'string' ? line.st : '';
+  const pos = typeof line?.pos === 'string' ? line.pos : '';
+  const fromSt = st.match(/\/([^/]+)_st\.json$/)?.[1];
+  if(fromSt) return fromSt;
+  const fromPos = pos.match(/\/([^/]+)\.json$/)?.[1];
+  return fromPos || '';
 }
 
 function renderLineOptions(select, lines){

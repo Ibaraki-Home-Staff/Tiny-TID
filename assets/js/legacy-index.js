@@ -159,78 +159,13 @@
     });
   }
 
-  // assets/js/tid-data.js
-  var AREA_LIST = ["kinki", "hokuriku", "okayama", "hiroshima", "sanin"];
-  var CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
-  var globalStationsByCode = /* @__PURE__ */ new Map();
-  var globalLineOrders = /* @__PURE__ */ new Map();
-  function apiBase() {
-    return window.TID_API_BASE && String(window.TID_API_BASE) || "/api/v3/";
-  }
-  function areaCacheKey(area) {
-    return `tid:areaStations:${area}`;
-  }
-  function fetchJsonWithFallbacks(_0) {
-    return __async(this, arguments, function* (url, fallbacks = []) {
-      try {
-        const response = yield fetch(url, { cache: "no-store" });
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-        return yield response.json();
-      } catch (error) {
-        for (const fallback of fallbacks) {
-          try {
-            const response = yield fetch(fallback, { cache: "no-store" });
-            if (response.ok) return yield response.json();
-          } catch (e) {
-          }
-        }
-        throw error;
-      }
-    });
-  }
-  function fetchAreaMaster(area) {
-    return __async(this, null, function* () {
-      return yield fetchJsonWithFallbacks(
-        `${apiBase()}area_${area}_master.json`,
-        [
-          `/assets/data/area_${area}_master.json`,
-          `/area_${area}_master.json`
-        ]
-      );
-    });
-  }
-  function loadAreaStationsCache(area) {
-    try {
-      const raw = localStorage.getItem(areaCacheKey(area));
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (!obj || !obj.updatedAt || !obj.stations) return null;
-      const age = Date.now() - Number(obj.updatedAt);
-      if (age > CACHE_TTL_MS) return null;
-      return obj;
-    } catch (e) {
-      return null;
-    }
-  }
-  function warmAreaFromCache(area) {
-    const cached = loadAreaStationsCache(area);
-    if (!cached) return;
-    for (const [code, value] of Object.entries(cached.stations || {})) {
-      const name = typeof value === "string" ? value : value == null ? void 0 : value.name;
-      if (name) globalStationsByCode.set(String(code), String(name));
-    }
-    for (const [lineId, order] of Object.entries(cached.lines || {})) {
-      if (Array.isArray(order)) globalLineOrders.set(lineId, order.map(String));
-    }
-  }
-  (function warmAllAreasFromCache() {
-    try {
-      AREA_LIST.forEach((area) => warmAreaFromCache(area));
-    } catch (e) {
-    }
-  })();
-
   // assets/js/area.js
+  var API_BASE = typeof window !== "undefined" && window.TID_API_BASE || "/api/v3/";
+  var AREA_ENDPOINT = (area) => `${API_BASE}area_${area}_master.json`;
+  var FALLBACK_AREA_ENDPOINTS = (area) => [
+    `/assets/data/area_${area}_master.json`,
+    `/area_${area}_master.json`
+  ];
   var STORAGE_KEYS = Object.freeze({
     selectedArea: "selectedArea",
     selectedLine: (area) => `selectedLine:${area}`,
@@ -371,12 +306,28 @@
       }
     });
   }
+  function fetchAreaMaster(area) {
+    return __async(this, null, function* () {
+      const candidates = [AREA_ENDPOINT(area), ...FALLBACK_AREA_ENDPOINTS(area)];
+      let lastError = null;
+      for (const url of candidates) {
+        try {
+          const response = yield fetch(url, { cache: "no-store" });
+          if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+          return yield response.json();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error(`Failed to load area master: ${area}`);
+    });
+  }
   function normalizeLines(lines) {
     if (!lines) return [];
     const normalized = Array.isArray(lines) ? lines.map((line) => {
       var _a;
       return {
-        id: (line == null ? void 0 : line.id) || (line == null ? void 0 : line.line) || "",
+        id: (line == null ? void 0 : line.id) || (line == null ? void 0 : line.line) || inferLineId(line),
         name: (line == null ? void 0 : line.name) || (line == null ? void 0 : line.label) || (line == null ? void 0 : line.id) || "",
         range: (line == null ? void 0 : line.range) || "",
         index: (_a = line == null ? void 0 : line.index) != null ? _a : 0
@@ -384,13 +335,22 @@
     }) : Object.entries(lines).map(([id, line]) => {
       var _a;
       return {
-        id,
+        id: id || inferLineId(line),
         name: (line == null ? void 0 : line.name) || id,
         range: (line == null ? void 0 : line.range) || "",
         index: (_a = line == null ? void 0 : line.index) != null ? _a : 0
       };
     });
     return normalized.filter((line) => line.id && line.name).sort((a, b) => a.index - b.index);
+  }
+  function inferLineId(line) {
+    var _a, _b;
+    const st = typeof (line == null ? void 0 : line.st) === "string" ? line.st : "";
+    const pos = typeof (line == null ? void 0 : line.pos) === "string" ? line.pos : "";
+    const fromSt = (_a = st.match(/\/([^/]+)_st\.json$/)) == null ? void 0 : _a[1];
+    if (fromSt) return fromSt;
+    const fromPos = (_b = pos.match(/\/([^/]+)\.json$/)) == null ? void 0 : _b[1];
+    return fromPos || "";
   }
   function renderLineOptions(select, lines) {
     select.innerHTML = "";
