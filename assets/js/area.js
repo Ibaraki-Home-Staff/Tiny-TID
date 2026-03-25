@@ -12,6 +12,10 @@ const STORAGE_KEYS = Object.freeze({
 });
 
 function getTidPagePath(){
+  try{
+    const explicit = document.querySelector('meta[name="tid:targetPage"]')?.getAttribute('content');
+    if(explicit) return String(explicit).trim();
+  }catch{}
   const path = String(window.location.pathname || '');
   return path.startsWith('/old/') ? '/old/TID.html' : '/TID.html';
 }

@@ -172,6 +172,12 @@
     selectedDirection: (area, line) => `selectedDirection:${area}:${line}`
   });
   function getTidPagePath() {
+    var _a;
+    try {
+      const explicit = (_a = document.querySelector('meta[name="tid:targetPage"]')) == null ? void 0 : _a.getAttribute("content");
+      if (explicit) return String(explicit).trim();
+    } catch (e) {
+    }
     const path = String(window.location.pathname || "");
     return path.startsWith("/old/") ? "/old/TID.html" : "/TID.html";
   }
