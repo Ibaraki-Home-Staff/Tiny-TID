@@ -57,6 +57,14 @@ function warn(){
   }catch{}
 }
 
+function getMetaContent(name){
+  try{
+    return document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') || '';
+  }catch{
+    return '';
+  }
+}
+
 let alarmSystem = null;
 let audioCtx = null;
 let audioUnlocked = false;
@@ -68,11 +76,18 @@ let refreshTimer = null;
 let visBound = false;
 
 const searchParams = new URLSearchParams(window.location.search);
-const area = searchParams.get('area') || '';
-const line = searchParams.get('line') || '';
-const dir = searchParams.get('dir');
+const fixedArea = getMetaContent('tid:fixedArea').trim();
+const fixedLine = getMetaContent('tid:fixedLine').trim();
+const fixedStationName = getMetaContent('tid:fixedStationName').trim();
+const fixedDir = getMetaContent('tid:fixedDir').trim();
+const area = searchParams.get('area') || fixedArea || '';
+const line = searchParams.get('line') || fixedLine || '';
+const dir = searchParams.get('dir') || fixedDir || null;
 const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
-paramsView.textContent = `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 方向: ${dirLabel}`;
+const fixedStationMode = Boolean(fixedStationName);
+paramsView.textContent = fixedStationMode
+  ? `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 駅: ${fixedStationName} / 方向: ${dirLabel}`
+  : `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 方向: ${dirLabel}`;
 
 alarmSystem = createAlarmSystem({
   area,
@@ -582,10 +597,29 @@ function playBeep(){
 }
 
 async function getIndexesForCurrentLine(){
-  let indexes = buildIndexesFromCache(area, line, { dbg });
-  if(indexes) return indexes;
+  if(!fixedStationMode){
+    const cached = buildIndexesFromCache(area, line, { dbg });
+    if(cached) return cached;
+  }
   const stations = await fetchStations(line);
   return buildStationIndexes(stations);
+}
+
+function normalizeStationName(value){
+  return String(value || '').trim().replace(/\s+/g, '');
+}
+
+function findStationByName(indexes, stationName){
+  const target = normalizeStationName(stationName);
+  if(!target) return null;
+  for(const code of indexes.order){
+    const station = indexes.byCode.get(code);
+    if(!station) continue;
+    if(normalizeStationName(station.name) === target){
+      return station;
+    }
+  }
+  return null;
 }
 
 function bindFilterControls(){
@@ -626,20 +660,44 @@ function renderStationFilter(indexes){
   const savedStation = getSetting(`lines.${line}.station`, '');
   const savedPass = getSetting(`lines.${line}.pass`, null);
 
-  stationFilterEl.length = 1;
-  for(const code of indexes.order){
-    const station = indexes.byCode.get(code);
-    if(!station) continue;
+  stationFilterEl.length = 0;
+  if(fixedStationMode){
+    const station = findStationByName(indexes, fixedStationName);
     const option = document.createElement('option');
-    option.value = station.code;
-    option.textContent = station.name || station.code;
-    stationFilterEl.appendChild(option);
-  }
-
-  if(savedStation && Array.from(stationFilterEl.options).some((option) => option.value === savedStation)){
-    stationFilterEl.value = savedStation;
+    if(station){
+      option.value = station.code;
+      option.textContent = station.name || fixedStationName;
+      stationFilterEl.appendChild(option);
+      stationFilterEl.value = station.code;
+      try{ setSetting(`lines.${line}.station`, station.code); }catch{}
+    }else{
+      option.value = '';
+      option.textContent = `${fixedStationName} が見つかりません`;
+      stationFilterEl.appendChild(option);
+      stationFilterEl.value = '';
+    }
+    stationFilterEl.disabled = true;
   }else{
-    stationFilterEl.value = '';
+    const blankOption = document.createElement('option');
+    blankOption.value = '';
+    blankOption.textContent = '（未選択）';
+    stationFilterEl.appendChild(blankOption);
+
+    for(const code of indexes.order){
+      const station = indexes.byCode.get(code);
+      if(!station) continue;
+      const option = document.createElement('option');
+      option.value = station.code;
+      option.textContent = station.name || station.code;
+      stationFilterEl.appendChild(option);
+    }
+
+    if(savedStation && Array.from(stationFilterEl.options).some((option) => option.value === savedStation)){
+      stationFilterEl.value = savedStation;
+    }else{
+      stationFilterEl.value = '';
+    }
+    stationFilterEl.disabled = false;
   }
 
   if(passFilterEl){
@@ -719,6 +777,14 @@ function formatJST(iso){
 function renderTrains(indexes, trainsData, dirParam){
   const items = Array.isArray(trainsData?.trains) ? trainsData.trains : [];
   const selectedCode = (stationFilterEl?.value || '').trim();
+  if(fixedStationMode && !selectedCode){
+    upContainer.textContent = `${fixedStationName} の駅コードを取得できませんでした`;
+    downContainer.textContent = `${fixedStationName} の駅コードを取得できませんでした`;
+    upContainer.parentElement.style.display = dirParam === 'down' ? 'none' : '';
+    downContainer.parentElement.style.display = dirParam === 'up' ? 'none' : '';
+    trainsContainer?.classList.toggle('single', dirParam === 'up' || dirParam === 'down');
+    return;
+  }
   const allowedCats = stationAllowedCategories(indexes.byCode.get(selectedCode));
   const passSetting = passFilterEl?.value || 'hide';
 

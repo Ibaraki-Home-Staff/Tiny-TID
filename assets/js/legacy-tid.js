@@ -2330,6 +2330,14 @@
         } catch (e) {
         }
       }
+      function getMetaContent(name) {
+        var _a;
+        try {
+          return ((_a = document.querySelector(`meta[name="${name}"]`)) == null ? void 0 : _a.getAttribute("content")) || "";
+        } catch (e) {
+          return "";
+        }
+      }
       var alarmSystem = null;
       var audioCtx = null;
       var audioUnlocked = false;
@@ -2340,11 +2348,16 @@
       var refreshTimer = null;
       var visBound = false;
       var searchParams = new URLSearchParams(window.location.search);
-      var area = searchParams.get("area") || "";
-      var line = searchParams.get("line") || "";
-      var dir = searchParams.get("dir");
+      var fixedArea = getMetaContent("tid:fixedArea").trim();
+      var fixedLine = getMetaContent("tid:fixedLine").trim();
+      var fixedStationName = getMetaContent("tid:fixedStationName").trim();
+      var fixedDir = getMetaContent("tid:fixedDir").trim();
+      var area = searchParams.get("area") || fixedArea || "";
+      var line = searchParams.get("line") || fixedLine || "";
+      var dir = searchParams.get("dir") || fixedDir || null;
       var dirLabel = dir === "up" ? "\u4E0A\u308A" : dir === "down" ? "\u4E0B\u308A" : "\u4E21\u65B9";
-      paramsView.textContent = `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
+      var fixedStationMode = Boolean(fixedStationName);
+      paramsView.textContent = fixedStationMode ? `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u99C5: ${fixedStationName} / \u65B9\u5411: ${dirLabel}` : `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
       alarmSystem = createAlarmSystem({
         area,
         line,
@@ -2898,11 +2911,28 @@
       }
       function getIndexesForCurrentLine() {
         return __async(this, null, function* () {
-          let indexes = buildIndexesFromCache(area, line, { dbg });
-          if (indexes) return indexes;
+          if (!fixedStationMode) {
+            const cached = buildIndexesFromCache(area, line, { dbg });
+            if (cached) return cached;
+          }
           const stations = yield fetchStations(line);
           return buildStationIndexes(stations);
         });
+      }
+      function normalizeStationName(value) {
+        return String(value || "").trim().replace(/\s+/g, "");
+      }
+      function findStationByName(indexes, stationName) {
+        const target = normalizeStationName(stationName);
+        if (!target) return null;
+        for (const code of indexes.order) {
+          const station = indexes.byCode.get(code);
+          if (!station) continue;
+          if (normalizeStationName(station.name) === target) {
+            return station;
+          }
+        }
+        return null;
       }
       function bindFilterControls() {
         if (filterControlsBound) return;
@@ -2948,19 +2978,45 @@
         if (!stationFilterEl) return;
         const savedStation = getSetting(`lines.${line}.station`, "");
         const savedPass = getSetting(`lines.${line}.pass`, null);
-        stationFilterEl.length = 1;
-        for (const code of indexes.order) {
-          const station = indexes.byCode.get(code);
-          if (!station) continue;
+        stationFilterEl.length = 0;
+        if (fixedStationMode) {
+          const station = findStationByName(indexes, fixedStationName);
           const option = document.createElement("option");
-          option.value = station.code;
-          option.textContent = station.name || station.code;
-          stationFilterEl.appendChild(option);
-        }
-        if (savedStation && Array.from(stationFilterEl.options).some((option) => option.value === savedStation)) {
-          stationFilterEl.value = savedStation;
+          if (station) {
+            option.value = station.code;
+            option.textContent = station.name || fixedStationName;
+            stationFilterEl.appendChild(option);
+            stationFilterEl.value = station.code;
+            try {
+              setSetting(`lines.${line}.station`, station.code);
+            } catch (e) {
+            }
+          } else {
+            option.value = "";
+            option.textContent = `${fixedStationName} \u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`;
+            stationFilterEl.appendChild(option);
+            stationFilterEl.value = "";
+          }
+          stationFilterEl.disabled = true;
         } else {
-          stationFilterEl.value = "";
+          const blankOption = document.createElement("option");
+          blankOption.value = "";
+          blankOption.textContent = "\uFF08\u672A\u9078\u629E\uFF09";
+          stationFilterEl.appendChild(blankOption);
+          for (const code of indexes.order) {
+            const station = indexes.byCode.get(code);
+            if (!station) continue;
+            const option = document.createElement("option");
+            option.value = station.code;
+            option.textContent = station.name || station.code;
+            stationFilterEl.appendChild(option);
+          }
+          if (savedStation && Array.from(stationFilterEl.options).some((option) => option.value === savedStation)) {
+            stationFilterEl.value = savedStation;
+          } else {
+            stationFilterEl.value = "";
+          }
+          stationFilterEl.disabled = false;
         }
         if (passFilterEl) {
           if (savedPass === "show" || savedPass === "hide") {
@@ -3038,6 +3094,14 @@
         var _a;
         const items = Array.isArray(trainsData == null ? void 0 : trainsData.trains) ? trainsData.trains : [];
         const selectedCode = ((stationFilterEl == null ? void 0 : stationFilterEl.value) || "").trim();
+        if (fixedStationMode && !selectedCode) {
+          upContainer.textContent = `${fixedStationName} \u306E\u99C5\u30B3\u30FC\u30C9\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F`;
+          downContainer.textContent = `${fixedStationName} \u306E\u99C5\u30B3\u30FC\u30C9\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F`;
+          upContainer.parentElement.style.display = dirParam === "down" ? "none" : "";
+          downContainer.parentElement.style.display = dirParam === "up" ? "none" : "";
+          trainsContainer == null ? void 0 : trainsContainer.classList.toggle("single", dirParam === "up" || dirParam === "down");
+          return;
+        }
         const allowedCats = stationAllowedCategories(indexes.byCode.get(selectedCode));
         const passSetting = (passFilterEl == null ? void 0 : passFilterEl.value) || "hide";
         const enhanced = items.map((train) => normalizeTrain(train)).map((train) => enhanceTrain(train, indexes.byCode));

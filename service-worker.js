@@ -17,7 +17,7 @@ function showApproachNotification(payload){
   var body = payload.body || '';
   var tag = payload.tag || '';
   var icon = payload.icon || '/assets/img/placeholder.svg';
-  var url = payload.url || '/TID.html';
+  var url = payload.url || '/index.html';
   var data = { url: url };
   return self.registration.showNotification(title, {
     body: body,

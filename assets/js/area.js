@@ -11,6 +11,11 @@ const STORAGE_KEYS = Object.freeze({
   selectedDirection: (area, line) => `selectedDirection:${area}:${line}`
 });
 
+function getTidPagePath(){
+  const path = String(window.location.pathname || '');
+  return path.startsWith('/old/') ? '/old/TID.html' : '/TID.html';
+}
+
 function storageGet(key){
   try{ return localStorage.getItem(key); }catch{ return null; }
 }
@@ -62,7 +67,7 @@ export function initAreaAndLineSelectors(){
     const line = lineSelect.value;
     if(!area || !line) return;
 
-    const url = new URL('/TID.html', window.location.origin);
+    const url = new URL(getTidPagePath(), window.location.origin);
     url.searchParams.set('area', area);
     url.searchParams.set('line', line);
 

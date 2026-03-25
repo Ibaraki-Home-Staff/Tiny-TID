@@ -1,8 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root pages: `index.html` for area/line selection and `TID.html` for train status.
-- JavaScript lives in `assets/js/`. Main entry points are `main.js` and `tid.js`; `tid-*.js` files split alarms, categories, rules, and background behavior by feature.
+- Root page: `index.html` is the Ibaraki-only train status view (`kinki` / `kyoto` / `茨木`).
+- Archived full-flow pages live in `old/`: `old/index.html` for area/line selection and `old/TID.html` for the generic train status view.
+- JavaScript lives in `assets/js/`. Main entry points are `main.js` for the archived selector flow and `tid.js` for the runtime view; `tid-*.js` files split alarms, categories, rules, and background behavior by feature.
 - CSS is organized under `assets/css/` with `main.css` as the entry and shared layers such as `variables.css`, `layout.css`, and `components.css`.
 - Reusable fragments are in `components/`. Static assets live under `assets/img/`, `assets/sound/`, and text maps in `assets/`.
 - Legacy browser bundles are generated into `assets/js/legacy-*.js` and loaded through `assets/js/runtime-loader.js`.
@@ -26,7 +27,8 @@
 
 ## Testing Guidelines
 - No automated test framework is configured. Validate changes with manual smoke tests.
-- Check `index.html` selection flow, navigation into `TID.html`, refresh behavior, filtering, and alarm/audio unlock handling.
+- Check `index.html` refresh behavior, fixed station filtering for `茨木`, and alarm/audio unlock handling.
+- When validating the archived flow, open `old/index.html` and navigate into `old/TID.html`.
 - For API-dependent changes, test through `dev_proxy.py` rather than direct browser calls.
 - For UI updates, verify both desktop and mobile layouts.
 

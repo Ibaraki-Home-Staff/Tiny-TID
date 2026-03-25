@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiny-TID</title>
+    <meta name="description" content="Tiny-TID sample site" />
+    <base href="/" />
+    <link rel="icon" href="/assets/img/placeholder.svg">
+    <link rel="manifest" href="/manifest.webmanifest?v=4">
+    <meta name="app:version" content="4">
+    <!-- Optional: set these for Web Push (VAPID public key and your subscribe endpoint) -->
+    <!-- <meta name="push:publicKey" content="BExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"> -->
+    <!-- <meta name="push:subscribeUrl" content="https://your.api/subscribe"> -->
+    <link rel="stylesheet" href="/assets/css/main.css?v=3">
+  </head>
+  <body>
+    <header data-include="header"></header>
+    <main class="container">
+      <h1>Tiny-TID</h1>
+      <p>JR西日本の Super-TID 風に列車の走行位置や遅延などを一目で見て解るようにしたシステムです。</p>
+      <p>Super-TID ほど機能は多くないですが、列車接近アラームなど駅係員に対する便利な機能は搭載しています。</p>
+      <br>
+      <section aria-labelledby="area-heading" style="margin:1rem 0;">
+        <h2 id="area-heading" style="margin-bottom:.5rem;">エリアを選択</h2>
+        <label for="areaSelect" style="display:block; margin-bottom:.35rem;">エリア</label>
+        <select id="areaSelect" name="area">
+          <option value="" selected disabled>選択してください</option>
+          <option value="hokuriku">北陸</option>
+          <option value="kinki">近畿</option>
+          <option value="okayama">岡山</option>
+          <option value="hiroshima">広島</option>
+          <option value="sanin">山陰</option>
+        </select>
+        <div style="height:.75rem"></div>
+        <label for="lineSelect" style="display:block; margin-bottom:.35rem;">路線</label>
+        <select id="lineSelect" name="line" disabled>
+          <option value="">エリアを選択してください</option>
+        </select>
+        <div style="height:.75rem"></div>
+        <label style="display:block; margin-bottom:.35rem;">方向</label>
+        <div id="directionGroup" class="radio-group" role="radiogroup" aria-label="方向">
+          <label><input type="radio" name="direction" value="up"> 上り</label>
+          <label><input type="radio" name="direction" value="down"> 下り</label>
+          <label><input type="radio" name="direction" value="both" checked> 両方</label>
+        </div>
+        <div style="height:.75rem"></div>
+        <button id="showBtn" class="btn" type="button" disabled>表示</button>
+      </section>
+      
+    </main>
+    <script src="/assets/js/runtime-loader.js?v=4" data-page="index"></script>
+  </body>
+  </html>
