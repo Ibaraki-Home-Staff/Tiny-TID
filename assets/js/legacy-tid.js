@@ -1991,11 +1991,16 @@
     if (!container) return;
     container.innerHTML = "";
     if (!data || typeof data !== "object") return;
+    const lineIds = Array.isArray(line) ? line.map((value) => String(value || "").trim()).filter(Boolean) : [String(line || "").trim()].filter(Boolean);
+    const multiLine = lineIds.length > 1;
     const lineItems = [];
     const expressItems = [];
+    const seenLineItems = /* @__PURE__ */ new Set();
+    const seenExpressItems = /* @__PURE__ */ new Set();
     if (data.lines && typeof data.lines === "object") {
-      const entry = data.lines[line];
-      if (entry) {
+      for (const lineId of lineIds) {
+        const entry = data.lines[lineId];
+        if (!entry) continue;
         const section = entry.section;
         let sectionText = "";
         if (typeof section === "string") sectionText = section;
@@ -2007,19 +2012,32 @@
         const cause = entry.cause || "";
         const status = entry.status || "";
         const url = entry.url || "";
-        const text = `${sectionText ? sectionText + ": " : ""}${cause ? `${cause} \u306B\u3088\u308A ` : ""}${status}`.trim();
-        if (text) lineItems.push({ text, url });
+        const bodyText = `${sectionText ? sectionText + ": " : ""}${cause ? `${cause} \u306B\u3088\u308A ` : ""}${status}`.trim();
+        if (!bodyText) continue;
+        const text = multiLine ? `[${lineId}] ${bodyText}` : bodyText;
+        const dedupeKey = `${text}|${url}`;
+        if (text && !seenLineItems.has(dedupeKey)) {
+          seenLineItems.add(dedupeKey);
+          lineItems.push({ text, url });
+        }
       }
     }
     if (data.express && typeof data.express === "object") {
-      const entry = data.express[line];
-      if (entry) {
+      for (const lineId of lineIds) {
+        const entry = data.express[lineId];
+        if (!entry) continue;
         const name = entry.name || "";
         const cause = entry.cause || "";
         const status = entry.status || "";
         const url = entry.url || "";
-        const text = `${name ? `\u7279\u6025 ${name}: ` : ""}${cause ? `${cause} \u306B\u3088\u308A ` : ""}${status}`.trim();
-        if (text) expressItems.push({ text, url });
+        const bodyText = `${name ? `\u7279\u6025 ${name}: ` : ""}${cause ? `${cause} \u306B\u3088\u308A ` : ""}${status}`.trim();
+        if (!bodyText) continue;
+        const text = multiLine ? `[${lineId}] ${bodyText}` : bodyText;
+        const dedupeKey = `${text}|${url}`;
+        if (text && !seenExpressItems.has(dedupeKey)) {
+          seenExpressItems.add(dedupeKey);
+          expressItems.push({ text, url });
+        }
       }
     }
     if (!lineItems.length && !expressItems.length) return;
@@ -2338,6 +2356,9 @@
           return "";
         }
       }
+      function parseMetaList(name) {
+        return getMetaContent(name).split(",").map((value) => String(value || "").trim()).filter(Boolean);
+      }
       var alarmSystem = null;
       var audioCtx = null;
       var audioUnlocked = false;
@@ -2350,14 +2371,18 @@
       var searchParams = new URLSearchParams(window.location.search);
       var fixedArea = getMetaContent("tid:fixedArea").trim();
       var fixedLine = getMetaContent("tid:fixedLine").trim();
+      var fixedLineIds = parseMetaList("tid:fixedLines");
       var fixedStationName = getMetaContent("tid:fixedStationName").trim();
       var fixedDir = getMetaContent("tid:fixedDir").trim();
       var area = searchParams.get("area") || fixedArea || "";
       var line = searchParams.get("line") || fixedLine || "";
       var dir = searchParams.get("dir") || fixedDir || null;
+      var currentLineIds = Array.from(new Set((fixedLineIds.length ? fixedLineIds : [line]).filter(Boolean)));
       var dirLabel = dir === "up" ? "\u4E0A\u308A" : dir === "down" ? "\u4E0B\u308A" : "\u4E21\u65B9";
       var fixedStationMode = Boolean(fixedStationName);
-      paramsView.textContent = fixedStationMode ? `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u99C5: ${fixedStationName} / \u65B9\u5411: ${dirLabel}` : `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
+      var multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
+      var currentLineLabel = currentLineIds.length ? currentLineIds.join(", ") : line || "(\u672A\u6307\u5B9A)";
+      paramsView.textContent = fixedStationMode ? `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${currentLineLabel} / \u99C5: ${fixedStationName} / \u65B9\u5411: ${dirLabel}` : `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
       alarmSystem = createAlarmSystem({
         area,
         line,
@@ -2416,10 +2441,10 @@
           }
           const indexes = yield getIndexesForCurrentLine();
           renderStationFilter(indexes);
-          const trains = yield fetchTrains(line);
+          const trains = yield fetchTrainsForCurrentView();
           setUpdatedAt(trains == null ? void 0 : trains.update);
           renderTrains(indexes, trains, dir);
-          yield updateTrafficInfo(area, line);
+          yield updateTrafficInfo(area, currentLineIds);
           try {
             const areaCached = loadAreaStationsCache(area);
             if (!areaCached && area) {
@@ -2651,12 +2676,13 @@
           }
         }
       }
-      function updateTrafficInfo(currentArea, currentLine) {
+      function updateTrafficInfo(currentArea, currentLines) {
         return __async(this, null, function* () {
-          if (!currentArea || !currentLine || !trafficInfoEl) return;
+          const lineIds = Array.isArray(currentLines) ? currentLines.filter(Boolean) : [currentLines].filter(Boolean);
+          if (!currentArea || !lineIds.length || !trafficInfoEl) return;
           try {
             const data = yield fetchTrafficInfo(currentArea);
-            renderTrafficInfo(trafficInfoEl, currentLine, data);
+            renderTrafficInfo(trafficInfoEl, lineIds, data);
           } catch (error) {
             dbg("traffic fetch fail", error);
           }
@@ -2911,12 +2937,180 @@
       }
       function getIndexesForCurrentLine() {
         return __async(this, null, function* () {
+          if (multiLineFixedMode) {
+            const lineStations = yield fetchStationDataForLines(currentLineIds);
+            return buildMergedIndexesForLines(lineStations);
+          }
           if (!fixedStationMode) {
             const cached = buildIndexesFromCache(area, line, { dbg });
             if (cached) return cached;
           }
           const stations = yield fetchStations(line);
           return buildStationIndexes(stations);
+        });
+      }
+      function fetchStationDataForLines(lineIds) {
+        return __async(this, null, function* () {
+          const results = yield Promise.allSettled(
+            lineIds.map((lineId) => fetchStations(lineId).then((data) => ({ lineId, data })))
+          );
+          return results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+        });
+      }
+      function addAdjacencyEdge(adjacency, left, right) {
+        if (!left || !right || left === right) return;
+        if (!adjacency.has(left)) adjacency.set(left, /* @__PURE__ */ new Set());
+        if (!adjacency.has(right)) adjacency.set(right, /* @__PURE__ */ new Set());
+        adjacency.get(left).add(right);
+        adjacency.get(right).add(left);
+      }
+      function buildMergedIndexesForLines(lineStations) {
+        var _a;
+        const stationsByCode = /* @__PURE__ */ new Map();
+        const adjacency = /* @__PURE__ */ new Map();
+        const ordersByLine = /* @__PURE__ */ new Map();
+        for (const entry of lineStations) {
+          const lineId = String((entry == null ? void 0 : entry.lineId) || "").trim();
+          const stations = Array.isArray((_a = entry == null ? void 0 : entry.data) == null ? void 0 : _a.stations) ? entry.data.stations : [];
+          const order2 = [];
+          let previousCode = null;
+          for (const station of stations) {
+            const info = (station == null ? void 0 : station.info) || {};
+            const code = String((info == null ? void 0 : info.code) || "").trim();
+            if (!code) continue;
+            const name = String((info == null ? void 0 : info.name) || code).trim();
+            order2.push(code);
+            const existing = stationsByCode.get(code);
+            if (existing) {
+              if (!existing.name && name) existing.name = name;
+              if ((!existing.stopTrains || !existing.stopTrains.length) && Array.isArray(info == null ? void 0 : info.stopTrains)) {
+                existing.stopTrains = info.stopTrains.slice();
+              }
+              existing.lines.add(lineId);
+            } else {
+              stationsByCode.set(code, {
+                index: 0,
+                name,
+                code,
+                stopTrains: Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : null,
+                lines: new Set(lineId ? [lineId] : [])
+              });
+            }
+            addAdjacencyEdge(adjacency, previousCode, code);
+            previousCode = code;
+          }
+          if (order2.length) ordersByLine.set(lineId, order2);
+        }
+        const probeIndexes = { byCode: stationsByCode, order: Array.from(stationsByCode.keys()) };
+        const selectedStation = findStationByName(probeIndexes, fixedStationName);
+        if (!selectedStation) {
+          const byCode2 = /* @__PURE__ */ new Map();
+          const order2 = Array.from(stationsByCode.keys()).sort();
+          order2.forEach((code, index) => {
+            const station = stationsByCode.get(code);
+            byCode2.set(code, __spreadProps(__spreadValues({}, station), { index }));
+          });
+          return { byCode: byCode2, order: order2 };
+        }
+        const primaryOrder = ordersByLine.get(line) || ordersByLine.get(currentLineIds[0]) || Array.from(stationsByCode.keys());
+        const selectedIdx = primaryOrder.indexOf(selectedStation.code);
+        const negativeHop = selectedIdx > 0 ? primaryOrder[selectedIdx - 1] : "";
+        const positiveHop = selectedIdx >= 0 && selectedIdx < primaryOrder.length - 1 ? primaryOrder[selectedIdx + 1] : "";
+        const metrics = buildGraphMetrics(adjacency, selectedStation.code, { negativeHop, positiveHop });
+        const withIndex = [];
+        for (const [code, station] of stationsByCode.entries()) {
+          const metric = metrics.get(code) || null;
+          const hasMetric = metric && Number.isFinite(metric.distance);
+          const distance = hasMetric ? metric.distance : Number.MAX_SAFE_INTEGER;
+          const sign = Number((metric == null ? void 0 : metric.sign) || 0);
+          const normalizedSign = code === selectedStation.code ? 0 : sign || 1;
+          const index = code === selectedStation.code ? 0 : hasMetric ? normalizedSign * distance : 9999;
+          withIndex.push(__spreadProps(__spreadValues({}, station), {
+            index,
+            distance,
+            side: normalizedSign
+          }));
+        }
+        withIndex.sort((left, right) => {
+          if (left.index !== right.index) return left.index - right.index;
+          if (left.distance !== right.distance) return left.distance - right.distance;
+          const leftName = String(left.name || "");
+          const rightName = String(right.name || "");
+          if (leftName !== rightName) return leftName.localeCompare(rightName, "ja");
+          return String(left.code).localeCompare(String(right.code), "ja");
+        });
+        const byCode = /* @__PURE__ */ new Map();
+        const order = [];
+        for (const station of withIndex) {
+          byCode.set(station.code, station);
+          order.push(station.code);
+        }
+        return { byCode, order };
+      }
+      function buildGraphMetrics(adjacency, selectedCode, { negativeHop, positiveHop } = {}) {
+        const metrics = /* @__PURE__ */ new Map();
+        metrics.set(selectedCode, { distance: 0, sign: 0, firstHop: selectedCode });
+        const queue = [selectedCode];
+        for (let i = 0; i < queue.length; i += 1) {
+          const code = queue[i];
+          const current = metrics.get(code);
+          const neighbors = Array.from(adjacency.get(code) || []);
+          for (const neighbor of neighbors) {
+            if (metrics.has(neighbor)) continue;
+            const firstHop = code === selectedCode ? neighbor : current.firstHop;
+            let sign = 0;
+            if (firstHop === negativeHop) sign = -1;
+            else if (firstHop === positiveHop) sign = 1;
+            else sign = current.sign || 0;
+            metrics.set(neighbor, {
+              distance: Number(current.distance || 0) + 1,
+              sign,
+              firstHop
+            });
+            queue.push(neighbor);
+          }
+        }
+        return metrics;
+      }
+      function parseIsoTime(value) {
+        const ms = Date.parse(String(value || ""));
+        return Number.isFinite(ms) ? ms : null;
+      }
+      function mergeTrainPayloads(payloads) {
+        var _a;
+        const trains = [];
+        const seen = /* @__PURE__ */ new Set();
+        let latestMs = null;
+        let latestRaw = "";
+        for (const payload of payloads) {
+          const updateMs = parseIsoTime(payload == null ? void 0 : payload.update);
+          if (updateMs != null && (latestMs == null || updateMs > latestMs)) {
+            latestMs = updateMs;
+            latestRaw = String(payload.update || "");
+          }
+          const list = Array.isArray(payload == null ? void 0 : payload.trains) ? payload.trains : [];
+          for (const train of list) {
+            const key = `${(train == null ? void 0 : train.no) || ""}|${(train == null ? void 0 : train.pos) || ""}|${(_a = train == null ? void 0 : train.direction) != null ? _a : ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            trains.push(train);
+          }
+        }
+        return {
+          update: latestRaw,
+          trains
+        };
+      }
+      function fetchTrainsForCurrentView() {
+        return __async(this, null, function* () {
+          if (currentLineIds.length <= 1) {
+            return yield fetchTrains(line);
+          }
+          const results = yield Promise.allSettled(
+            currentLineIds.map((lineId) => fetchTrains(lineId))
+          );
+          const payloads = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+          return mergeTrainPayloads(payloads);
         });
       }
       function normalizeStationName(value) {
@@ -3032,11 +3226,11 @@
           refreshing = true;
           try {
             const indexes = yield getIndexesForCurrentLine();
-            const trains = yield fetchTrains(line);
+            const trains = yield fetchTrainsForCurrentView();
             setUpdatedAt(trains == null ? void 0 : trains.update);
             renderStationFilter(indexes);
             renderTrains(indexes, trains, dir);
-            yield updateTrafficInfo(area, line);
+            yield updateTrafficInfo(area, currentLineIds);
           } catch (error) {
             console.error("\u518D\u53D6\u5F97\u306B\u5931\u6557", error);
           } finally {

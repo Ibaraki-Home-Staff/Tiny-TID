@@ -3,7 +3,7 @@
 このテンプレートは、プレーンなHTML/CSS/JSで作る小規模サイト向けの、わかりやすいフォルダ構成例です。共通ヘッダー/フッターをコンポーネント化し、ページから読み込みます。
 
 ## フォルダ構成
-- `index.html` … 茨木駅専用の運行情報ページ
+- `index.html` … 茨木駅専用の運行情報ページ（`kyoto,kobesanyo,hokurikubiwako,ako,kosei` を連結表示）
 - `old/index.html` … 旧トップページ（エリア・路線選択）
 - `old/TID.html` … 旧運行情報ページ
 - `pages/` … 下層ページ（今は未使用）

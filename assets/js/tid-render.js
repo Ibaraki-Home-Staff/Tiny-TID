@@ -13,12 +13,19 @@ export function renderTrafficInfo(container, line, data){
 
   if(!data || typeof data !== 'object') return;
 
+  const lineIds = Array.isArray(line)
+    ? line.map((value) => String(value || '').trim()).filter(Boolean)
+    : [String(line || '').trim()].filter(Boolean);
+  const multiLine = lineIds.length > 1;
   const lineItems = [];
   const expressItems = [];
+  const seenLineItems = new Set();
+  const seenExpressItems = new Set();
 
   if(data.lines && typeof data.lines === 'object'){
-    const entry = data.lines[line];
-    if(entry){
+    for(const lineId of lineIds){
+      const entry = data.lines[lineId];
+      if(!entry) continue;
       const section = entry.section;
       let sectionText = '';
       if(typeof section === 'string') sectionText = section;
@@ -30,20 +37,33 @@ export function renderTrafficInfo(container, line, data){
       const cause = entry.cause || '';
       const status = entry.status || '';
       const url = entry.url || '';
-      const text = `${sectionText ? sectionText + ': ' : ''}${cause ? `${cause} により ` : ''}${status}`.trim();
-      if(text) lineItems.push({ text, url });
+      const bodyText = `${sectionText ? sectionText + ': ' : ''}${cause ? `${cause} により ` : ''}${status}`.trim();
+      if(!bodyText) continue;
+      const text = multiLine ? `[${lineId}] ${bodyText}` : bodyText;
+      const dedupeKey = `${text}|${url}`;
+      if(text && !seenLineItems.has(dedupeKey)){
+        seenLineItems.add(dedupeKey);
+        lineItems.push({ text, url });
+      }
     }
   }
 
   if(data.express && typeof data.express === 'object'){
-    const entry = data.express[line];
-    if(entry){
+    for(const lineId of lineIds){
+      const entry = data.express[lineId];
+      if(!entry) continue;
       const name = entry.name || '';
       const cause = entry.cause || '';
       const status = entry.status || '';
       const url = entry.url || '';
-      const text = `${name ? `特急 ${name}: ` : ''}${cause ? `${cause} により ` : ''}${status}`.trim();
-      if(text) expressItems.push({ text, url });
+      const bodyText = `${name ? `特急 ${name}: ` : ''}${cause ? `${cause} により ` : ''}${status}`.trim();
+      if(!bodyText) continue;
+      const text = multiLine ? `[${lineId}] ${bodyText}` : bodyText;
+      const dedupeKey = `${text}|${url}`;
+      if(text && !seenExpressItems.has(dedupeKey)){
+        seenExpressItems.add(dedupeKey);
+        expressItems.push({ text, url });
+      }
     }
   }
 

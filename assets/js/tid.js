@@ -65,6 +65,13 @@ function getMetaContent(name){
   }
 }
 
+function parseMetaList(name){
+  return getMetaContent(name)
+    .split(',')
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
 let alarmSystem = null;
 let audioCtx = null;
 let audioUnlocked = false;
@@ -78,15 +85,19 @@ let visBound = false;
 const searchParams = new URLSearchParams(window.location.search);
 const fixedArea = getMetaContent('tid:fixedArea').trim();
 const fixedLine = getMetaContent('tid:fixedLine').trim();
+const fixedLineIds = parseMetaList('tid:fixedLines');
 const fixedStationName = getMetaContent('tid:fixedStationName').trim();
 const fixedDir = getMetaContent('tid:fixedDir').trim();
 const area = searchParams.get('area') || fixedArea || '';
 const line = searchParams.get('line') || fixedLine || '';
 const dir = searchParams.get('dir') || fixedDir || null;
+const currentLineIds = Array.from(new Set((fixedLineIds.length ? fixedLineIds : [line]).filter(Boolean)));
 const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
 const fixedStationMode = Boolean(fixedStationName);
+const multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
+const currentLineLabel = currentLineIds.length ? currentLineIds.join(', ') : line || '(未指定)';
 paramsView.textContent = fixedStationMode
-  ? `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 駅: ${fixedStationName} / 方向: ${dirLabel}`
+  ? `選択中のエリア: ${area || '(未指定)'} / 路線: ${currentLineLabel} / 駅: ${fixedStationName} / 方向: ${dirLabel}`
   : `選択中のエリア: ${area || '(未指定)'} / 路線: ${line || '(未指定)'} / 方向: ${dirLabel}`;
 
 alarmSystem = createAlarmSystem({
@@ -138,10 +149,10 @@ alarmSystem = createAlarmSystem({
     const indexes = await getIndexesForCurrentLine();
     renderStationFilter(indexes);
 
-    const trains = await fetchTrains(line);
+    const trains = await fetchTrainsForCurrentView();
     setUpdatedAt(trains?.update);
     renderTrains(indexes, trains, dir);
-    await updateTrafficInfo(area, line);
+    await updateTrafficInfo(area, currentLineIds);
 
     try{
       const areaCached = loadAreaStationsCache(area);
@@ -351,11 +362,12 @@ function initCarsControls(){
   }
 }
 
-async function updateTrafficInfo(currentArea, currentLine){
-  if(!currentArea || !currentLine || !trafficInfoEl) return;
+async function updateTrafficInfo(currentArea, currentLines){
+  const lineIds = Array.isArray(currentLines) ? currentLines.filter(Boolean) : [currentLines].filter(Boolean);
+  if(!currentArea || !lineIds.length || !trafficInfoEl) return;
   try{
     const data = await fetchTrafficInfo(currentArea);
-    renderTrafficInfo(trafficInfoEl, currentLine, data);
+    renderTrafficInfo(trafficInfoEl, lineIds, data);
   }catch(error){
     dbg('traffic fetch fail', error);
   }
@@ -597,12 +609,210 @@ function playBeep(){
 }
 
 async function getIndexesForCurrentLine(){
+  if(multiLineFixedMode){
+    const lineStations = await fetchStationDataForLines(currentLineIds);
+    return buildMergedIndexesForLines(lineStations);
+  }
   if(!fixedStationMode){
     const cached = buildIndexesFromCache(area, line, { dbg });
     if(cached) return cached;
   }
   const stations = await fetchStations(line);
   return buildStationIndexes(stations);
+}
+
+async function fetchStationDataForLines(lineIds){
+  const results = await Promise.allSettled(
+    lineIds.map((lineId) => fetchStations(lineId).then((data) => ({ lineId, data })))
+  );
+  return results
+    .filter((result) => result.status === 'fulfilled')
+    .map((result) => result.value);
+}
+
+function addAdjacencyEdge(adjacency, left, right){
+  if(!left || !right || left === right) return;
+  if(!adjacency.has(left)) adjacency.set(left, new Set());
+  if(!adjacency.has(right)) adjacency.set(right, new Set());
+  adjacency.get(left).add(right);
+  adjacency.get(right).add(left);
+}
+
+function buildMergedIndexesForLines(lineStations){
+  const stationsByCode = new Map();
+  const adjacency = new Map();
+  const ordersByLine = new Map();
+
+  for(const entry of lineStations){
+    const lineId = String(entry?.lineId || '').trim();
+    const stations = Array.isArray(entry?.data?.stations) ? entry.data.stations : [];
+    const order = [];
+    let previousCode = null;
+
+    for(const station of stations){
+      const info = station?.info || {};
+      const code = String(info?.code || '').trim();
+      if(!code) continue;
+
+      const name = String(info?.name || code).trim();
+      order.push(code);
+
+      const existing = stationsByCode.get(code);
+      if(existing){
+        if(!existing.name && name) existing.name = name;
+        if((!existing.stopTrains || !existing.stopTrains.length) && Array.isArray(info?.stopTrains)){
+          existing.stopTrains = info.stopTrains.slice();
+        }
+        existing.lines.add(lineId);
+      }else{
+        stationsByCode.set(code, {
+          index: 0,
+          name,
+          code,
+          stopTrains: Array.isArray(info?.stopTrains) ? info.stopTrains.slice() : null,
+          lines: new Set(lineId ? [lineId] : [])
+        });
+      }
+
+      addAdjacencyEdge(adjacency, previousCode, code);
+      previousCode = code;
+    }
+
+    if(order.length) ordersByLine.set(lineId, order);
+  }
+
+  const probeIndexes = { byCode: stationsByCode, order: Array.from(stationsByCode.keys()) };
+  const selectedStation = findStationByName(probeIndexes, fixedStationName);
+  if(!selectedStation){
+    const byCode = new Map();
+    const order = Array.from(stationsByCode.keys()).sort();
+    order.forEach((code, index) => {
+      const station = stationsByCode.get(code);
+      byCode.set(code, { ...station, index });
+    });
+    return { byCode, order };
+  }
+
+  const primaryOrder =
+    ordersByLine.get(line) ||
+    ordersByLine.get(currentLineIds[0]) ||
+    Array.from(stationsByCode.keys());
+  const selectedIdx = primaryOrder.indexOf(selectedStation.code);
+  const negativeHop = selectedIdx > 0 ? primaryOrder[selectedIdx - 1] : '';
+  const positiveHop = selectedIdx >= 0 && selectedIdx < primaryOrder.length - 1 ? primaryOrder[selectedIdx + 1] : '';
+  const metrics = buildGraphMetrics(adjacency, selectedStation.code, { negativeHop, positiveHop });
+
+  const withIndex = [];
+  for(const [code, station] of stationsByCode.entries()){
+    const metric = metrics.get(code) || null;
+    const hasMetric = metric && Number.isFinite(metric.distance);
+    const distance = hasMetric ? metric.distance : Number.MAX_SAFE_INTEGER;
+    const sign = Number(metric?.sign || 0);
+    const normalizedSign = code === selectedStation.code ? 0 : (sign || 1);
+    const index = code === selectedStation.code
+      ? 0
+      : hasMetric
+        ? normalizedSign * distance
+        : 9999;
+    withIndex.push({
+      ...station,
+      index,
+      distance,
+      side: normalizedSign
+    });
+  }
+
+  withIndex.sort((left, right) => {
+    if(left.index !== right.index) return left.index - right.index;
+    if(left.distance !== right.distance) return left.distance - right.distance;
+    const leftName = String(left.name || '');
+    const rightName = String(right.name || '');
+    if(leftName !== rightName) return leftName.localeCompare(rightName, 'ja');
+    return String(left.code).localeCompare(String(right.code), 'ja');
+  });
+
+  const byCode = new Map();
+  const order = [];
+  for(const station of withIndex){
+    byCode.set(station.code, station);
+    order.push(station.code);
+  }
+  return { byCode, order };
+}
+
+function buildGraphMetrics(adjacency, selectedCode, { negativeHop, positiveHop } = {}){
+  const metrics = new Map();
+  metrics.set(selectedCode, { distance: 0, sign: 0, firstHop: selectedCode });
+
+  const queue = [selectedCode];
+  for(let i = 0; i < queue.length; i += 1){
+    const code = queue[i];
+    const current = metrics.get(code);
+    const neighbors = Array.from(adjacency.get(code) || []);
+    for(const neighbor of neighbors){
+      if(metrics.has(neighbor)) continue;
+      const firstHop = code === selectedCode ? neighbor : current.firstHop;
+      let sign = 0;
+      if(firstHop === negativeHop) sign = -1;
+      else if(firstHop === positiveHop) sign = 1;
+      else sign = current.sign || 0;
+      metrics.set(neighbor, {
+        distance: Number(current.distance || 0) + 1,
+        sign,
+        firstHop
+      });
+      queue.push(neighbor);
+    }
+  }
+
+  return metrics;
+}
+
+function parseIsoTime(value){
+  const ms = Date.parse(String(value || ''));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function mergeTrainPayloads(payloads){
+  const trains = [];
+  const seen = new Set();
+  let latestMs = null;
+  let latestRaw = '';
+
+  for(const payload of payloads){
+    const updateMs = parseIsoTime(payload?.update);
+    if(updateMs != null && (latestMs == null || updateMs > latestMs)){
+      latestMs = updateMs;
+      latestRaw = String(payload.update || '');
+    }
+
+    const list = Array.isArray(payload?.trains) ? payload.trains : [];
+    for(const train of list){
+      const key = `${train?.no || ''}|${train?.pos || ''}|${train?.direction ?? ''}`;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      trains.push(train);
+    }
+  }
+
+  return {
+    update: latestRaw,
+    trains
+  };
+}
+
+async function fetchTrainsForCurrentView(){
+  if(currentLineIds.length <= 1){
+    return await fetchTrains(line);
+  }
+
+  const results = await Promise.allSettled(
+    currentLineIds.map((lineId) => fetchTrains(lineId))
+  );
+  const payloads = results
+    .filter((result) => result.status === 'fulfilled')
+    .map((result) => result.value);
+  return mergeTrainPayloads(payloads);
 }
 
 function normalizeStationName(value){
@@ -714,11 +924,11 @@ async function refreshTrains(){
   refreshing = true;
   try{
     const indexes = await getIndexesForCurrentLine();
-    const trains = await fetchTrains(line);
+    const trains = await fetchTrainsForCurrentView();
     setUpdatedAt(trains?.update);
     renderStationFilter(indexes);
     renderTrains(indexes, trains, dir);
-    await updateTrafficInfo(area, line);
+    await updateTrafficInfo(area, currentLineIds);
   }catch(error){
     console.error('再取得に失敗', error);
   }finally{
