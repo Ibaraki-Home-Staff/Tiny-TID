@@ -1,48 +1,40 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root pages: `index.html` (area/line selector) and `TID.html` (train status view).
-- JavaScript modules live in `assets/js/`:
-  - `main.js` initializes selector UI.
-  - `tid.js` is the main runtime for train data/alarm behavior.
-  - `tid-*.js` files split domain logic (alarm, category, rules, background, etc.).
-- Styles are split under `assets/css/` with `main.css` as the entry point.
-- Reusable HTML fragments are in `components/` (currently `header.html`).
-- Static assets: `assets/img/`, `assets/sound/`, and text maps in `assets/` (`color.txt`, `yomiage.txt`).
-- Local dev proxy: `dev_proxy.py` (serves files and proxies `/api/v3/*`).
+- Root pages: `index.html` for area/line selection and `TID.html` for train status.
+- JavaScript lives in `assets/js/`. Main entry points are `main.js` and `tid.js`; `tid-*.js` files split alarms, categories, rules, and background behavior by feature.
+- CSS is organized under `assets/css/` with `main.css` as the entry and shared layers such as `variables.css`, `layout.css`, and `components.css`.
+- Reusable fragments are in `components/`. Static assets live under `assets/img/`, `assets/sound/`, and text maps in `assets/`.
+- Legacy browser bundles are generated into `assets/js/legacy-*.js` and loaded through `assets/js/runtime-loader.js`.
 
 ## Build, Test, and Development Commands
 - `python dev_proxy.py`
-  - Starts local server at `http://localhost:8000` with JR-West API proxy support.
+  Starts a local server at `http://localhost:8000` and proxies `/api/v3/*` to the JR-West API.
 - `python dev_proxy.py 9000 .`
-  - Same as above on a custom port.
+  Runs the same proxy server on a custom port.
 - `python -m http.server 8000`
-  - Static-only server (API calls will fail without proxy/CORS workaround).
+  Serves static files only. API-backed screens will fail without a proxy.
+- `pwsh ./build-legacy.ps1`
+  Rebuilds the legacy JS bundle after changing browser-facing scripts.
 
 ## Coding Style & Naming Conventions
-- Use ES modules and keep logic split by feature in `assets/js/`.
-- Follow existing style: 2-space indentation, semicolons, `camelCase` for variables/functions.
-- Keep file naming consistent with current pattern: `tid-<feature>.js`.
-- Use absolute asset paths from web root (example: `/assets/js/tid.js?v=39`).
-- Prefer small, focused functions; add short comments only for non-obvious behavior.
+- Use ES modules and keep logic split into focused files in `assets/js/`.
+- Follow the existing style: 2-space indentation, semicolons, and `camelCase` for variables and functions.
+- Keep naming aligned with the current pattern, for example `tid-alarm.js` or `tid-rules.js`.
+- Use absolute asset paths from the site root, such as `/assets/js/tid.js?v=39`.
+- Add comments only where behavior is non-obvious.
 
 ## Testing Guidelines
-- No automated test framework is configured in this repository.
-- Validate changes with manual smoke tests:
-  - Load `index.html`, select area/line, navigate to `TID.html`.
-  - Verify refresh, filtering, and alarm/audio unlock flow.
-  - Confirm API-backed behavior through `dev_proxy.py`.
-- For UI changes, test desktop and mobile viewport layouts.
+- No automated test framework is configured. Validate changes with manual smoke tests.
+- Check `index.html` selection flow, navigation into `TID.html`, refresh behavior, filtering, and alarm/audio unlock handling.
+- For API-dependent changes, test through `dev_proxy.py` rather than direct browser calls.
+- For UI updates, verify both desktop and mobile layouts.
 
 ## Commit & Pull Request Guidelines
-- Follow Conventional Commit style seen in history: `feat: ...`, `fix: ...`, `refactor: ...`.
-- Keep commits scoped to one logical change.
-- PRs should include:
-  - Purpose and user-visible impact.
-  - Manual test steps/results.
-  - Screenshots or short recordings for UI changes.
-  - Linked issue/ticket when applicable.
+- Use Conventional Commits: `feat: ...`, `fix: ...`, `refactor: ...`.
+- Keep each commit scoped to one logical change.
+- PRs should include purpose, user-visible impact, manual test steps/results, and screenshots or recordings for UI work.
 
 ## Security & Configuration Tips
-- Do not call JR-West API directly from browser code; use `/api/v3/` via proxy.
-- Do not commit credentials, private keys, or environment-specific secrets.
+- Do not call the JR-West API directly from browser code. Always use `/api/v3/` through the local or deployed proxy.
+- Do not commit secrets, credentials, or environment-specific configuration.

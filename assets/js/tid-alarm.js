@@ -20,13 +20,10 @@ export function createAlarmSystem(deps){
     getDestText,
     configuredTypeTextClass,
     typeTextClass,
-    buildTtsMessage,
+    buildAlarmMessage,
     notifyIfBackground,
     playAlarmSound,
     playBeep,
-    speakTextAsync,
-    preemptDelayTts,
-    drainDelayTts,
     bindAudioUnlockOnce,
     getAudioUnlocked
   } = deps || {};
@@ -37,6 +34,8 @@ export function createAlarmSystem(deps){
   const alarmPlayQueue = [];
   const alarmQueueKeys = new Set();
   let alarmPlaying = false;
+  let upScopeBound = false;
+  let downScopeBound = false;
   const ALARM_STALE_THRESHOLD_MS = 5 * 60 * 1000;
   const ALARM_RECENT_GRACE_MS = 3 * 60 * 1000;
 
@@ -364,6 +363,24 @@ export function createAlarmSystem(deps){
       setDisabledForDir('down', dnDis.checked);
       dnDis.onchange = ()=>{ saveAlarmDisable('down', dnDis.checked, selectedStationCode()); setDisabledForDir('down', dnDis.checked); };
     }
+
+    if(!upScopeBound){
+      document.getElementById('alarmUpBox')?.addEventListener('change', () => {
+        const boxes = Array.from(document.querySelectorAll('[data-alarm-up]'));
+        const vals = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
+        saveAlarmPrefs('up', vals, selectedStationCode());
+      });
+      upScopeBound = true;
+    }
+
+    if(!downScopeBound){
+      document.getElementById('alarmDownBox')?.addEventListener('change', () => {
+        const boxes = Array.from(document.querySelectorAll('[data-alarm-down]'));
+        const vals = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
+        saveAlarmPrefs('down', vals, selectedStationCode());
+      });
+      downScopeBound = true;
+    }
   }
 
   function renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam){
@@ -394,6 +411,10 @@ export function createAlarmSystem(deps){
     }
     upBox.innerHTML = '';
     downBox.innerHTML = '';
+    const upDisable = document.getElementById('alarmUpDisable');
+    const downDisable = document.getElementById('alarmDownDisable');
+    if(upDisable) upDisable.checked = readAlarmDisable('up', selectedCode);
+    if(downDisable) downDisable.checked = readAlarmDisable('down', selectedCode);
     const cats = allowedCats instanceof Set ? Array.from(allowedCats) : [];
     // Build checkboxes for allowed stop categories (based on station filter)
     function nextStations(indexes2, code, dirLabel, count){
@@ -511,13 +532,6 @@ export function createAlarmSystem(deps){
     const savedDown = readAlarmPrefs('down', selectedCode);
     build(upBox, 'data-alarm-up', savedUp, 'up');
     build(downBox, 'data-alarm-down', savedDown, 'down');
-    const saveScope = (dir, selector) => {
-      const boxes = Array.from(document.querySelectorAll(selector));
-      const vals = new Set(boxes.filter(b => b.checked).map(b => b.value));
-      saveAlarmPrefs(dir, vals, selectedCode);
-    };
-    document.getElementById('alarmUpBox')?.addEventListener('change', () => saveScope('up', '[data-alarm-up]'));
-    document.getElementById('alarmDownBox')?.addEventListener('change', () => saveScope('down', '[data-alarm-down]'));
     // Apply disabled state to inputs after render
     setDisabledForDir('up', readAlarmDisable('up', selectedCode));
     setDisabledForDir('down', readAlarmDisable('down', selectedCode));
@@ -541,8 +555,6 @@ export function createAlarmSystem(deps){
     if(alarmPlaying) return;
     alarmPlaying = true;
     try{
-      // Preempt any ongoing low-priority delay TTS
-      try{ preemptDelayTts && preemptDelayTts(); }catch{}
       while(alarmPlayQueue.length){
         const it = alarmPlayQueue.shift();
         if(!it) continue;
@@ -580,16 +592,11 @@ export function createAlarmSystem(deps){
           ms = playBeep ? playBeep() : 0;
           if(ms > 0){ await new Promise(r => setTimeout(r, ms)); }
         }
-        // Stabilize gap before TTS on iOS
-        try{ await new Promise(r => setTimeout(r, 140)); }catch{}
-        if(it.message){ try{ await speakTextAsync(it.message); }catch{} }
         try{ if(typeof it.onDone === 'function') it.onDone(); }catch{}
         try{ if(it.key) alarmQueueKeys.delete(it.key); }catch{}
       }
     }finally{
       alarmPlaying = false;
-      // Resume low-priority TTS after alarms
-      try{ drainDelayTts && drainDelayTts(); }catch{}
     }
   }
 
@@ -663,6 +670,10 @@ export function createAlarmSystem(deps){
         }catch{}
       }
     }catch{}
+  }
+
+  function hasPassAlarmForDirection(dir){
+    return getPrefsForDir(dir).has('pass');
   }
 
   function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCats, dirParam){
@@ -789,7 +800,7 @@ export function createAlarmSystem(deps){
               // Suppress duplicates for same line + station filter + train no within 3 minutes
               if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { alerted = true; continue; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
-              const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : '';
+              const msg = buildAlarmMessage ? buildAlarmMessage(t, targetCode, indexes) : '';
               const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
               const meta = {
                 area, line,
@@ -863,7 +874,7 @@ export function createAlarmSystem(deps){
             if(!stopsHere2){
               if(approachRecentlyAnnounced(t.no, selectedCode, dir)) { continue; }
               const key = `${t.no||'?'}:${dir}:${targetCode}`;
-              const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : '';
+              const msg = buildAlarmMessage ? buildAlarmMessage(t, targetCode, indexes) : '';
               const afterPlay = () => { try{ markApproachAnnounced(t.no, selectedCode, dir); }catch{} };
               const meta = {
                 area, line,
@@ -926,6 +937,7 @@ export function createAlarmSystem(deps){
     clearNotified,
     setLastShown,
     flushPendingAudio,
+    hasPassAlarmForDirection,
     isPlaying
   };
 }

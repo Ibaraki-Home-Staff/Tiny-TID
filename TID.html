@@ -10,8 +10,6 @@
     <meta name="app:version" content="3">
     <!-- 種別色マップ（color.txt）の場所を指定 -->
     <meta name="tid:colorUrl" content="/assets/color.txt">
-    <!-- 読み上げ補正マップ（yomiage.txt）の場所を指定 -->
-    <meta name="tid:yomiUrl" content="/assets/yomiage.txt">
     <link rel="stylesheet" href="/assets/css/main.css?v=13">
   </head>
   <body>
@@ -19,11 +17,11 @@
       <div class="tid-audio-overlay__panel" role="document">
         <button id="audioUnlockClose" class="tid-audio-overlay__close" type="button" aria-label="閉じる">×</button>
         <img src="/assets/img/placeholder.svg" alt="" class="tid-audio-overlay__icon" aria-hidden="true">
-        <h2 id="audioUnlockTitle" class="tid-audio-overlay__title">音声の許可が必要です</h2>
-        <p class="tid-audio-overlay__text">読み上げやアラーム音を再生するには、最初に許可ボタンを押してください。</p>
+        <h2 id="audioUnlockTitle" class="tid-audio-overlay__title">アラーム音の許可が必要です</h2>
+        <p class="tid-audio-overlay__text">接近アラームを再生するには、最初に許可ボタンを押してください。</p>
         <p id="audioUnlockHint" class="tid-audio-overlay__hint" aria-live="polite"></p>
         <div class="tid-audio-overlay__actions">
-          <button id="audioUnlockBtn" class="btn tid-audio-overlay__button" type="button">音声を有効化</button>
+          <button id="audioUnlockBtn" class="btn tid-audio-overlay__button" type="button">アラーム音を有効化</button>
           <button id="audioUnlockLater" class="btn btn-ghost" type="button" aria-label="後で">後で</button>
         </div>
       </div>
@@ -51,13 +49,6 @@
             <div>
               <label style="display:block; margin-bottom:.35rem;">駅リスト更新</label>
               <button id="refreshStationsBtn" class="btn" type="button">更新</button>
-            </div>
-            <div>
-              <label for="ttsVoice" style="display:block; margin-bottom:.35rem;">読み上げ（日本語の音声）</label>
-              <select id="ttsVoice" name="ttsVoice" style="min-width:280px">
-                <option value="">取得中…</option>
-              </select>
-              <button id="ttsTestBtn" class="btn" type="button" style="margin-left:.5rem;">テスト再生</button>
             </div>
             <div>
               <label for="delayThreshold" style="display:block; margin-bottom:.35rem;">遅延の強調表示（分）</label>
@@ -100,7 +91,6 @@
                 アラーム無効
               </label>
             </fieldset>
-          </div>
           </div>
         </section>
       </details>

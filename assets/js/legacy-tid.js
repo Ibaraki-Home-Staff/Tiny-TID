@@ -266,9 +266,9 @@
   });
 
   // assets/js/tid-background.js
-  function isBgNotifyEnabled(getSetting) {
+  function isBgNotifyEnabled(getSetting2) {
     try {
-      const v = getSetting ? getSetting("bg.notify", null) : null;
+      const v = getSetting2 ? getSetting2("bg.notify", null) : null;
       if (v === "1" || v === 1 || v === true) return true;
       return localStorage.getItem(BG_NOTIFY_KEY) === "1";
     } catch (e) {
@@ -309,12 +309,12 @@
       }
     });
   }
-  function initBackgroundControls({ getSetting, setSetting, dbg } = {}) {
+  function initBackgroundControls({ getSetting: getSetting2, setSetting: setSetting2, dbg } = {}) {
     try {
       const ncb = document.getElementById("bgNotifyEnable");
       const wcb = document.getElementById("wakeLockEnable");
-      const _get = typeof getSetting === "function" ? getSetting : () => null;
-      const _set = typeof setSetting === "function" ? setSetting : () => {
+      const _get = typeof getSetting2 === "function" ? getSetting2 : () => null;
+      const _set = typeof setSetting2 === "function" ? setSetting2 : () => {
       };
       if (ncb) {
         ncb.checked = isBgNotifyEnabled(_get);
@@ -414,10 +414,10 @@
       }
     }
   }
-  function notifyIfBackground(message, tag, { getSetting, dbg } = {}) {
+  function notifyIfBackground(message, tag, { getSetting: getSetting2, dbg } = {}) {
     try {
       if (!document.hidden) return;
-      const _get = typeof getSetting === "function" ? getSetting : () => null;
+      const _get = typeof getSetting2 === "function" ? getSetting2 : () => null;
       if (!isBgNotifyEnabled(_get)) return;
       if (!("Notification" in window) || Notification.permission !== "granted") return;
       const opts = { body: String(message || ""), tag: String(tag || ""), renotify: true, icon: "/assets/img/placeholder.svg" };
@@ -443,9 +443,9 @@
     const {
       area,
       line,
-      getSetting,
-      setSetting,
-      getLineConfig,
+      getSetting: getSetting2,
+      setSetting: setSetting2,
+      getLineConfig: getLineConfig2,
       dbg,
       TID_DEBUG,
       getDelayThreshold,
@@ -458,13 +458,10 @@
       getDestText,
       configuredTypeTextClass,
       typeTextClass: typeTextClass2,
-      buildTtsMessage,
+      buildAlarmMessage,
       notifyIfBackground: notifyIfBackground2,
       playAlarmSound,
       playBeep,
-      speakTextAsync,
-      preemptDelayTts,
-      drainDelayTts,
       bindAudioUnlockOnce,
       getAudioUnlocked
     } = deps || {};
@@ -474,6 +471,8 @@
     const alarmPlayQueue = [];
     const alarmQueueKeys = /* @__PURE__ */ new Set();
     let alarmPlaying = false;
+    let upScopeBound = false;
+    let downScopeBound = false;
     const ALARM_STALE_THRESHOLD_MS = 5 * 60 * 1e3;
     const ALARM_RECENT_GRACE_MS = 3 * 60 * 1e3;
     let lastShownTrains = { up: [], down: [] };
@@ -749,7 +748,7 @@
     function readAlarmPrefs(dir, st) {
       var _a, _b, _c;
       try {
-        const cfg = getLineConfig ? getLineConfig(line) : null;
+        const cfg = getLineConfig2 ? getLineConfig2(line) : null;
         const stKey = String(st || "_none");
         const dirKey = dir === 0 || dir === "up" ? "up" : dir === 1 || dir === "down" ? "down" : String(dir || "up");
         const arr = (_c = (_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[stKey]) == null ? void 0 : _b[dirKey]) == null ? void 0 : _c.prefs;
@@ -769,7 +768,7 @@
         const stKey = String(st || "_none");
         const dirKey = dir === 0 || dir === "up" ? "up" : dir === 1 || dir === "down" ? "down" : String(dir || "up");
         const arr = Array.from(values || []);
-        if (setSetting) setSetting(`lines.${line}.alarms.${stKey}.${dirKey}.prefs`, arr);
+        if (setSetting2) setSetting2(`lines.${line}.alarms.${stKey}.${dirKey}.prefs`, arr);
       } catch (e) {
       }
     }
@@ -777,7 +776,7 @@
       try {
         const stKey = String(st || "_none");
         const dirKey = dir === 0 || dir === "up" ? "up" : dir === 1 || dir === "down" ? "down" : String(dir || "up");
-        const v = getSetting ? getSetting(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, void 0) : void 0;
+        const v = getSetting2 ? getSetting2(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, void 0) : void 0;
         if (v === void 0) return false;
         return !!v;
       } catch (e) {
@@ -788,7 +787,7 @@
       try {
         const stKey = String(st || "_none");
         const dirKey = dir === 0 || dir === "up" ? "up" : dir === 1 || dir === "down" ? "down" : String(dir || "up");
-        if (setSetting) setSetting(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, !!v);
+        if (setSetting2) setSetting2(`lines.${line}.alarms.${stKey}.${dirKey}.disabled`, !!v);
       } catch (e) {
       }
     }
@@ -796,7 +795,7 @@
       try {
         const stKey = String(st || "_none");
         const dirKey = dir === 0 || dir === "up" ? "up" : dir === 1 || dir === "down" ? "down" : String(dir || "up");
-        const obj = getSetting ? getSetting(`lines.${line}.alarms.${stKey}.${dirKey}.targets`, {}) : {};
+        const obj = getSetting2 ? getSetting2(`lines.${line}.alarms.${stKey}.${dirKey}.targets`, {}) : {};
         return obj && typeof obj === "object" ? obj : {};
       } catch (e) {
       }
@@ -814,7 +813,7 @@
         const dirKey = dir === 0 || dir === "up" ? "up" : dir === 1 || dir === "down" ? "down" : String(dir || "up");
         const obj = readAlarmTargets(dir, st);
         obj[catKey] = String(stationCode || "");
-        if (setSetting) setSetting(`lines.${line}.alarms.${stKey}.${dirKey}.targets`, obj);
+        if (setSetting2) setSetting2(`lines.${line}.alarms.${stKey}.${dirKey}.targets`, obj);
       } catch (e) {
       }
     }
@@ -836,6 +835,7 @@
       }
     }
     function initAlarmControls() {
+      var _a, _b;
       const upDis = document.getElementById("alarmUpDisable");
       const dnDis = document.getElementById("alarmDownDisable");
       if (upDis) {
@@ -854,9 +854,24 @@
           setDisabledForDir("down", dnDis.checked);
         };
       }
+      if (!upScopeBound) {
+        (_a = document.getElementById("alarmUpBox")) == null ? void 0 : _a.addEventListener("change", () => {
+          const boxes = Array.from(document.querySelectorAll("[data-alarm-up]"));
+          const vals = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
+          saveAlarmPrefs("up", vals, selectedStationCode());
+        });
+        upScopeBound = true;
+      }
+      if (!downScopeBound) {
+        (_b = document.getElementById("alarmDownBox")) == null ? void 0 : _b.addEventListener("change", () => {
+          const boxes = Array.from(document.querySelectorAll("[data-alarm-down]"));
+          const vals = new Set(boxes.filter((box) => box.checked).map((box) => box.value));
+          saveAlarmPrefs("down", vals, selectedStationCode());
+        });
+        downScopeBound = true;
+      }
     }
     function renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam) {
-      var _a, _b;
       const upBox = document.getElementById("alarmUpOptions");
       const downBox = document.getElementById("alarmDownOptions");
       const row = document.getElementById("alarmRow");
@@ -882,6 +897,10 @@
       }
       upBox.innerHTML = "";
       downBox.innerHTML = "";
+      const upDisable = document.getElementById("alarmUpDisable");
+      const downDisable = document.getElementById("alarmDownDisable");
+      if (upDisable) upDisable.checked = readAlarmDisable("up", selectedCode);
+      if (downDisable) downDisable.checked = readAlarmDisable("down", selectedCode);
       const cats = allowedCats instanceof Set ? Array.from(allowedCats) : [];
       function nextStations(indexes2, code, dirLabel, count) {
         const order = indexes2.order || [];
@@ -900,7 +919,7 @@
         return out;
       }
       const build = (container, attr, saved, dirLabel) => {
-        var _a2;
+        var _a;
         cats.sort((a, b) => Number(a) - Number(b)).forEach((cat) => {
           const label = getCategoryLabel2 ? getCategoryLabel2(cat) : String(cat);
           const wrap = document.createElement("label");
@@ -994,10 +1013,10 @@
         const aheadPass = nextStations(indexes, selectedCode, dirLabel, 3);
         if (aheadPass.length) {
           aheadPass.forEach((code) => {
-            var _a3;
+            var _a2;
             const o = document.createElement("option");
             o.value = code;
-            o.textContent = ((_a3 = indexes.byCode.get(String(code))) == null ? void 0 : _a3.name) || String(code);
+            o.textContent = ((_a2 = indexes.byCode.get(String(code))) == null ? void 0 : _a2.name) || String(code);
             selPass.appendChild(o);
           });
         } else {
@@ -1014,7 +1033,7 @@
         }
         selPass.addEventListener("change", () => saveAlarmTarget(dirKey2, selectedCode, "pass", selPass.value));
         wrapPass.appendChild(selPass);
-        const passSetting = ((_a2 = document.getElementById("passFilter")) == null ? void 0 : _a2.value) || "hide";
+        const passSetting = ((_a = document.getElementById("passFilter")) == null ? void 0 : _a.value) || "hide";
         if (passSetting !== "show") {
           pass.disabled = true;
           selPass.disabled = true;
@@ -1036,17 +1055,10 @@
       const savedDown = readAlarmPrefs("down", selectedCode);
       build(upBox, "data-alarm-up", savedUp, "up");
       build(downBox, "data-alarm-down", savedDown, "down");
-      const saveScope = (dir, selector) => {
-        const boxes = Array.from(document.querySelectorAll(selector));
-        const vals = new Set(boxes.filter((b) => b.checked).map((b) => b.value));
-        saveAlarmPrefs(dir, vals, selectedCode);
-      };
-      (_a = document.getElementById("alarmUpBox")) == null ? void 0 : _a.addEventListener("change", () => saveScope("up", "[data-alarm-up]"));
-      (_b = document.getElementById("alarmDownBox")) == null ? void 0 : _b.addEventListener("change", () => saveScope("down", "[data-alarm-down]"));
       setDisabledForDir("up", readAlarmDisable("up", selectedCode));
       setDisabledForDir("down", readAlarmDisable("down", selectedCode));
     }
-    function getPrefsForDir2(dir) {
+    function getPrefsForDir(dir) {
       const st = selectedStationCode();
       const disabled = readAlarmDisable(dir === 0 ? "up" : "down", st);
       if (disabled) {
@@ -1070,10 +1082,6 @@
         if (alarmPlaying) return;
         alarmPlaying = true;
         try {
-          try {
-            preemptDelayTts && preemptDelayTts();
-          } catch (e) {
-          }
           while (alarmPlayQueue.length) {
             const it = alarmPlayQueue.shift();
             if (!it) continue;
@@ -1120,16 +1128,6 @@
               }
             }
             try {
-              yield new Promise((r) => setTimeout(r, 140));
-            } catch (e) {
-            }
-            if (it.message) {
-              try {
-                yield speakTextAsync(it.message);
-              } catch (e) {
-              }
-            }
-            try {
               if (typeof it.onDone === "function") it.onDone();
             } catch (e) {
             }
@@ -1140,10 +1138,6 @@
           }
         } finally {
           alarmPlaying = false;
-          try {
-            drainDelayTts && drainDelayTts();
-          } catch (e) {
-          }
         }
       });
     }
@@ -1261,6 +1255,9 @@
       } catch (e) {
       }
     }
+    function hasPassAlarmForDirection(dir) {
+      return getPrefsForDir(dir).has("pass");
+    }
     function handleApproachAlarms(indexes, list, selectedCode, stationIdx, allowedCats, dirParam) {
       var _a, _b, _c, _d, _e, _f, _g;
       if (!selectedCode || stationIdx == null) return;
@@ -1291,7 +1288,7 @@
         } catch (e) {
         }
         const dir = t.direction;
-        const prefs = getPrefsForDir2(dir);
+        const prefs = getPrefsForDir(dir);
         const prefsRaw = new Set(prefs);
         const posIdx = typeof t.posIndex === "number" ? t.posIndex : null;
         try {
@@ -1393,7 +1390,7 @@
                   continue;
                 }
                 const key = `${t.no || "?"}:${dir}:${targetCode}`;
-                const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : "";
+                const msg = buildAlarmMessage ? buildAlarmMessage(t, targetCode, indexes) : "";
                 const afterPlay = () => {
                   try {
                     markApproachAnnounced(t.no, selectedCode, dir);
@@ -1484,7 +1481,7 @@
                   continue;
                 }
                 const key = `${t.no || "?"}:${dir}:${targetCode}`;
-                const msg = buildTtsMessage ? buildTtsMessage(t, targetCode, indexes) : "";
+                const msg = buildAlarmMessage ? buildAlarmMessage(t, targetCode, indexes) : "";
                 const afterPlay = () => {
                   try {
                     markApproachAnnounced(t.no, selectedCode, dir);
@@ -1562,6 +1559,7 @@
       clearNotified,
       setLastShown,
       flushPendingAudio,
+      hasPassAlarmForDirection,
       isPlaying
     };
   }
@@ -1570,14 +1568,738 @@
     }
   });
 
+  // assets/js/tid-data.js
+  function apiBase() {
+    return window.TID_API_BASE && String(window.TID_API_BASE) || "/api/v3/";
+  }
+  function areaCacheKey(area) {
+    return `tid:areaStations:${area}`;
+  }
+  function areaCrossKey(area) {
+    return `tid:cross:${area}`;
+  }
+  function fetchJsonWithFallbacks(_0) {
+    return __async(this, arguments, function* (url, fallbacks = []) {
+      try {
+        const response = yield fetch(url, { cache: "no-store" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        return yield response.json();
+      } catch (error) {
+        for (const fallback of fallbacks) {
+          try {
+            const response = yield fetch(fallback, { cache: "no-store" });
+            if (response.ok) return yield response.json();
+          } catch (e) {
+          }
+        }
+        throw error;
+      }
+    });
+  }
+  function fetchAreaMaster(area) {
+    return __async(this, null, function* () {
+      return yield fetchJsonWithFallbacks(
+        `${apiBase()}area_${area}_master.json`,
+        [
+          `/assets/data/area_${area}_master.json`,
+          `/area_${area}_master.json`
+        ]
+      );
+    });
+  }
+  function fetchStations(line) {
+    return __async(this, null, function* () {
+      return yield fetchJsonWithFallbacks(
+        `${apiBase()}${line}_st.json`,
+        [
+          `/assets/data/${line}_st.json`,
+          `/${line}_st.json`
+        ]
+      );
+    });
+  }
+  function fetchTrains(line) {
+    return __async(this, null, function* () {
+      return yield fetchJsonWithFallbacks(
+        `${apiBase()}${line}.json`,
+        [
+          `/assets/data/${line}.json`,
+          `/${line}.json`
+        ]
+      );
+    });
+  }
+  function fetchTrafficInfo(area) {
+    return __async(this, null, function* () {
+      return yield fetchJsonWithFallbacks(
+        `${apiBase()}area_${area}_trafficinfo.json`,
+        [
+          `/assets/data/area_${area}_trafficinfo.json`,
+          `/area_${area}_trafficinfo.json`
+        ]
+      );
+    });
+  }
+  function loadAreaStationsCache(area) {
+    try {
+      const raw = localStorage.getItem(areaCacheKey(area));
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.updatedAt || !obj.stations) return null;
+      const age = Date.now() - Number(obj.updatedAt);
+      if (age > CACHE_TTL_MS) return null;
+      return obj;
+    } catch (e) {
+      return null;
+    }
+  }
+  function saveAreaStationsCache(area, data) {
+    try {
+      localStorage.setItem(areaCacheKey(area), JSON.stringify({
+        updatedAt: Date.now(),
+        stations: data.stations || {},
+        lines: data.lines || {},
+        lineStations: data.lineStations || {}
+      }));
+    } catch (e) {
+    }
+  }
+  function loadAreaCrossCache(area) {
+    try {
+      const raw = localStorage.getItem(areaCrossKey(area));
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.updatedAt || !obj.lines) return null;
+      const age = Date.now() - Number(obj.updatedAt);
+      if (age > CACHE_TTL_MS) return null;
+      return obj;
+    } catch (e) {
+      return null;
+    }
+  }
+  function saveAreaCrossCache(area, data) {
+    try {
+      localStorage.setItem(areaCrossKey(area), JSON.stringify({
+        updatedAt: Date.now(),
+        lines: data.lines || {}
+      }));
+    } catch (e) {
+    }
+  }
+  function pairKey(left, right) {
+    const a = String(left);
+    const b = String(right);
+    return a < b ? `${a}_${b}` : `${b}_${a}`;
+  }
+  function getCrossPreferredLine(area, userLine, codeA, codeB) {
+    const cache = loadAreaCrossCache(area);
+    if (!cache || !cache.lines) return null;
+    const table = cache.lines[userLine];
+    if (!table) return null;
+    return table[pairKey(codeA, codeB)] || null;
+  }
+  function setCrossPreferredLine(area, userLine, codeA, codeB, chosenLine, dbg) {
+    try {
+      const cache = loadAreaCrossCache(area) || { updatedAt: Date.now(), lines: {} };
+      if (!cache.lines[userLine]) cache.lines[userLine] = {};
+      cache.lines[userLine][pairKey(codeA, codeB)] = String(chosenLine);
+      saveAreaCrossCache(area, cache);
+      dbg == null ? void 0 : dbg("cross pair cached", { area, userLine, pair: pairKey(codeA, codeB), chosenLine });
+    } catch (e) {
+    }
+  }
+  function extractTransferLinesFromInfo(info) {
+    const out = /* @__PURE__ */ new Set();
+    const transfers = Array.isArray(info == null ? void 0 : info.transfer) ? info.transfer : [];
+    for (const transfer of transfers) {
+      const link = transfer && transfer.link;
+      const code = transfer && transfer.code;
+      if (typeof link === "string" && link) out.add(link);
+      else if (typeof code === "string" && code) out.add(code);
+    }
+    return Array.from(out);
+  }
+  function buildStationIndexes(data) {
+    const byCode = /* @__PURE__ */ new Map();
+    const list = Array.isArray(data == null ? void 0 : data.stations) ? data.stations : [];
+    list.forEach((station, index) => {
+      const info = (station == null ? void 0 : station.info) || {};
+      const code = info == null ? void 0 : info.code;
+      if (!code) return;
+      byCode.set(String(code), {
+        index,
+        name: String((info == null ? void 0 : info.name) || ""),
+        code: String(code),
+        stopTrains: Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : null,
+        transferLines: extractTransferLinesFromInfo(info)
+      });
+    });
+    return {
+      byCode,
+      order: list.map((station) => {
+        var _a;
+        return String(((_a = station == null ? void 0 : station.info) == null ? void 0 : _a.code) || "");
+      })
+    };
+  }
+  function buildIndexesFromCache(area, line, { dbg } = {}) {
+    const cached = loadAreaStationsCache(area);
+    if (!cached || !cached.stations) return null;
+    let order = cached.lines && cached.lines[line] || globalLineOrders.get(line) || null;
+    if (!Array.isArray(order) || !order.length) {
+      const codes = Object.keys(cached.stations || {});
+      if (!codes.length) return null;
+      order = codes.sort();
+      dbg == null ? void 0 : dbg("cache order fallback", { area, line, count: order.length });
+    }
+    const byCode = /* @__PURE__ */ new Map();
+    order.forEach((code, index) => {
+      const record = cached.lineStations && cached.lineStations[line] && cached.lineStations[line][code] || cached.stations[code] || {};
+      const name = (record == null ? void 0 : record.name) || globalStationsByCode.get(code) || code;
+      const stopTrains = Array.isArray(record == null ? void 0 : record.stopTrains) ? record.stopTrains : [];
+      byCode.set(String(code), {
+        index,
+        name: String(name),
+        code: String(code),
+        stopTrains
+      });
+    });
+    dbg == null ? void 0 : dbg("buildIndexesFromCache OK", { area, line, size: byCode.size });
+    return { byCode, order: order.map(String) };
+  }
+  function warmAreaFromCache(area) {
+    const cached = loadAreaStationsCache(area);
+    if (!cached) return;
+    for (const [code, value] of Object.entries(cached.stations || {})) {
+      const name = typeof value === "string" ? value : value == null ? void 0 : value.name;
+      if (name) globalStationsByCode.set(String(code), String(name));
+    }
+    for (const [lineId, order] of Object.entries(cached.lines || {})) {
+      if (Array.isArray(order)) globalLineOrders.set(lineId, order.map(String));
+    }
+  }
+  function buildGlobalStationsForArea(_0) {
+    return __async(this, arguments, function* (area, { force = false, dbg } = {}) {
+      if (!area) return;
+      if (!force) {
+        const cached = loadAreaStationsCache(area);
+        if (cached) {
+          for (const [code, value] of Object.entries(cached.stations || {})) {
+            const name = typeof value === "string" ? value : value == null ? void 0 : value.name;
+            if (name) globalStationsByCode.set(String(code), String(name));
+          }
+          for (const [lineId, order] of Object.entries(cached.lines || {})) {
+            if (Array.isArray(order)) globalLineOrders.set(lineId, order.map(String));
+          }
+          return;
+        }
+      }
+      try {
+        const master = yield fetchAreaMaster(area);
+        const lineIds = Object.keys((master == null ? void 0 : master.lines) || {});
+        if (!lineIds.length) return;
+        const results = yield Promise.allSettled(
+          lineIds.map((lineId) => fetchStations(lineId).then((data) => ({ lineId, data })))
+        );
+        const stationsToCache = {};
+        const linesToCache = {};
+        const lineStationsToCache = {};
+        for (const result of results) {
+          if (result.status !== "fulfilled") continue;
+          const { lineId, data } = result.value;
+          const stations = Array.isArray(data == null ? void 0 : data.stations) ? data.stations : [];
+          const orderCodes = [];
+          const perLineStations = {};
+          for (const station of stations) {
+            const info = (station == null ? void 0 : station.info) || {};
+            const code = info == null ? void 0 : info.code;
+            const name = info == null ? void 0 : info.name;
+            if (!code) continue;
+            const stationCode = String(code);
+            orderCodes.push(stationCode);
+            if (!name) continue;
+            const stationName = String(name);
+            const stopTrains = Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : void 0;
+            const transferLines = extractTransferLinesFromInfo(info);
+            globalStationsByCode.set(stationCode, stationName);
+            stationsToCache[stationCode] = { name: stationName, stopTrains };
+            perLineStations[stationCode] = { name: stationName, stopTrains, transferLines };
+          }
+          if (orderCodes.length) {
+            globalLineOrders.set(lineId, orderCodes);
+            linesToCache[lineId] = orderCodes;
+            lineStationsToCache[lineId] = perLineStations;
+          }
+        }
+        saveAreaStationsCache(area, {
+          stations: stationsToCache,
+          lines: linesToCache,
+          lineStations: lineStationsToCache
+        });
+      } catch (error) {
+        console.warn("\u30A8\u30EA\u30A2\u99C5\u540D\u306E\u69CB\u7BC9\u306B\u5931\u6557", error);
+        dbg == null ? void 0 : dbg("buildGlobalStationsForArea failed", error);
+      }
+    });
+  }
+  function getStationNameByPriority(code, indexes, { area, line, dbg, warn, neighborCode } = {}) {
+    var _a;
+    const stationCode = String(code);
+    if (indexes && indexes.byCode && indexes.byCode.has(stationCode)) {
+      const hit = String(((_a = indexes.byCode.get(stationCode)) == null ? void 0 : _a.name) || "");
+      dbg == null ? void 0 : dbg("station hit [line]", { line, area, code: stationCode, name: hit });
+      return hit;
+    }
+    const areaObj = loadAreaStationsCache(area);
+    if (areaObj) {
+      const lineStations = areaObj.lineStations && areaObj.lineStations[line];
+      if (lineStations && lineStations[stationCode]) {
+        const value = lineStations[stationCode];
+        const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+        dbg == null ? void 0 : dbg("station hit [area-line]", { line, area, code: stationCode, name: hit });
+        return hit;
+      }
+      if (neighborCode) {
+        const neighbor = String(neighborCode);
+        const linesMap = areaObj.lineStations || {};
+        const orders = areaObj.lines || {};
+        const preferredLine = getCrossPreferredLine(area, line, stationCode, neighbor);
+        if (preferredLine && linesMap[preferredLine]) {
+          const preferredStations = linesMap[preferredLine] || {};
+          const preferredOrder = orders[preferredLine] || [];
+          if (preferredStations[stationCode] && Array.isArray(preferredOrder) && preferredOrder.includes(neighbor)) {
+            const value = preferredStations[stationCode];
+            const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+            dbg == null ? void 0 : dbg("station hit [area-line-crosscache]", { area, lineId: preferredLine, code: stationCode, neighbor, name: hit });
+            return hit;
+          }
+        }
+        const neighborRecord = linesMap[line] && linesMap[line][neighbor] || null;
+        const transferLines = Array.isArray(neighborRecord == null ? void 0 : neighborRecord.transferLines) ? neighborRecord.transferLines : [];
+        for (const transferLine of transferLines) {
+          const order = orders[transferLine] || [];
+          if (Array.isArray(order) && order.includes(neighbor)) {
+            const perLine = linesMap[transferLine] || {};
+            const value = perLine[stationCode];
+            if (value) {
+              const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+              dbg == null ? void 0 : dbg("station hit [area-line-transfer]", { area, lineId: transferLine, neighbor, code: stationCode, name: hit });
+              setCrossPreferredLine(area, line, stationCode, neighbor, transferLine, dbg);
+              return hit;
+            }
+          }
+        }
+        for (const lineId of Object.keys(linesMap)) {
+          const perLine = linesMap[lineId] || {};
+          const order = orders[lineId] || [];
+          if (perLine[stationCode] && Array.isArray(order) && order.includes(neighbor)) {
+            const value = perLine[stationCode];
+            const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+            dbg == null ? void 0 : dbg("station hit [area-line-neighbor]", { area, lineId, code: stationCode, neighbor, name: hit });
+            setCrossPreferredLine(area, line, stationCode, neighbor, lineId, dbg);
+            return hit;
+          }
+        }
+      }
+      if (areaObj.stations && areaObj.stations[stationCode]) {
+        const value = areaObj.stations[stationCode];
+        const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+        dbg == null ? void 0 : dbg("station hit [area-flat]", { area, code: stationCode, name: hit });
+        return hit;
+      }
+    }
+    for (const otherArea of AREA_LIST) {
+      const otherCache = loadAreaStationsCache(otherArea);
+      if (!otherCache) continue;
+      const lineStations = otherCache.lineStations;
+      if (lineStations) {
+        const orders = otherCache.lines || {};
+        if (neighborCode) {
+          const neighbor = String(neighborCode);
+          for (const lineId of Object.keys(lineStations)) {
+            const perLine = lineStations[lineId] || {};
+            const order = orders[lineId] || [];
+            if (perLine[stationCode] && Array.isArray(order) && order.includes(neighbor)) {
+              const value = perLine[stationCode];
+              const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+              dbg == null ? void 0 : dbg("station hit [other-area-line-neighbor]", { area: otherArea, lineId, code: stationCode, neighbor, name: hit });
+              return hit;
+            }
+          }
+        }
+        for (const lineId of Object.keys(lineStations)) {
+          const value = lineStations[lineId] && lineStations[lineId][stationCode];
+          if (!value) continue;
+          const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+          dbg == null ? void 0 : dbg("station hit [other-area-line]", { area: otherArea, lineId, code: stationCode, name: hit });
+          return hit;
+        }
+      }
+      if (otherCache.stations && otherCache.stations[stationCode]) {
+        const value = otherCache.stations[stationCode];
+        const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
+        dbg == null ? void 0 : dbg("station hit [other-area-flat]", { area: otherArea, code: stationCode, name: hit });
+        return hit;
+      }
+    }
+    if (globalStationsByCode.has(stationCode)) {
+      const hit = String(globalStationsByCode.get(stationCode));
+      dbg == null ? void 0 : dbg("station hit [global]", { code: stationCode, name: hit });
+      return hit;
+    }
+    warn == null ? void 0 : warn("station miss", { line, area, code: stationCode });
+    return "";
+  }
+  function clearAreaStationsCache(area) {
+    try {
+      localStorage.removeItem(areaCacheKey(area));
+    } catch (e) {
+    }
+  }
+  function clearAreaCrossCache(area) {
+    try {
+      localStorage.removeItem(areaCrossKey(area));
+    } catch (e) {
+    }
+  }
+  var AREA_LIST, CACHE_TTL_MS, globalStationsByCode, globalLineOrders;
+  var init_tid_data = __esm({
+    "assets/js/tid-data.js"() {
+      AREA_LIST = ["kinki", "hokuriku", "okayama", "hiroshima", "sanin"];
+      CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
+      globalStationsByCode = /* @__PURE__ */ new Map();
+      globalLineOrders = /* @__PURE__ */ new Map();
+      (function warmAllAreasFromCache() {
+        try {
+          AREA_LIST.forEach((area) => warmAreaFromCache(area));
+        } catch (e) {
+        }
+      })();
+    }
+  });
+
+  // assets/js/tid-render.js
+  function escapeHtml(value) {
+    return String(value || "").replace(/[&<>"]/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;"
+    })[char]);
+  }
+  function renderTrafficInfo(container, line, data) {
+    if (!container) return;
+    container.innerHTML = "";
+    if (!data || typeof data !== "object") return;
+    const lineItems = [];
+    const expressItems = [];
+    if (data.lines && typeof data.lines === "object") {
+      const entry = data.lines[line];
+      if (entry) {
+        const section = entry.section;
+        let sectionText = "";
+        if (typeof section === "string") sectionText = section;
+        else if (section && typeof section === "object") {
+          const from = section.from || section.start || "";
+          const to = section.to || section.end || "";
+          if (from || to) sectionText = `${from || ""} ~ ${to || ""}`.trim();
+        }
+        const cause = entry.cause || "";
+        const status = entry.status || "";
+        const url = entry.url || "";
+        const text = `${sectionText ? sectionText + ": " : ""}${cause ? `${cause} \u306B\u3088\u308A ` : ""}${status}`.trim();
+        if (text) lineItems.push({ text, url });
+      }
+    }
+    if (data.express && typeof data.express === "object") {
+      const entry = data.express[line];
+      if (entry) {
+        const name = entry.name || "";
+        const cause = entry.cause || "";
+        const status = entry.status || "";
+        const url = entry.url || "";
+        const text = `${name ? `\u7279\u6025 ${name}: ` : ""}${cause ? `${cause} \u306B\u3088\u308A ` : ""}${status}`.trim();
+        if (text) expressItems.push({ text, url });
+      }
+    }
+    if (!lineItems.length && !expressItems.length) return;
+    const buildSection = (title, items, kind) => {
+      const section = document.createElement("section");
+      section.className = "traffic-section";
+      const header = document.createElement("div");
+      header.className = `traffic-section__header ${kind === "express" ? "traffic-section__header--express" : "traffic-section__header--line"}`;
+      header.textContent = title;
+      const list = document.createElement("ul");
+      list.className = "traffic-list";
+      for (const item of items) {
+        const li = document.createElement("li");
+        li.className = `traffic-item ${kind === "express" ? "traffic-item--express" : "traffic-item--line"}`;
+        if (item.url) {
+          const link = document.createElement("a");
+          link.href = item.url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = item.text;
+          li.appendChild(link);
+        } else {
+          li.textContent = item.text;
+        }
+        list.appendChild(li);
+      }
+      section.appendChild(header);
+      section.appendChild(list);
+      container.appendChild(section);
+    };
+    if (lineItems.length) buildSection("\u8DEF\u7DDA\u306E\u904B\u884C\u60C5\u5831", lineItems, "line");
+    if (expressItems.length) buildSection("\u7279\u6025\u306E\u904B\u884C\u60C5\u5831", expressItems, "express");
+  }
+  function renderTrainList(container, list, indexes, options) {
+    const {
+      getDelayThreshold,
+      getCarsThreshold,
+      getDestText,
+      getNickname: getNickname2,
+      configuredTypeTextClass,
+      trainCategoryFromDisplayType: trainCategoryFromDisplayType2,
+      typeTextClass: typeTextClass2
+    } = options;
+    if (!container) return;
+    container.innerHTML = "";
+    if (!list.length) {
+      container.textContent = "\u8A72\u5F53\u306A\u3057";
+      return;
+    }
+    const table = document.createElement("table");
+    table.className = "train-table";
+    const colgroup = document.createElement("colgroup");
+    for (let i = 0; i < 7; i += 1) {
+      colgroup.appendChild(document.createElement("col"));
+    }
+    table.appendChild(colgroup);
+    const thead = document.createElement("thead");
+    thead.innerHTML = "<tr><th>\u5217\u756A</th><th>\u7A2E\u5225</th><th>\u611B\u79F0</th><th>\u4E21\u6570</th><th>\u884C\u5148</th><th>\u4F4D\u7F6E</th><th>\u9045\u5EF6</th></tr>";
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    for (const train of list) {
+      const tr = document.createElement("tr");
+      const delayThreshold = getDelayThreshold();
+      const typeLabel = String(train.displayType || "").trim();
+      const colorClass = configuredTypeTextClass(typeLabel) || typeTextClass2(trainCategoryFromDisplayType2(train.displayType));
+      const typeHtml = colorClass ? `<span class="${colorClass}">${escapeHtml(typeLabel)}</span>` : escapeHtml(typeLabel);
+      const destText = escapeHtml(getDestText(train, indexes, "dest"));
+      const delayText = typeof train.delayMinutes === "number" && train.delayMinutes > 0 ? train.delayMinutes >= delayThreshold ? `<span class="delay-bad" style="color:var(--color-danger,#c00);font-weight:700;">${train.delayMinutes}\u5206</span>` : `${train.delayMinutes}\u5206` : "";
+      const posPart = train.stopped ? escapeHtml(train.atName || "") : escapeHtml(train.direction === 0 ? `${train.nextName || ""} \u2192 ${train.atName || ""}` : `${train.atName || ""} \u2192 ${train.nextName || ""}`);
+      let carsText = train.numberOfCars != null ? escapeHtml(String(train.numberOfCars)) : "";
+      try {
+        const threshold = getCarsThreshold();
+        const cars = Number(train.numberOfCars);
+        if (Number.isFinite(cars) && cars >= threshold) {
+          carsText = `<span class="cars-emph">${carsText}</span>`;
+        }
+      } catch (e) {
+      }
+      tr.innerHTML = `
+      <td>${escapeHtml(train.no || "")}</td>
+      <td>${typeHtml}</td>
+      <td>${escapeHtml(getNickname2(train))}</td>
+      <td>${carsText}</td>
+      <td>${destText}</td>
+      <td>${posPart}</td>
+      <td>${delayText}</td>
+    `;
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+  var init_tid_render = __esm({
+    "assets/js/tid-render.js"() {
+    }
+  });
+
+  // assets/js/tid-settings.js
+  function loadSettingsRoot() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_ROOT_KEY);
+      if (!raw) return {};
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === "object" ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function saveSettingsRoot(obj) {
+    try {
+      localStorage.setItem(SETTINGS_ROOT_KEY, JSON.stringify(obj || {}));
+    } catch (e) {
+    }
+  }
+  function getPath(obj, path) {
+    try {
+      const segs = String(path || "").split(".");
+      let cur = obj;
+      for (const seg of segs) {
+        if (!cur || typeof cur !== "object") return void 0;
+        cur = cur[seg];
+      }
+      return cur;
+    } catch (e) {
+      return void 0;
+    }
+  }
+  function setPath(obj, path, value) {
+    try {
+      const segs = String(path || "").split(".");
+      let cur = obj;
+      for (let i = 0; i < segs.length - 1; i += 1) {
+        const seg = segs[i];
+        if (!cur[seg] || typeof cur[seg] !== "object") cur[seg] = {};
+        cur = cur[seg];
+      }
+      cur[segs[segs.length - 1]] = value;
+    } catch (e) {
+    }
+  }
+  function ensureLineConfig(root, lineId) {
+    if (!root.lines) root.lines = {};
+    if (!root.lines[lineId]) root.lines[lineId] = {};
+  }
+  function getSetting(path, fallback) {
+    const root = loadSettingsRoot();
+    const value = getPath(root, path);
+    return value === void 0 ? fallback : value;
+  }
+  function setSetting(path, value) {
+    const root = loadSettingsRoot();
+    setPath(root, path, value);
+    saveSettingsRoot(root);
+  }
+  function getLineConfig(lineId) {
+    const root = loadSettingsRoot();
+    return root.lines && root.lines[lineId] || {};
+  }
+  function migrateLegacySettings() {
+    try {
+      const root = loadSettingsRoot();
+      const open = localStorage.getItem("tid:settings:open");
+      if (open != null) {
+        setPath(root, "ui.settingsOpen", open);
+        try {
+          localStorage.removeItem("tid:settings:open");
+        } catch (e) {
+        }
+      }
+      try {
+        localStorage.removeItem("tid:audio:unlocked");
+      } catch (e) {
+      }
+      try {
+        localStorage.removeItem("tid:tts:voice");
+      } catch (e) {
+      }
+      const delayThreshold = localStorage.getItem("tid:delay:threshold");
+      if (delayThreshold != null) {
+        setPath(root, "delay.threshold", Number(delayThreshold));
+        try {
+          localStorage.removeItem("tid:delay:threshold");
+        } catch (e) {
+        }
+      }
+      const bgNotify = localStorage.getItem("tid:bgnotify");
+      if (bgNotify != null) {
+        setPath(root, "bg.notify", bgNotify);
+      }
+      const wakeLock = localStorage.getItem("tid:wakelock");
+      if (wakeLock != null) {
+        setPath(root, "bg.wakelock", wakeLock);
+        try {
+          localStorage.removeItem("tid:wakelock");
+        } catch (e) {
+        }
+      }
+      try {
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          if (!key) continue;
+          const stationMatch = key.match(/^tid:station:(.+)$/);
+          if (stationMatch) {
+            const lineId = stationMatch[1];
+            const value = localStorage.getItem(key) || "";
+            if (value) {
+              ensureLineConfig(root, lineId);
+              setPath(root, `lines.${lineId}.station`, value);
+            }
+            continue;
+          }
+          const passMatch = key.match(/^tid:pass:(.+)$/);
+          if (passMatch) {
+            const lineId = passMatch[1];
+            const value = localStorage.getItem(key) || "";
+            if (value) {
+              ensureLineConfig(root, lineId);
+              setPath(root, `lines.${lineId}.pass`, value);
+            }
+          }
+        }
+      } catch (e) {
+      }
+      try {
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          if (!key) continue;
+          let match = key.match(/^tid:alarm:disable:([^:]+):([^:]+):(up|down)$/);
+          if (match) {
+            const [, lineId, stationCode, dir] = match;
+            setPath(root, `lines.${lineId}.alarms.${stationCode}.${dir}.disabled`, localStorage.getItem(key) === "1");
+            continue;
+          }
+          match = key.match(/^tid:alarm:([^:]+):([^:]+):(up|down)$/);
+          if (match) {
+            const [, lineId, stationCode, dir] = match;
+            try {
+              const prefs = JSON.parse(localStorage.getItem(key) || "[]");
+              if (Array.isArray(prefs)) {
+                setPath(root, `lines.${lineId}.alarms.${stationCode}.${dir}.prefs`, prefs);
+              }
+            } catch (e) {
+            }
+            continue;
+          }
+          match = key.match(/^tid:alarm:target:([^:]+):([^:]+):(up|down)$/);
+          if (match) {
+            const [, lineId, stationCode, dir] = match;
+            try {
+              const targets = JSON.parse(localStorage.getItem(key) || "{}");
+              if (targets && typeof targets === "object") {
+                setPath(root, `lines.${lineId}.alarms.${stationCode}.${dir}.targets`, targets);
+              }
+            } catch (e) {
+            }
+          }
+        }
+      } catch (e) {
+      }
+      saveSettingsRoot(root);
+    } catch (e) {
+    }
+  }
+  var SETTINGS_ROOT_KEY;
+  var init_tid_settings = __esm({
+    "assets/js/tid-settings.js"() {
+      SETTINGS_ROOT_KEY = "tid:v1:settings";
+    }
+  });
+
   // assets/js/tid.js
   var require_tid = __commonJS({
     "assets/js/tid.js"(exports) {
       init_components();
-      init_tid_rules();
       init_tid_category();
       init_tid_background();
       init_tid_alarm();
+      init_tid_data();
+      init_tid_render();
+      init_tid_settings();
       loadComponents();
       var paramsView = document.getElementById("paramsView");
       var trainsContainer = document.getElementById("trainsContainer");
@@ -1585,13 +2307,17 @@
       var downContainer = document.querySelector("#trainsDown .train-items");
       var updatedAtEl = document.getElementById("updatedAt");
       var settingsPanel = document.getElementById("settingsPanel");
+      var trafficInfoEl = document.getElementById("trafficInfo");
       var audioOverlay = document.getElementById("audioUnlockOverlay");
       var audioOverlayBtn = document.getElementById("audioUnlockBtn");
       var audioOverlayHint = document.getElementById("audioUnlockHint");
       var audioOverlayLater = document.getElementById("audioUnlockLater");
       var audioOverlayClose = document.getElementById("audioUnlockClose");
-      var __dbgParam = new URLSearchParams(window.location.search).get("debug");
-      var TID_DEBUG = __dbgParam === "1" || localStorage.getItem("tid:debug") === "1";
+      var stationFilterEl = document.getElementById("stationFilter");
+      var passFilterEl = document.getElementById("passFilter");
+      var refreshStationsBtn = document.getElementById("refreshStationsBtn");
+      var debugParam = new URLSearchParams(window.location.search).get("debug");
+      var TID_DEBUG = debugParam === "1" || localStorage.getItem("tid:debug") === "1";
       function dbg() {
         try {
           if (TID_DEBUG) console.log("[TID]", ...arguments);
@@ -1608,12 +2334,15 @@
       var audioCtx = null;
       var audioUnlocked = false;
       var audioUnlockBound = false;
-      var delayTtsPlaying = false;
+      var audioOverlayBound = false;
       var refreshing = false;
-      var sp = new URLSearchParams(window.location.search);
-      var area = sp.get("area") || "";
-      var line = sp.get("line") || "";
-      var dir = sp.get("dir");
+      var filterControlsBound = false;
+      var refreshTimer = null;
+      var visBound = false;
+      var searchParams = new URLSearchParams(window.location.search);
+      var area = searchParams.get("area") || "";
+      var line = searchParams.get("line") || "";
+      var dir = searchParams.get("dir");
       var dirLabel = dir === "up" ? "\u4E0A\u308A" : dir === "down" ? "\u4E0B\u308A" : "\u4E21\u65B9";
       paramsView.textContent = `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
       alarmSystem = createAlarmSystem({
@@ -1634,13 +2363,10 @@
         getDestText,
         configuredTypeTextClass,
         typeTextClass,
-        buildTtsMessage,
+        buildAlarmMessage,
         notifyIfBackground: (message, tag) => notifyIfBackground(message, tag, { getSetting, dbg }),
         playAlarmSound,
         playBeep,
-        speakTextAsync,
-        preemptDelayTts,
-        drainDelayTts,
         bindAudioUnlockOnce,
         getAudioUnlocked: () => audioUnlocked
       });
@@ -1663,22 +2389,9 @@
           return;
         }
         try {
-          try {
-            yield loadTypeColorMap();
-          } catch (e) {
-          }
-          try {
-            yield loadYomiageMap();
-          } catch (e) {
-          }
-          let indexes = buildIndexesFromCache(area, line);
-          if (!indexes) {
-            const stations = yield fetchStations(line);
-            indexes = buildStationIndexes(stations);
-          }
-          populateStationFilter(indexes);
+          yield loadTypeColorMap();
+          bindFilterControls();
           alarmSystem == null ? void 0 : alarmSystem.initAlarmControls();
-          initTTSControls();
           initDelayControls();
           initCarsControls();
           initBackgroundControls({ getSetting, setSetting, dbg });
@@ -1688,18 +2401,16 @@
             } catch (e) {
             }
           }
+          const indexes = yield getIndexesForCurrentLine();
+          renderStationFilter(indexes);
           const trains = yield fetchTrains(line);
           setUpdatedAt(trains == null ? void 0 : trains.update);
           renderTrains(indexes, trains, dir);
-          try {
-            yield updateTrafficInfo(area, line);
-          } catch (e) {
-            dbg("traffic info failed", e);
-          }
+          yield updateTrafficInfo(area, line);
           try {
             const areaCached = loadAreaStationsCache(area);
             if (!areaCached && area) {
-              buildGlobalStationsForArea(area).then(() => {
+              buildGlobalStationsForArea(area, { dbg }).then(() => {
                 try {
                   refreshTrains();
                 } catch (e) {
@@ -1709,8 +2420,8 @@
           } catch (e) {
           }
           startAutoRefresh();
-        } catch (err) {
-          console.error("\u5217\u8ECA\u60C5\u5831\u306E\u53D6\u5F97\u306B\u5931\u6557", err);
+        } catch (error) {
+          console.error("\u5217\u8ECA\u60C5\u5831\u306E\u53D6\u5F97\u306B\u5931\u6557", error);
           upContainer.textContent = "\u53D6\u5F97\u306B\u5931\u6557\u3057\u307E\u3057\u305F";
           downContainer.textContent = "";
         }
@@ -1722,11 +2433,8 @@
             const wantOpen = saved !== "0";
             try {
               settingsPanel.open = wantOpen;
-              if (wantOpen) {
-                settingsPanel.setAttribute("open", "");
-              } else {
-                settingsPanel.removeAttribute("open");
-              }
+              if (wantOpen) settingsPanel.setAttribute("open", "");
+              else settingsPanel.removeAttribute("open");
             } catch (e) {
             }
           };
@@ -1750,13 +2458,10 @@
         } catch (e) {
         }
       }
-      function apiBase() {
-        return window.TID_API_BASE && String(window.TID_API_BASE) || "/api/v3/";
-      }
       var TYPE_COLOR_MAP = /* @__PURE__ */ new Map();
       function typeColorNameToClass(name) {
-        const n = String(name || "").trim();
-        switch (n) {
+        const trimmed = String(name || "").trim();
+        switch (trimmed) {
           case "\u8D64":
             return "type-text-red";
           case "\u9752":
@@ -1776,8 +2481,8 @@
       function resolveColorMapUrls() {
         const urls = [];
         try {
-          const sp2 = new URLSearchParams(window.location.search);
-          const fromQuery = sp2.get("colormap") || sp2.get("color");
+          const params = new URLSearchParams(window.location.search);
+          const fromQuery = params.get("colormap") || params.get("color");
           if (fromQuery) urls.push(String(fromQuery));
         } catch (e) {
         }
@@ -1792,33 +2497,25 @@
       }
       function loadTypeColorMap() {
         return __async(this, null, function* () {
-          const urls = resolveColorMapUrls();
-          for (const u of urls) {
+          for (const url of resolveColorMapUrls()) {
             try {
-              const res = yield fetch(u, { cache: "no-store" });
-              if (!res.ok) continue;
-              const text = yield res.text();
-              parseTypeColorText(text);
-              try {
-                dbg("color map loaded", { url: u, size: TYPE_COLOR_MAP.size });
-              } catch (e) {
-              }
+              const response = yield fetch(url, { cache: "no-store" });
+              if (!response.ok) continue;
+              parseTypeColorText(yield response.text());
+              dbg("color map loaded", { url, size: TYPE_COLOR_MAP.size });
               return;
             } catch (e) {
             }
           }
-          try {
-            dbg("color map not found; using defaults");
-          } catch (e) {
-          }
+          dbg("color map not found; using defaults");
         });
       }
       function parseTypeColorText(text) {
         try {
           TYPE_COLOR_MAP.clear();
           const lines = String(text || "").split(/\r?\n/);
-          for (const ln of lines) {
-            const line2 = ln.trim();
+          for (const rawLine of lines) {
+            const line2 = rawLine.trim();
             if (!line2 || line2.startsWith("#")) continue;
             const parts = line2.split(",");
             if (parts.length < 2) continue;
@@ -1827,134 +2524,68 @@
             const cls = typeColorNameToClass(color);
             if (type && cls) TYPE_COLOR_MAP.set(type, cls);
           }
-          try {
-            dbg("parsed color map", Object.fromEntries(TYPE_COLOR_MAP));
-          } catch (e) {
-          }
+          dbg("parsed color map", Object.fromEntries(TYPE_COLOR_MAP));
         } catch (e) {
         }
       }
       function configuredTypeTextClass(typeLabel) {
         if (!typeLabel) return "";
-        const t = String(typeLabel).trim();
-        const exact = TYPE_COLOR_MAP.get(t);
+        const trimmed = String(typeLabel).trim();
+        const exact = TYPE_COLOR_MAP.get(trimmed);
         if (exact) return exact;
         for (const [key, cls] of TYPE_COLOR_MAP.entries()) {
-          if (!key) continue;
-          if (t.includes(key) || key.includes(t)) return cls;
+          if (trimmed.includes(key) || key.includes(trimmed)) return cls;
         }
         return "";
       }
-      var YOMI_MAP = /* @__PURE__ */ new Map();
-      function resolveYomiUrls() {
-        const urls = [];
+      function buildAlarmMessage(train, targetCode, indexes) {
+        var _a, _b;
         try {
-          const sp2 = new URLSearchParams(window.location.search);
-          const fromQuery = sp2.get("yomiage") || sp2.get("yomi");
-          if (fromQuery) urls.push(String(fromQuery));
-        } catch (e) {
-        }
-        try {
-          const meta = document.querySelector('meta[name="tid:yomiUrl"]');
-          const fromMeta = meta && meta.getAttribute("content");
-          if (fromMeta) urls.push(String(fromMeta));
-        } catch (e) {
-        }
-        urls.push("/assets/yomiage.txt", "/yomiage.txt");
-        return urls;
-      }
-      function loadYomiageMap() {
-        return __async(this, null, function* () {
-          const urls = resolveYomiUrls();
-          for (const u of urls) {
-            try {
-              const res = yield fetch(u, { cache: "no-store" });
-              if (!res.ok) continue;
-              const text = yield res.text();
-              parseYomiageText(text);
-              try {
-                dbg("yomiage map loaded", { url: u, size: YOMI_MAP.size });
-              } catch (e) {
-              }
-              return;
-            } catch (e) {
-            }
+          const parts = [];
+          const no = String((train == null ? void 0 : train.no) || "").trim();
+          const type = String((train == null ? void 0 : train.displayType) || "").trim();
+          const nickname = getNickname(train);
+          const dest = getDestText(train, indexes, "alarm.dest");
+          const stationName = ((_a = indexes.byCode.get(String(targetCode))) == null ? void 0 : _a.name) || String(targetCode);
+          if (no) parts.push(no);
+          if (type && nickname) parts.push(`${type} ${nickname}`);
+          else if (type) parts.push(`${type}\u5217\u8ECA`);
+          if (dest) parts.push(dest.endsWith("\u884C\u304D") ? dest : `${dest}\u884C\u304D`);
+          parts.push(`${stationName}\u306B\u63A5\u8FD1`);
+          if (typeof (train == null ? void 0 : train.delayMinutes) === "number" && train.delayMinutes > 0) {
+            parts.push(`\u7D04${train.delayMinutes}\u5206\u9045\u5EF6`);
           }
-          try {
-            dbg("yomiage map not found; using defaults");
-          } catch (e) {
-          }
-        });
-      }
-      function parseYomiageText(text) {
-        try {
-          YOMI_MAP.clear();
-          const lines = String(text || "").split(/\r?\n/);
-          for (const ln of lines) {
-            const s = ln.trim();
-            if (!s || s.startsWith("#")) continue;
-            const parts = s.split(",");
-            if (parts.length < 2) continue;
-            const key = parts[0].trim();
-            const val = parts[1].trim();
-            if (key && val) YOMI_MAP.set(key, val);
-          }
-          try {
-            dbg("parsed yomiage map", Object.fromEntries(YOMI_MAP));
-          } catch (e) {
-          }
+          return parts.filter(Boolean).join("\u3001");
         } catch (e) {
-        }
-      }
-      function yomiFor(text) {
-        if (text == null) return "";
-        const t = String(text).trim();
-        return YOMI_MAP.get(t) || t;
-      }
-      function getJapaneseVoices() {
-        try {
-          const synth = window.speechSynthesis;
-          if (!synth || !synth.getVoices) return [];
-          const list = synth.getVoices() || [];
-          return list.filter((v) => /^ja([-_]|$)/i.test(v.lang) || /japanese/i.test(v.name));
-        } catch (e) {
-          return [];
-        }
-      }
-      function fixTtsText(raw) {
-        try {
-          let s = String(raw || "");
-          s = s.replace(/(\d+)\s*[mMＭ]\b/g, "$1\u30A8\u30E0");
-          return s;
-        } catch (e) {
-          return String(raw || "");
+          const stationName = ((_b = indexes.byCode.get(String(targetCode))) == null ? void 0 : _b.name) || String(targetCode);
+          const no = String((train == null ? void 0 : train.no) || "\u5217\u8ECA");
+          return `${no}\u3001${stationName}\u306B\u63A5\u8FD1`;
         }
       }
       function getDelayThreshold() {
         try {
           const raw = getSetting("delay.threshold", void 0);
           if (raw == null || raw === "") return 4;
-          const v = Number(raw);
-          if (Number.isFinite(v) && v >= 0) return Math.floor(v);
+          const value = Number(raw);
+          if (Number.isFinite(value) && value >= 0) return Math.floor(value);
         } catch (e) {
         }
         return 4;
       }
       function initDelayControls() {
-        const el = document.getElementById("delayThreshold");
-        if (!el) return;
+        const input = document.getElementById("delayThreshold");
+        if (!input) return;
         try {
-          const v = getDelayThreshold();
-          el.value = String(v);
-          el.addEventListener("change", () => {
-            let n = Number(el.value);
-            if (!Number.isFinite(n) || n < 0) n = 4;
+          input.value = String(getDelayThreshold());
+          input.addEventListener("change", () => {
+            let value = Number(input.value);
+            if (!Number.isFinite(value) || value < 0) value = 4;
             try {
-              setSetting("delay.threshold", Math.floor(n));
+              setSetting("delay.threshold", Math.floor(value));
             } catch (e) {
             }
             refreshTrains();
-          });
+          }, { once: false });
         } catch (e) {
         }
       }
@@ -1962,45 +2593,44 @@
         try {
           const raw = getSetting("cars.threshold", void 0);
           if (raw == null || raw === "") return 9;
-          const v = Number(raw);
-          if (Number.isFinite(v) && v >= 0) return Math.floor(v);
+          const value = Number(raw);
+          if (Number.isFinite(value) && value >= 0) return Math.floor(value);
         } catch (e) {
         }
         return 9;
       }
       function isCarsFilterEnabled() {
         try {
-          const v = getSetting("cars.filterEnabled", false);
-          return !!v;
+          return !!getSetting("cars.filterEnabled", false);
         } catch (e) {
+          return false;
         }
-        return false;
       }
       function initCarsControls() {
-        const el = document.getElementById("carsThreshold");
-        const filterCb = document.getElementById("carsFilterEnable");
-        if (!el) return;
-        try {
-          const v = getCarsThreshold();
-          el.value = String(v);
-          el.addEventListener("change", () => {
-            let n = Number(el.value);
-            if (!Number.isFinite(n) || n < 0) n = 9;
-            try {
-              setSetting("cars.threshold", Math.floor(n));
-            } catch (e) {
-            }
-            refreshTrains();
-          });
-        } catch (e) {
-        }
-        if (filterCb) {
+        const thresholdInput = document.getElementById("carsThreshold");
+        const filterCheckbox = document.getElementById("carsFilterEnable");
+        if (thresholdInput) {
           try {
-            filterCb.checked = isCarsFilterEnabled();
-            filterCb.addEventListener("change", () => {
+            thresholdInput.value = String(getCarsThreshold());
+            thresholdInput.addEventListener("change", () => {
+              let value = Number(thresholdInput.value);
+              if (!Number.isFinite(value) || value < 0) value = 9;
               try {
-                setSetting("cars.filterEnabled", filterCb.checked);
-                dbg("CARS_FILTER_ENABLED", { enabled: filterCb.checked, threshold: getCarsThreshold() });
+                setSetting("cars.threshold", Math.floor(value));
+              } catch (e) {
+              }
+              refreshTrains();
+            });
+          } catch (e) {
+          }
+        }
+        if (filterCheckbox) {
+          try {
+            filterCheckbox.checked = isCarsFilterEnabled();
+            filterCheckbox.addEventListener("change", () => {
+              try {
+                setSetting("cars.filterEnabled", filterCheckbox.checked);
+                dbg("CARS_FILTER_ENABLED", { enabled: filterCheckbox.checked, threshold: getCarsThreshold() });
               } catch (e) {
               }
             });
@@ -2008,292 +2638,16 @@
           }
         }
       }
-      var delayAnnouncedAt = /* @__PURE__ */ new Map();
-      var DELAY_TTS_INTERVAL_MS = 5 * 60 * 1e3;
-      function buildDelayTtsMessage(t, indexes) {
-        try {
-          const segs = [];
-          const no = t && t.no ? String(t.no).trim() : "";
-          if (no) segs.push(no);
-          let type = t && t.displayType ? String(t.displayType).trim() : "";
-          type = yomiFor(type);
-          const nick = getNickname(t);
-          if (type) {
-            if (nick) {
-              segs.push(`${type} ${nick}`);
-            } else {
-              segs.push(`${type}\u5217\u8ECA`);
-            }
-          }
-          let dest = getDestText(t, indexes, "tts.dest");
-          if (dest) {
-            dest = yomiFor(String(dest).trim());
-            if (dest && !dest.endsWith("\u884C\u304D")) dest = `${dest}\u884C\u304D`;
-            segs.push(dest);
-          }
-          const delay = t && typeof t.delayMinutes === "number" ? t.delayMinutes : null;
-          if (delay && delay > 0) {
-            segs.push(`\u7D04${delay}\u5206\u9045\u5EF6`);
-          }
-          return segs.filter(Boolean).join("\u3001");
-        } catch (e) {
-          return "";
-        }
-      }
-      function handleDelayAnnouncements(list, indexes) {
-        try {
-          if (document.hidden) return;
-        } catch (e) {
-        }
-        if (!audioUnlocked) {
-          try {
-            bindAudioUnlockOnce();
-          } catch (e) {
-          }
-          return;
-        }
-        const threshold = getDelayThreshold();
-        const now = Date.now();
-        for (const t of list) {
-          const delay = typeof t.delayMinutes === "number" ? t.delayMinutes : 0;
-          if (delay < threshold) continue;
-          const key = `delay:${line}:${t.no || "?"}:${t.direction}`;
-          const last = delayAnnouncedAt.get(key) || 0;
-          if (now - last < DELAY_TTS_INTERVAL_MS) continue;
-          const msg = buildDelayTtsMessage(t, indexes);
-          if (msg) {
-            queueDelayTts(msg, key);
-          }
-        }
-      }
-      function buildTtsMessage(t, targetCode, indexes) {
-        var _a, _b;
-        try {
-          const segs = [];
-          const no = t && t.no ? String(t.no).trim() : "";
-          if (no) segs.push(no);
-          let type = t && t.displayType ? String(t.displayType).trim() : "";
-          type = yomiFor(type);
-          const nick = getNickname(t);
-          if (type) {
-            if (nick) {
-              segs.push(`${type} ${nick}`);
-            } else {
-              segs.push(`${type}\u5217\u8ECA`);
-            }
-          }
-          let dest = getDestText(t, indexes, "tts.dest");
-          if (dest) {
-            dest = yomiFor(String(dest).trim());
-            if (dest && !dest.endsWith("\u884C\u304D")) dest = `${dest}\u884C\u304D`;
-            segs.push(dest);
-          }
-          const stationName = ((_a = indexes.byCode.get(String(targetCode))) == null ? void 0 : _a.name) || String(targetCode);
-          segs.push(`${yomiFor(stationName)}\u306B\u63A5\u8FD1`);
-          const delay = t && typeof t.delayMinutes === "number" ? t.delayMinutes : null;
-          if (delay && delay > 0) {
-            segs.push(`\u7D04${delay}\u5206\u9045\u5EF6`);
-          }
-          return segs.filter(Boolean).join("\u3001");
-        } catch (e) {
-          const stationName = ((_b = indexes.byCode.get(String(targetCode))) == null ? void 0 : _b.name) || String(targetCode);
-          const no = t && t.no ? String(t.no) : "\u5217\u8ECA";
-          return `${no}\u3001${stationName}\u306B\u63A5\u8FD1`;
-        }
-      }
-      function getSelectedVoice() {
-        var _a;
-        try {
-          const name = getSetting("tts.voice", "") || ((_a = document.getElementById("ttsVoice")) == null ? void 0 : _a.value) || "";
-          const voices = getJapaneseVoices();
-          return voices.find((v) => v.name === name) || voices[0] || null;
-        } catch (e) {
-          return null;
-        }
-      }
-      function populateTTSSelect() {
-        const sel = document.getElementById("ttsVoice");
-        if (!sel) return;
-        const voices = getJapaneseVoices();
-        sel.innerHTML = "";
-        if (!voices.length) {
-          const opt = document.createElement("option");
-          opt.value = "";
-          opt.textContent = "\u65E5\u672C\u8A9E\u97F3\u58F0\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093";
-          sel.appendChild(opt);
-          sel.disabled = true;
-          return;
-        }
-        sel.disabled = false;
-        const none = document.createElement("option");
-        none.value = "";
-        none.textContent = "\uFF08\u672A\u9078\u629E\uFF09";
-        sel.appendChild(none);
-        const saved = getSetting("tts.voice", "") || "";
-        for (const v of voices) {
-          const opt = document.createElement("option");
-          opt.value = v.name;
-          opt.textContent = `${v.name} (${v.lang})`;
-          if (saved && saved === v.name) opt.selected = true;
-          sel.appendChild(opt);
-        }
-      }
-      function fetchTrafficInfo(area2) {
+      function updateTrafficInfo(currentArea, currentLine) {
         return __async(this, null, function* () {
-          const url = `${apiBase()}area_${area2}_trafficinfo.json`;
+          if (!currentArea || !currentLine || !trafficInfoEl) return;
           try {
-            const res = yield fetch(url, { cache: "no-store" });
-            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-            return yield res.json();
-          } catch (err) {
-            const fallbacks = [
-              `/assets/data/area_${area2}_trafficinfo.json`,
-              `/area_${area2}_trafficinfo.json`
-            ];
-            for (const f of fallbacks) {
-              try {
-                const r = yield fetch(f, { cache: "no-store" });
-                if (r.ok) return yield r.json();
-              } catch (e) {
-              }
-            }
-            throw err;
+            const data = yield fetchTrafficInfo(currentArea);
+            renderTrafficInfo(trafficInfoEl, currentLine, data);
+          } catch (error) {
+            dbg("traffic fetch fail", error);
           }
         });
-      }
-      function renderTrafficInfo(area2, line2, data) {
-        try {
-          const box = document.getElementById("trafficInfo");
-          if (!box) return;
-          box.innerHTML = "";
-          if (!data || typeof data !== "object") return;
-          const lineItems = [];
-          const expressItems = [];
-          if (data.lines && typeof data.lines === "object") {
-            const entry = data.lines[line2];
-            if (entry) {
-              const section = entry.section;
-              let sectionText = "";
-              if (typeof section === "string") sectionText = section;
-              else if (section && typeof section === "object") {
-                const from = section.from || section.start || "";
-                const to = section.to || section.end || "";
-                if (from || to) sectionText = `${from || ""} ~ ${to || ""}`.trim();
-              }
-              const cause = entry.cause || "";
-              const status = entry.status || "";
-              const url = entry.url || "";
-              const text = `${sectionText ? sectionText + ": " : ""}${cause ? cause + " \u306B\u3088\u308A " : ""}${status}`.trim();
-              if (text) lineItems.push({ text, url });
-            }
-          }
-          if (data.express && typeof data.express === "object") {
-            const e = data.express[line2];
-            if (e) {
-              const name = e.name || "";
-              const cause = e.cause || "";
-              const status = e.status || "";
-              const url = e.url || "";
-              const text = `${name ? "\u7279\u6025 " + name + ": " : ""}${cause ? cause + " \u306B\u3088\u308A " : ""}${status}`.trim();
-              if (text) expressItems.push({ text, url });
-            }
-          }
-          if (!lineItems.length && !expressItems.length) return;
-          const buildSection = (title, items, kind) => {
-            const sec = document.createElement("section");
-            sec.className = "traffic-section";
-            const h = document.createElement("div");
-            h.className = `traffic-section__header ${kind === "express" ? "traffic-section__header--express" : "traffic-section__header--line"}`;
-            h.textContent = title;
-            const ul = document.createElement("ul");
-            ul.className = "traffic-list";
-            for (const it of items) {
-              const li = document.createElement("li");
-              li.className = `traffic-item ${kind === "express" ? "traffic-item--express" : "traffic-item--line"}`;
-              if (it.url) {
-                const a = document.createElement("a");
-                a.href = it.url;
-                a.target = "_blank";
-                a.rel = "noopener noreferrer";
-                a.textContent = it.text;
-                li.appendChild(a);
-              } else {
-                li.textContent = it.text;
-              }
-              ul.appendChild(li);
-            }
-            sec.appendChild(h);
-            sec.appendChild(ul);
-            box.appendChild(sec);
-          };
-          if (lineItems.length) buildSection("\u8DEF\u7DDA\u306E\u904B\u884C\u60C5\u5831", lineItems, "line");
-          if (expressItems.length) buildSection("\u7279\u6025\u306E\u904B\u884C\u60C5\u5831", expressItems, "express");
-        } catch (err) {
-          dbg("renderTrafficInfo error", err);
-        }
-      }
-      function updateTrafficInfo(area2, line2) {
-        return __async(this, null, function* () {
-          if (!area2 || !line2) return;
-          try {
-            const data = yield fetchTrafficInfo(area2);
-            renderTrafficInfo(area2, line2, data);
-          } catch (err) {
-            dbg("traffic fetch fail", err);
-          }
-        });
-      }
-      function initTTSControls() {
-        const sel = document.getElementById("ttsVoice");
-        const btn = document.getElementById("ttsTestBtn");
-        if (!sel) return;
-        try {
-          bindAudioUnlockOnce();
-          populateTTSSelect();
-          if ("speechSynthesis" in window) {
-            window.speechSynthesis.onvoiceschanged = () => {
-              const saved2 = getSetting("tts.voice", "") || "";
-              populateTTSSelect();
-              if (saved2) {
-                const s = document.getElementById("ttsVoice");
-                if (s && Array.from(s.options).some((o) => o.value === saved2)) s.value = saved2;
-              }
-            };
-          }
-          sel.addEventListener("change", () => {
-            try {
-              setSetting("tts.voice", sel.value || "");
-            } catch (e) {
-            }
-          });
-          const saved = getSetting("tts.voice", "");
-          if (saved && Array.from(sel.options).some((o) => o.value === saved)) sel.value = saved;
-          if (btn) {
-            if (!("speechSynthesis" in window)) {
-              btn.disabled = true;
-              btn.textContent = "\u97F3\u58F0\u672A\u5BFE\u5FDC";
-            } else {
-              btn.addEventListener("click", () => __async(null, null, function* () {
-                try {
-                  bindAudioUnlockOnce();
-                  const synth = window.speechSynthesis;
-                  if (synth.speaking || synth.pending) {
-                    synth.cancel();
-                    btn.textContent = "\u30C6\u30B9\u30C8\u518D\u751F";
-                    return;
-                  }
-                  audioUnlocked = true;
-                  btn.textContent = "\u505C\u6B62";
-                  yield speakTextAsync("4049M\u3001\u7279\u6025 \u30B5\u30F3\u30C0\u30FC\u30D0\u30FC\u30C949\u53F7\u3001\u5927\u962A\u884C\u304D\u3001\u5343\u91CC\u4E18\u306B\u63A5\u8FD1");
-                  btn.textContent = "\u30C6\u30B9\u30C8\u518D\u751F";
-                } catch (e) {
-                  btn.textContent = "\u30A8\u30E9\u30FC";
-                }
-              }));
-            }
-          }
-        } catch (e) {
-        }
       }
       var BEEP_DURATION_MS = 280;
       var ALARM_SOUND_URL = "/assets/sound/alarm.mp3";
@@ -2302,20 +2656,20 @@
       function ensureAlarmAudioEl() {
         if (alarmAudioEl) return alarmAudioEl;
         try {
-          const el = document.createElement("audio");
-          el.src = ALARM_SOUND_URL;
-          el.preload = "auto";
-          el.controls = false;
-          el.loop = false;
-          el.style.display = "none";
-          el.setAttribute("aria-hidden", "true");
+          const audio = document.createElement("audio");
+          audio.src = ALARM_SOUND_URL;
+          audio.preload = "auto";
+          audio.controls = false;
+          audio.loop = false;
+          audio.style.display = "none";
+          audio.setAttribute("aria-hidden", "true");
           try {
-            el.setAttribute("playsinline", "");
-            el.setAttribute("webkit-playsinline", "");
+            audio.setAttribute("playsinline", "");
+            audio.setAttribute("webkit-playsinline", "");
           } catch (e) {
           }
-          document.body.appendChild(el);
-          alarmAudioEl = el;
+          document.body.appendChild(audio);
+          alarmAudioEl = audio;
         } catch (e) {
         }
         return alarmAudioEl;
@@ -2323,16 +2677,16 @@
       function primeAlarmAudio() {
         return __async(this, null, function* () {
           try {
-            const el = ensureAlarmAudioEl();
-            if (!el || alarmAudioPrimed === true) return true;
-            yield el.play();
+            const audio = ensureAlarmAudioEl();
+            if (!audio || alarmAudioPrimed) return true;
+            yield audio.play();
             try {
-              yield new Promise((r) => setTimeout(r, 10));
+              yield new Promise((resolve) => setTimeout(resolve, 10));
             } catch (e) {
             }
             try {
-              el.pause();
-              el.currentTime = 0;
+              audio.pause();
+              audio.currentTime = 0;
             } catch (e) {
             }
             alarmAudioPrimed = true;
@@ -2341,61 +2695,6 @@
             return false;
           }
         });
-      }
-      var delayTtsQueue = [];
-      var delayTtsKeys = /* @__PURE__ */ new Set();
-      function queueDelayTts(message, key) {
-        try {
-          const k = String(key || "");
-          if (k && delayTtsKeys.has(k)) return;
-          delayTtsQueue.push({ message, key: k });
-          if (k) delayTtsKeys.add(k);
-          if (!delayTtsPlaying) {
-            try {
-              drainDelayTts();
-            } catch (e) {
-            }
-          }
-        } catch (e) {
-        }
-      }
-      function drainDelayTts() {
-        return __async(this, null, function* () {
-          if (delayTtsPlaying) return;
-          delayTtsPlaying = true;
-          try {
-            while (delayTtsQueue.length) {
-              if ((alarmSystem == null ? void 0 : alarmSystem.isPlaying) && alarmSystem.isPlaying()) break;
-              const it = delayTtsQueue[0];
-              yield speakTextAsync(it.message);
-              delayTtsQueue.shift();
-              if (it.key) {
-                delayTtsKeys.delete(it.key);
-                try {
-                  delayAnnouncedAt.set(it.key, Date.now());
-                } catch (e) {
-                }
-              }
-            }
-          } finally {
-            delayTtsPlaying = false;
-          }
-        });
-      }
-      function preemptDelayTts() {
-        try {
-          if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-          }
-        } catch (e) {
-        }
-        try {
-          const btn = document.getElementById("ttsTestBtn");
-          if (btn) {
-            btn.textContent = "\u30C6\u30B9\u30C8\u518D\u751F";
-          }
-        } catch (e) {
-        }
       }
       function cleanupAudioUnlockListeners() {
         audioUnlockBound = false;
@@ -2407,23 +2706,13 @@
         if (audioUnlocked) return;
         try {
           audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx && audioCtx.resume) {
-            audioCtx.resume().catch(() => {
-            });
-          }
+          if (audioCtx == null ? void 0 : audioCtx.resume) audioCtx.resume().catch(() => {
+          });
         } catch (e) {
         }
         audioUnlocked = true;
-        try {
-          setSetting("ui.audioUnlocked", "1");
-          sessionStorage.setItem("tid:audio:session", "1");
-        } catch (e) {
-        }
         cleanupAudioUnlockListeners();
-        try {
-          dbg("audio unlocked", source || "");
-        } catch (e) {
-        }
+        dbg("audio unlocked", source || "");
         try {
           document.dispatchEvent(new CustomEvent("tid:audiounlocked"));
         } catch (e) {
@@ -2436,18 +2725,9 @@
           alarmSystem == null ? void 0 : alarmSystem.flushPendingAudio();
         } catch (e) {
         }
-        try {
-          refreshTrains();
-        } catch (e) {
-        }
-        try {
-          drainDelayTts();
-        } catch (e) {
-        }
       }
       function bindAudioUnlockOnce() {
-        if (audioUnlocked) return;
-        if (audioUnlockBound) return;
+        if (audioUnlocked || audioUnlockBound) return;
         audioUnlockBound = true;
         try {
           document.addEventListener("touchstart", handleAudioUnlockGesture, { once: true, passive: true });
@@ -2462,7 +2742,7 @@
       }
       function setupAudioUnlockOverlay() {
         if (!audioOverlay) return;
-        const supported = "speechSynthesis" in window || "AudioContext" in window || "webkitAudioContext" in window;
+        const supported = "AudioContext" in window || "webkitAudioContext" in window;
         if (!supported) {
           audioOverlay.classList.add("is-hidden");
           audioOverlay.setAttribute("aria-hidden", "true");
@@ -2484,64 +2764,33 @@
         };
         try {
           const isStandalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator && window.navigator.standalone === true;
-          const text = isStandalone ? "\u30A2\u30D7\u30EA\u3068\u3057\u3066\u8D77\u52D5\u4E2D\u3067\u3059\u3002\u97F3\u58F0\u3092\u6709\u52B9\u306B\u3059\u308B\u3068\u30A2\u30E9\u30FC\u30C8\u901A\u77E5\u3084\u30C6\u30B9\u30C8\u97F3\u58F0\u3092\u78BA\u8A8D\u3067\u304D\u307E\u3059\u3002" : "\u30D6\u30E9\u30A6\u30B6\u3067\u958B\u3044\u3066\u3044\u307E\u3059\u3002\u97F3\u58F0\u3092\u6709\u52B9\u306B\u3059\u308B\u3068\u30C6\u30B9\u30C8\u97F3\u58F0\u3084\u30A2\u30E9\u30FC\u30C8\u901A\u77E5\u304C\u884C\u3048\u308B\u3088\u3046\u306B\u306A\u308A\u307E\u3059\u3002";
-          if (audioOverlayHint) {
-            audioOverlayHint.textContent = text;
-          }
+          const text = isStandalone ? "\u30A2\u30D7\u30EA\u3068\u3057\u3066\u8D77\u52D5\u4E2D\u3067\u3059\u3002\u30A2\u30E9\u30FC\u30E0\u97F3\u3092\u6709\u52B9\u306B\u3059\u308B\u3068\u63A5\u8FD1\u30A2\u30E9\u30FC\u30E0\u3092\u518D\u751F\u3067\u304D\u307E\u3059\u3002" : "\u30D6\u30E9\u30A6\u30B6\u3067\u958B\u3044\u3066\u3044\u307E\u3059\u3002\u30A2\u30E9\u30FC\u30E0\u97F3\u3092\u6709\u52B9\u306B\u3059\u308B\u3068\u63A5\u8FD1\u30A2\u30E9\u30FC\u30E0\u3092\u518D\u751F\u3067\u304D\u307E\u3059\u3002";
+          if (audioOverlayHint) audioOverlayHint.textContent = text;
         } catch (e) {
         }
         show();
+        if (audioOverlayBound) return;
+        audioOverlayBound = true;
         try {
           if (audioOverlayBtn) {
             audioOverlayBtn.addEventListener("click", () => {
               try {
                 bindAudioUnlockOnce();
                 performAudioUnlock("overlay-button");
-                runAudioUnlockTestPlayback();
-              } catch (err) {
-                dbg("audio unlock button failed", err);
+              } catch (error) {
+                dbg("audio unlock button failed", error);
               }
             });
           }
           if (audioOverlayLater) {
-            audioOverlayLater.addEventListener("click", () => {
-              try {
-                audioOverlay.classList.add("is-hidden");
-                audioOverlay.setAttribute("aria-hidden", "true");
-              } catch (e) {
-              }
-            });
+            audioOverlayLater.addEventListener("click", hide);
           }
           if (audioOverlayClose) {
-            audioOverlayClose.addEventListener("click", () => {
-              try {
-                audioOverlay.classList.add("is-hidden");
-                audioOverlay.setAttribute("aria-hidden", "true");
-              } catch (e) {
-              }
-            });
+            audioOverlayClose.addEventListener("click", hide);
           }
-          document.addEventListener("tid:audiounlocked", hide, { once: true });
+          document.addEventListener("tid:audiounlocked", hide);
         } catch (e) {
         }
-      }
-      function runAudioUnlockTestPlayback() {
-        return __async(this, null, function* () {
-          try {
-            if (!audioUnlocked) return;
-            preemptDelayTts();
-            const waitMs = playBeep();
-            if (waitMs > 0) {
-              try {
-                yield new Promise((r) => setTimeout(r, waitMs));
-              } catch (e) {
-              }
-            }
-            yield speakTextAsync("\u30C6\u30B9\u30C8\u97F3\u58F0\u3067\u3059\u3002");
-          } catch (err) {
-            dbg("audio unlock test failed", err);
-          }
-        });
       }
       function playAlarmSound() {
         return __async(this, null, function* () {
@@ -2550,16 +2799,14 @@
               bindAudioUnlockOnce();
               return 0;
             }
-            const el = ensureAlarmAudioEl();
-            if (!el) {
-              return 0;
-            }
+            const audio = ensureAlarmAudioEl();
+            if (!audio) return 0;
             try {
               yield primeAlarmAudio();
             } catch (e) {
             }
-            el.currentTime = 0;
-            el.volume = 1;
+            audio.currentTime = 0;
+            audio.volume = 1;
             return yield new Promise((resolve) => {
               let settled = false;
               const done = (ms) => {
@@ -2568,42 +2815,40 @@
                   resolve(Number.isFinite(ms) ? ms : 0);
                 }
               };
+              const cleanup = () => {
+                try {
+                  audio.removeEventListener("ended", onEnded);
+                } catch (e) {
+                }
+                try {
+                  audio.removeEventListener("error", onError);
+                } catch (e) {
+                }
+              };
               const onEnded = () => {
-                const durMs = typeof el.duration === "number" && isFinite(el.duration) ? Math.round(el.duration * 1e3) : 0;
+                const duration = typeof audio.duration === "number" && isFinite(audio.duration) ? Math.round(audio.duration * 1e3) : 0;
                 cleanup();
-                done(durMs);
+                done(duration);
               };
               const onError = () => {
                 cleanup();
                 done(0);
               };
-              const cleanup = () => {
-                try {
-                  el.removeEventListener("ended", onEnded);
-                } catch (e) {
-                }
-                try {
-                  el.removeEventListener("error", onError);
-                } catch (e) {
-                }
-              };
               try {
-                el.addEventListener("ended", onEnded, { once: true });
-                el.addEventListener("error", onError, { once: true });
+                audio.addEventListener("ended", onEnded, { once: true });
+                audio.addEventListener("error", onError, { once: true });
                 try {
-                  if (!el.paused) {
-                    el.pause();
-                    el.currentTime = 0;
+                  if (!audio.paused) {
+                    audio.pause();
+                    audio.currentTime = 0;
                   }
                 } catch (e) {
                 }
-                const p = el.play();
-                if (p && typeof p.then === "function") {
-                  p.catch(() => {
+                const playResult = audio.play();
+                if (playResult && typeof playResult.then === "function") {
+                  playResult.catch(() => {
                     try {
                       audioUnlocked = false;
-                      sessionStorage.removeItem("tid:audio:session");
-                      setSetting("ui.audioUnlocked", "0");
                       bindAudioUnlockOnce();
                       setupAudioUnlockOverlay();
                     } catch (e) {
@@ -2621,8 +2866,8 @@
                 done(0);
               }, 6e3);
             });
-          } catch (e) {
-            dbg("alarm audio failed", e);
+          } catch (error) {
+            dbg("alarm audio failed", error);
             return 0;
           }
         });
@@ -2636,374 +2881,93 @@
           audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
           if (audioCtx.state === "suspended" && audioCtx.resume) audioCtx.resume().catch(() => {
           });
-          const o = audioCtx.createOscillator();
-          const g = audioCtx.createGain();
-          o.type = "sine";
-          o.frequency.value = 880;
-          g.gain.setValueAtTime(1e-4, audioCtx.currentTime);
-          g.gain.exponentialRampToValueAtTime(0.22, audioCtx.currentTime + 0.02);
-          g.gain.exponentialRampToValueAtTime(1e-4, audioCtx.currentTime + BEEP_DURATION_MS / 1e3 - 0.02);
-          o.connect(g).connect(audioCtx.destination);
-          o.start();
-          o.stop(audioCtx.currentTime + BEEP_DURATION_MS / 1e3);
-        } catch (err) {
-          dbg("beep failed", err);
+          const oscillator = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.value = 880;
+          gain.gain.setValueAtTime(1e-4, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.22, audioCtx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(1e-4, audioCtx.currentTime + BEEP_DURATION_MS / 1e3 - 0.02);
+          oscillator.connect(gain).connect(audioCtx.destination);
+          oscillator.start();
+          oscillator.stop(audioCtx.currentTime + BEEP_DURATION_MS / 1e3);
+        } catch (error) {
+          dbg("beep failed", error);
         }
         return BEEP_DURATION_MS;
       }
-      function speakTextAsync(text) {
+      function getIndexesForCurrentLine() {
         return __async(this, null, function* () {
+          let indexes = buildIndexesFromCache(area, line, { dbg });
+          if (indexes) return indexes;
+          const stations = yield fetchStations(line);
+          return buildStationIndexes(stations);
+        });
+      }
+      function bindFilterControls() {
+        if (filterControlsBound) return;
+        filterControlsBound = true;
+        stationFilterEl == null ? void 0 : stationFilterEl.addEventListener("change", () => {
           try {
-            if (!audioUnlocked) return;
-            if (!("speechSynthesis" in window)) return;
-            const synth = window.speechSynthesis;
-            const voice = getSelectedVoice();
-            return yield new Promise((resolve) => {
-              try {
-                try {
-                  synth.cancel();
-                } catch (e) {
-                }
-                try {
-                  if (synth.paused && synth.resume) synth.resume();
-                } catch (e) {
-                }
-                const startSpeak = () => {
-                  try {
-                    const u = new SpeechSynthesisUtterance(fixTtsText(text));
-                    if (voice) {
-                      u.voice = voice;
-                      u.lang = voice.lang || "ja-JP";
-                    } else {
-                      u.lang = "ja-JP";
-                    }
-                    u.rate = 1;
-                    u.pitch = 1;
-                    u.volume = 1;
-                    u.onend = () => resolve();
-                    u.onerror = () => resolve();
-                    synth.speak(u);
-                  } catch (e) {
-                    resolve();
-                  }
-                };
-                setTimeout(startSpeak, 30);
-              } catch (e) {
-                resolve();
-              }
-            });
+            setSetting(`lines.${line}.station`, stationFilterEl.value || "");
           } catch (e) {
           }
-        });
-      }
-      var globalStationsByCode = /* @__PURE__ */ new Map();
-      var AREA_LIST = ["kinki", "hokuriku", "okayama", "hiroshima", "sanin"];
-      var CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
-      function areaCacheKey(a) {
-        return `tid:areaStations:${a}`;
-      }
-      function areaCrossKey(a) {
-        return `tid:cross:${a}`;
-      }
-      function loadAreaStationsCache(a) {
-        try {
-          const raw = localStorage.getItem(areaCacheKey(a));
-          if (!raw) return null;
-          const obj = JSON.parse(raw);
-          if (!obj || !obj.updatedAt || !obj.stations) return null;
-          const age = Date.now() - Number(obj.updatedAt);
-          if (age > CACHE_TTL_MS) return null;
-          return obj;
-        } catch (e) {
-          return null;
-        }
-      }
-      function saveAreaStationsCache(a, data) {
-        try {
-          const payload = {
-            updatedAt: Date.now(),
-            stations: data.stations || {},
-            lines: data.lines || {},
-            lineStations: data.lineStations || {}
-          };
-          localStorage.setItem(areaCacheKey(a), JSON.stringify(payload));
-        } catch (e) {
-        }
-      }
-      function loadAreaCrossCache(a) {
-        try {
-          const raw = localStorage.getItem(areaCrossKey(a));
-          if (!raw) return null;
-          const obj = JSON.parse(raw);
-          if (!obj || !obj.updatedAt || !obj.lines) return null;
-          const age = Date.now() - Number(obj.updatedAt);
-          if (age > CACHE_TTL_MS) return null;
-          return obj;
-        } catch (e) {
-          return null;
-        }
-      }
-      function saveAreaCrossCache(a, data) {
-        try {
-          const payload = { updatedAt: Date.now(), lines: data.lines || {} };
-          localStorage.setItem(areaCrossKey(a), JSON.stringify(payload));
-        } catch (e) {
-        }
-      }
-      function pairKey(a, b) {
-        const x = String(a), y = String(b);
-        return x < y ? `${x}_${y}` : `${y}_${x}`;
-      }
-      function getCrossPreferredLine(a, userLine, codeA, codeB) {
-        const obj = loadAreaCrossCache(a);
-        if (!obj || !obj.lines) return null;
-        const table = obj.lines[userLine];
-        if (!table) return null;
-        return table[pairKey(codeA, codeB)] || null;
-      }
-      function setCrossPreferredLine(a, userLine, codeA, codeB, chosenLine) {
-        try {
-          const obj = loadAreaCrossCache(a) || { updatedAt: Date.now(), lines: {} };
-          if (!obj.lines[userLine]) obj.lines[userLine] = {};
-          obj.lines[userLine][pairKey(codeA, codeB)] = String(chosenLine);
-          saveAreaCrossCache(a, obj);
-          dbg("cross pair cached", { area: a, userLine, pair: pairKey(codeA, codeB), chosenLine });
-        } catch (e) {
-        }
-      }
-      var globalLineOrders = /* @__PURE__ */ new Map();
-      function buildGlobalStationsForArea(_0) {
-        return __async(this, arguments, function* (a, { force = false } = {}) {
-          if (!a) return;
-          if (!force) {
-            const cached = loadAreaStationsCache(a);
-            if (cached) {
-              const stations = cached.stations || {};
-              for (const [code, v] of Object.entries(stations)) {
-                const name = typeof v === "string" ? v : v == null ? void 0 : v.name;
-                if (name) {
-                  globalStationsByCode.set(String(code), String(name));
-                }
-              }
-              const lines = cached.lines || {};
-              for (const [lid, arr] of Object.entries(lines)) {
-                if (Array.isArray(arr)) globalLineOrders.set(lid, arr.map(String));
-              }
-              return;
-            }
-          }
-          try {
-            const master = yield fetchAreaMaster(a);
-            const lineIds = Object.keys((master == null ? void 0 : master.lines) || {});
-            if (!lineIds.length) return;
-            const results = yield Promise.allSettled(
-              lineIds.map((l) => fetchStations(l).then((data) => ({ lineId: l, data })))
-            );
-            const toCacheStations = {};
-            const toCacheLines = {};
-            const toCacheLineStations = {};
-            for (const r of results) {
-              if (r.status !== "fulfilled") continue;
-              const { lineId, data } = r.value;
-              const list = Array.isArray(data == null ? void 0 : data.stations) ? data.stations : [];
-              const orderCodes = [];
-              const perLine = {};
-              for (const s of list) {
-                const info = (s == null ? void 0 : s.info) || {};
-                const code = info == null ? void 0 : info.code;
-                const name = info == null ? void 0 : info.name;
-                if (code) {
-                  const c = String(code);
-                  if (name) {
-                    const n = String(name);
-                    globalStationsByCode.set(c, n);
-                    const stopTrains = Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : void 0;
-                    const transferLines = extractTransferLinesFromInfo(info);
-                    toCacheStations[c] = { name: n, stopTrains };
-                    perLine[c] = { name: n, stopTrains, transferLines };
-                  }
-                  orderCodes.push(c);
-                }
-              }
-              if (lineId && orderCodes.length) {
-                globalLineOrders.set(lineId, orderCodes);
-                toCacheLines[lineId] = orderCodes;
-                toCacheLineStations[lineId] = perLine;
-              }
-            }
-            saveAreaStationsCache(a, { stations: toCacheStations, lines: toCacheLines, lineStations: toCacheLineStations });
-          } catch (err) {
-            console.warn("\u30A8\u30EA\u30A2\u99C5\u540D\u306E\u69CB\u7BC9\u306B\u5931\u6557", err);
-          }
-        });
-      }
-      function warmAreaFromCache(a) {
-        const cached = loadAreaStationsCache(a);
-        if (!cached) return;
-        for (const [code, v] of Object.entries(cached.stations || {})) {
-          const name = typeof v === "string" ? v : v == null ? void 0 : v.name;
-          if (name) globalStationsByCode.set(String(code), String(name));
-        }
-        for (const [lid, arr] of Object.entries(cached.lines || {})) {
-          if (Array.isArray(arr)) globalLineOrders.set(lid, arr.map(String));
-        }
-      }
-      (function warmAllAreasFromCache() {
-        try {
-          AREA_LIST.forEach((a) => warmAreaFromCache(a));
-        } catch (e) {
-        }
-      })();
-      function fetchAreaMaster(area2) {
-        return __async(this, null, function* () {
-          const url = `${apiBase()}area_${area2}_master.json`;
-          try {
-            const res = yield fetch(url, { cache: "no-store" });
-            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-            return yield res.json();
-          } catch (err) {
-            const fallbacks = [
-              `/assets/data/area_${area2}_master.json`,
-              `/area_${area2}_master.json`
-            ];
-            for (const f of fallbacks) {
-              try {
-                const r = yield fetch(f, { cache: "no-store" });
-                if (r.ok) return yield r.json();
-              } catch (e) {
-              }
-            }
-            throw err;
-          }
-        });
-      }
-      function fetchStations(line2) {
-        return __async(this, null, function* () {
-          const url = `${apiBase()}${line2}_st.json`;
-          try {
-            const res = yield fetch(url, { cache: "no-store" });
-            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-            return yield res.json();
-          } catch (err) {
-            const fallbacks = [
-              `/assets/data/${line2}_st.json`,
-              `/${line2}_st.json`
-            ];
-            for (const f of fallbacks) {
-              try {
-                const r = yield fetch(f, { cache: "no-store" });
-                if (r.ok) return yield r.json();
-              } catch (e) {
-              }
-            }
-            throw err;
-          }
-        });
-      }
-      function buildStationIndexes(data) {
-        const byCode = /* @__PURE__ */ new Map();
-        const list = Array.isArray(data == null ? void 0 : data.stations) ? data.stations : [];
-        list.forEach((s, idx) => {
-          const info = (s == null ? void 0 : s.info) || {};
-          const code = info == null ? void 0 : info.code;
-          if (code) {
-            byCode.set(String(code), {
-              index: idx,
-              name: String((info == null ? void 0 : info.name) || ""),
-              code: String(code),
-              stopTrains: Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : null,
-              transferLines: extractTransferLinesFromInfo(info)
-            });
-          }
-        });
-        const order = list.map((s) => {
-          var _a;
-          return String(((_a = s == null ? void 0 : s.info) == null ? void 0 : _a.code) || "");
-        });
-        return { byCode, order };
-      }
-      function extractTransferLinesFromInfo(info) {
-        const out = /* @__PURE__ */ new Set();
-        const arr = Array.isArray(info == null ? void 0 : info.transfer) ? info.transfer : [];
-        for (const t of arr) {
-          const link = t && t.link;
-          const code = t && t.code;
-          if (typeof link === "string" && link) out.add(link);
-          else if (typeof code === "string" && code) out.add(code);
-        }
-        return Array.from(out);
-      }
-      function buildIndexesFromCache(area2, line2) {
-        const cached = loadAreaStationsCache(area2);
-        if (!cached || !cached.stations) return null;
-        let order = cached.lines && cached.lines[line2] || globalLineOrders.get(line2) || null;
-        if (!Array.isArray(order) || !order.length) {
-          const codes = Object.keys(cached.stations || {});
-          if (!codes.length) return null;
-          order = codes.sort();
-          dbg("cache order fallback", { area: area2, line: line2, count: order.length });
-        }
-        const byCode = /* @__PURE__ */ new Map();
-        order.forEach((code, idx) => {
-          const rec = cached.lineStations && cached.lineStations[line2] && cached.lineStations[line2][code] || cached.stations[code] || {};
-          const name = (rec == null ? void 0 : rec.name) || globalStationsByCode.get(code) || code;
-          const stopTrains = Array.isArray(rec == null ? void 0 : rec.stopTrains) ? rec.stopTrains : [];
-          byCode.set(String(code), { index: idx, name: String(name), code: String(code), stopTrains });
-        });
-        dbg("buildIndexesFromCache OK", { area: area2, line: line2, size: byCode.size });
-        return { byCode, order: order.map(String) };
-      }
-      function populateStationFilter(indexes) {
-        const sel = document.getElementById("stationFilter");
-        if (!sel) return;
-        sel.length = 1;
-        for (const code of indexes.order) {
-          const st = indexes.byCode.get(code);
-          if (!st) continue;
-          const opt = document.createElement("option");
-          opt.value = st.code;
-          opt.textContent = st.name || st.code;
-          sel.appendChild(opt);
-        }
-        const savedStation = getSetting(`lines.${line}.station`, "");
-        if (savedStation && Array.from(sel.options).some((o) => o.value === savedStation)) {
-          sel.value = savedStation;
-        }
-        sel.addEventListener("change", () => {
-          setSetting(`lines.${line}.station`, sel.value || "");
           try {
             alarmSystem == null ? void 0 : alarmSystem.clearNotified();
           } catch (e) {
           }
           refreshTrains();
         });
-        const passSel = document.getElementById("passFilter");
-        if (passSel) {
-          const savedPass = getSetting(`lines.${line}.pass`, null);
-          if (savedPass === "show" || savedPass === "hide") {
-            passSel.value = savedPass;
+        passFilterEl == null ? void 0 : passFilterEl.addEventListener("change", () => {
+          try {
+            setSetting(`lines.${line}.pass`, passFilterEl.value);
+          } catch (e) {
           }
-          passSel.addEventListener("change", () => {
-            setSetting(`lines.${line}.pass`, passSel.value);
-            refreshTrains();
-          });
+          try {
+            alarmSystem == null ? void 0 : alarmSystem.clearNotified();
+          } catch (e) {
+          }
+          refreshTrains();
+        });
+        refreshStationsBtn == null ? void 0 : refreshStationsBtn.addEventListener("click", () => __async(null, null, function* () {
+          const originalText = refreshStationsBtn.textContent;
+          try {
+            refreshStationsBtn.disabled = true;
+            refreshStationsBtn.textContent = "\u66F4\u65B0\u4E2D\u2026";
+            clearAreaStationsCache(area);
+            clearAreaCrossCache(area);
+            yield buildGlobalStationsForArea(area, { force: true, dbg });
+            yield refreshTrains();
+          } finally {
+            refreshStationsBtn.disabled = false;
+            refreshStationsBtn.textContent = originalText;
+          }
+        }));
+      }
+      function renderStationFilter(indexes) {
+        if (!stationFilterEl) return;
+        const savedStation = getSetting(`lines.${line}.station`, "");
+        const savedPass = getSetting(`lines.${line}.pass`, null);
+        stationFilterEl.length = 1;
+        for (const code of indexes.order) {
+          const station = indexes.byCode.get(code);
+          if (!station) continue;
+          const option = document.createElement("option");
+          option.value = station.code;
+          option.textContent = station.name || station.code;
+          stationFilterEl.appendChild(option);
         }
-        const refreshBtn = document.getElementById("refreshStationsBtn");
-        if (refreshBtn) {
-          refreshBtn.addEventListener("click", () => __async(null, null, function* () {
-            try {
-              refreshBtn.disabled = true;
-              const oldText = refreshBtn.textContent;
-              refreshBtn.textContent = "\u66F4\u65B0\u4E2D\u2026";
-              clearAreaStationsCache(area);
-              clearAreaCrossCache(area);
-              yield buildGlobalStationsForArea(area, { force: true });
-              yield refreshTrains();
-              refreshBtn.textContent = oldText;
-            } finally {
-              refreshBtn.disabled = false;
-            }
-          }));
+        if (savedStation && Array.from(stationFilterEl.options).some((option) => option.value === savedStation)) {
+          stationFilterEl.value = savedStation;
+        } else {
+          stationFilterEl.value = "";
+        }
+        if (passFilterEl) {
+          if (savedPass === "show" || savedPass === "hide") {
+            passFilterEl.value = savedPass;
+          } else {
+            passFilterEl.value = "hide";
+          }
         }
       }
       function refreshTrains() {
@@ -3011,28 +2975,19 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            let indexes = buildIndexesFromCache(area, line);
-            if (!indexes) {
-              const stations = yield fetchStations(line);
-              indexes = buildStationIndexes(stations);
-            }
+            const indexes = yield getIndexesForCurrentLine();
             const trains = yield fetchTrains(line);
             setUpdatedAt(trains == null ? void 0 : trains.update);
-            populateStationFilter(indexes);
+            renderStationFilter(indexes);
             renderTrains(indexes, trains, dir);
-            try {
-              yield updateTrafficInfo(area, line);
-            } catch (e) {
-            }
-          } catch (err) {
-            console.error("\u518D\u53D6\u5F97\u306B\u5931\u6557", err);
+            yield updateTrafficInfo(area, line);
+          } catch (error) {
+            console.error("\u518D\u53D6\u5F97\u306B\u5931\u6557", error);
           } finally {
             refreshing = false;
           }
         });
       }
-      var refreshTimer = null;
-      var visBound = false;
       function startAutoRefresh() {
         stopAutoRefresh();
         refreshTimer = setInterval(() => {
@@ -3054,16 +3009,12 @@
       }
       function setUpdatedAt(iso) {
         if (!updatedAtEl) return;
-        if (!iso) {
-          updatedAtEl.textContent = "";
-          return;
-        }
-        updatedAtEl.textContent = formatJST(iso);
+        updatedAtEl.textContent = iso ? formatJST(iso) : "";
       }
       function formatJST(iso) {
         try {
-          const dt = new Date(iso);
-          if (isNaN(dt.getTime())) return "";
+          const date = new Date(iso);
+          if (isNaN(date.getTime())) return "";
           const parts = new Intl.DateTimeFormat("ja-JP", {
             timeZone: "Asia/Tokyo",
             year: "numeric",
@@ -3073,119 +3024,87 @@
             minute: "2-digit",
             second: "2-digit",
             hour12: false
-          }).formatToParts(dt);
-          const get = (t) => {
+          }).formatToParts(date);
+          const get = (type) => {
             var _a;
-            return ((_a = parts.find((p) => p.type === t)) == null ? void 0 : _a.value) || "";
+            return ((_a = parts.find((part) => part.type === type)) == null ? void 0 : _a.value) || "";
           };
           return `${get("year")}\u5E74${get("month")}\u6708${get("day")}\u65E5 ${get("hour")}\u6642${get("minute")}\u5206${get("second")}\u79D2\u66F4\u65B0`;
         } catch (e) {
           return "";
         }
       }
-      function fetchTrains(line2) {
-        return __async(this, null, function* () {
-          const url = `${apiBase()}${line2}.json`;
-          try {
-            const res = yield fetch(url, { cache: "no-store" });
-            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-            return yield res.json();
-          } catch (err) {
-            const fallbacks = [
-              `/assets/data/${line2}.json`,
-              `/${line2}.json`
-            ];
-            for (const f of fallbacks) {
-              try {
-                const r = yield fetch(f, { cache: "no-store" });
-                if (r.ok) return yield r.json();
-              } catch (e) {
-              }
-            }
-            throw err;
-          }
-        });
-      }
       function renderTrains(indexes, trainsData, dirParam) {
-        var _a, _b, _c, _d;
+        var _a;
         const items = Array.isArray(trainsData == null ? void 0 : trainsData.trains) ? trainsData.trains : [];
-        const selectedCode = (((_a = document.getElementById("stationFilter")) == null ? void 0 : _a.value) || "").trim();
+        const selectedCode = ((stationFilterEl == null ? void 0 : stationFilterEl.value) || "").trim();
         const allowedCats = stationAllowedCategories(indexes.byCode.get(selectedCode));
-        const passSetting = ((_b = document.getElementById("passFilter")) == null ? void 0 : _b.value) || "hide";
-        const enhanced = items.map((t) => normalizeTrain(t)).map((t) => enhanceTrain(t, indexes.byCode));
-        const parsed = enhanced.filter((t) => filterByStationSetting(t, allowedCats, passSetting));
-        const stationIdx = selectedCode ? (_c = indexes.byCode.get(selectedCode)) == null ? void 0 : _c.index : null;
-        const hidePassed = (arr, dir2) => {
-          if (stationIdx == null) return arr;
-          return arr.filter((t) => {
-            if (typeof t.posIndex !== "number") return true;
-            if (dir2 === 0) {
-              return t.posIndex >= stationIdx;
-            } else {
-              return t.posIndex <= stationIdx;
-            }
-          });
-        };
+        const passSetting = (passFilterEl == null ? void 0 : passFilterEl.value) || "hide";
+        const enhanced = items.map((train) => normalizeTrain(train)).map((train) => enhanceTrain(train, indexes.byCode));
+        const parsed = enhanced.filter((train) => filterByStationSetting(train, allowedCats, passSetting));
+        const stationIdx = selectedCode ? (_a = indexes.byCode.get(selectedCode)) == null ? void 0 : _a.index : null;
         const heading = document.getElementById("trainsHeading");
         if (heading) {
           if (selectedCode) {
-            const st = indexes.byCode.get(selectedCode);
-            const name = (st == null ? void 0 : st.name) || selectedCode;
-            heading.textContent = `\u5217\u8ECA\u4E00\u89A7\uFF08\u99C5\u3067\u7D5E\u308A\u8FBC\u307F: ${name}\uFF09`;
+            const station = indexes.byCode.get(selectedCode);
+            heading.textContent = `\u5217\u8ECA\u4E00\u89A7\uFF08\u99C5\u3067\u7D5E\u308A\u8FBC\u307F: ${(station == null ? void 0 : station.name) || selectedCode}\uFF09`;
           } else {
             heading.textContent = "\u5217\u8ECA\u4E00\u89A7\uFF08\u7D5E\u308A\u8FBC\u307F\u7121\u3057\uFF09";
           }
         }
-        let up = hidePassed(parsed.filter((t) => t.direction === 0).sort((a, b) => a.posIndex - b.posIndex), 0);
-        let down = hidePassed(parsed.filter((t) => t.direction === 1).sort((a, b) => b.posIndex - a.posIndex), 1);
-        function destIndexForTrain(t) {
+        const hidePassed = (list, direction) => {
+          if (stationIdx == null) return list;
+          return list.filter((train) => {
+            if (typeof train.posIndex !== "number") return true;
+            return direction === 0 ? train.posIndex >= stationIdx : train.posIndex <= stationIdx;
+          });
+        };
+        const destIndexForTrain = (train) => {
           try {
-            const d = t && t.dest;
-            if (!d) return null;
+            const dest = train == null ? void 0 : train.dest;
+            if (!dest) return null;
             let code = null;
-            if (typeof d === "object") {
-              if (d.code != null) {
-                code = String(d.code);
+            if (typeof dest === "object") {
+              if (dest.code != null) {
+                code = String(dest.code);
               } else {
-                const name = String(d.text || d.name || "").trim();
+                const name = String(dest.text || dest.name || "").trim();
                 if (name) {
-                  for (const [c, rec] of indexes.byCode.entries()) {
-                    if (String((rec == null ? void 0 : rec.name) || "").trim() === name) {
-                      return typeof rec.index === "number" ? rec.index : null;
+                  for (const [, record] of indexes.byCode.entries()) {
+                    if (String((record == null ? void 0 : record.name) || "").trim() === name) {
+                      return typeof record.index === "number" ? record.index : null;
                     }
                   }
                 }
               }
-            } else if (typeof d === "string") {
-              const name = String(d).trim();
+            } else if (typeof dest === "string") {
+              const name = String(dest).trim();
               if (name) {
-                for (const [c, rec] of indexes.byCode.entries()) {
-                  if (String((rec == null ? void 0 : rec.name) || "").trim() === name) {
-                    return typeof rec.index === "number" ? rec.index : null;
+                for (const [, record] of indexes.byCode.entries()) {
+                  if (String((record == null ? void 0 : record.name) || "").trim() === name) {
+                    return typeof record.index === "number" ? record.index : null;
                   }
                 }
               }
             }
             if (code) {
-              const rec = indexes.byCode.get(code);
-              return rec && typeof rec.index === "number" ? rec.index : null;
+              const record = indexes.byCode.get(code);
+              return record && typeof record.index === "number" ? record.index : null;
             }
           } catch (e) {
           }
           return null;
-        }
-        function hideTerminatesBeforeSelected(arr, dir2) {
-          if (stationIdx == null) return arr;
-          return arr.filter((t) => {
-            const di = destIndexForTrain(t);
-            if (typeof di !== "number") return true;
-            if (dir2 === 0) {
-              return di <= stationIdx;
-            } else {
-              return di >= stationIdx;
-            }
+        };
+        const hideTerminatesBeforeSelected = (list, direction) => {
+          if (stationIdx == null) return list;
+          return list.filter((train) => {
+            const destIndex = destIndexForTrain(train);
+            if (typeof destIndex !== "number") return true;
+            return direction === 0 ? destIndex <= stationIdx : destIndex >= stationIdx;
           });
-        }
+        };
+        let up = hidePassed(parsed.filter((train) => train.direction === 0).sort((a, b) => a.posIndex - b.posIndex), 0);
+        let down = hidePassed(parsed.filter((train) => train.direction === 1).sort((a, b) => b.posIndex - a.posIndex), 1);
         up = hideTerminatesBeforeSelected(up, 0);
         down = hideTerminatesBeforeSelected(down, 1);
         try {
@@ -3193,23 +3112,22 @@
         } catch (e) {
         }
         try {
-          const passSettingNow = ((_d = document.getElementById("passFilter")) == null ? void 0 : _d.value) || "hide";
-          if (passSettingNow === "show" && selectedCode) {
-            const addExtrasForPass = (list, dir2) => {
+          if (passSetting === "show" && selectedCode) {
+            const addExtrasForPass = (list, direction) => {
+              var _a2;
               try {
-                const prefs = getPrefsForDir(dir2);
-                if (!prefs || !prefs.has("pass")) return list;
+                if (!((_a2 = alarmSystem == null ? void 0 : alarmSystem.hasPassAlarmForDirection) == null ? void 0 : _a2.call(alarmSystem, direction))) return list;
                 const selected = String(selectedCode);
-                const base = parsed.filter((t) => t.direction === dir2);
-                const extras = base.filter((t) => !t.stopped && (dir2 === 0 ? String(t.nextCode || "") === selected : String(t.atCode || "") === selected));
+                const base = parsed.filter((train) => train.direction === direction);
+                const extras = base.filter((train) => !train.stopped && (direction === 0 ? String(train.nextCode || "") === selected : String(train.atCode || "") === selected));
                 if (!extras.length) return list;
-                const keyOf = (t) => `${t.no || "?"}:${t.pos || ""}`;
+                const keyOf = (train) => `${train.no || "?"}:${train.pos || ""}`;
                 const seen = new Set(list.map(keyOf));
-                for (const t of extras) {
-                  const k = keyOf(t);
-                  if (!seen.has(k)) {
-                    list.push(t);
-                    seen.add(k);
+                for (const train of extras) {
+                  const key = keyOf(train);
+                  if (!seen.has(key)) {
+                    list.push(train);
+                    seen.add(key);
                   }
                 }
                 return list;
@@ -3224,111 +3142,59 @@
         }
         try {
           alarmSystem == null ? void 0 : alarmSystem.renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam);
-        } catch (e) {
-          dbg("alarm render failed", e);
+        } catch (error) {
+          dbg("alarm render failed", error);
         }
         try {
           const shown = dirParam === "up" ? up : dirParam === "down" ? down : up.concat(down);
           alarmSystem == null ? void 0 : alarmSystem.handleApproachAlarms(indexes, shown, selectedCode, stationIdx, allowedCats, dirParam);
-        } catch (e) {
-          dbg("alarm check failed", e);
-        }
-        try {
-          const shown = dirParam === "up" ? up : dirParam === "down" ? down : up.concat(down);
-          handleDelayAnnouncements(shown, indexes);
-        } catch (e) {
-          dbg("delay tts failed", e);
+        } catch (error) {
+          dbg("alarm check failed", error);
         }
         upContainer.parentElement.style.display = "";
         downContainer.parentElement.style.display = "";
+        const renderOptions = {
+          getDelayThreshold,
+          getCarsThreshold,
+          getDestText,
+          getNickname,
+          configuredTypeTextClass,
+          trainCategoryFromDisplayType,
+          typeTextClass
+        };
         if (dirParam === "up") {
-          renderTrainListJP(upContainer, up, indexes);
+          renderTrainList(upContainer, up, indexes, renderOptions);
           downContainer.parentElement.style.display = "none";
           trainsContainer == null ? void 0 : trainsContainer.classList.add("single");
         } else if (dirParam === "down") {
-          renderTrainListJP(downContainer, down, indexes);
+          renderTrainList(downContainer, down, indexes, renderOptions);
           upContainer.parentElement.style.display = "none";
           trainsContainer == null ? void 0 : trainsContainer.classList.add("single");
         } else {
-          renderTrainListJP(upContainer, up, indexes);
-          renderTrainListJP(downContainer, down, indexes);
+          renderTrainList(upContainer, up, indexes, renderOptions);
+          renderTrainList(downContainer, down, indexes, renderOptions);
           trainsContainer == null ? void 0 : trainsContainer.classList.remove("single");
         }
       }
-      function renderTrainListJP(container, list, indexes) {
-        if (!container) return;
-        container.innerHTML = "";
-        if (!list.length) {
-          container.textContent = "\u8A72\u5F53\u306A\u3057";
-          return;
-        }
-        const table = document.createElement("table");
-        table.className = "train-table";
-        const colgroup = document.createElement("colgroup");
-        for (let i = 0; i < 7; i++) {
-          colgroup.appendChild(document.createElement("col"));
-        }
-        table.appendChild(colgroup);
-        const thead = document.createElement("thead");
-        thead.innerHTML = "<tr><th>\u5217\u756A</th><th>\u7A2E\u5225</th><th>\u611B\u79F0</th><th>\u4E21\u6570</th><th>\u884C\u5148</th><th>\u4F4D\u7F6E</th><th>\u9045\u5EF6</th></tr>";
-        table.appendChild(thead);
-        const tbody = document.createElement("tbody");
-        for (const t of list) {
-          const tr = document.createElement("tr");
-          const threshold = getDelayThreshold();
-          const delayText = typeof t.delayMinutes === "number" && t.delayMinutes > 0 ? t.delayMinutes >= threshold ? `<span class="delay-bad" style="color:var(--color-danger,#c00);font-weight:700;">${t.delayMinutes}\u5206</span>` : `${t.delayMinutes}\u5206` : "";
-          const typeLabel = (t.displayType || "").trim();
-          const __mapCls = configuredTypeTextClass(typeLabel);
-          const __cat = trainCategoryFromDisplayType(t.displayType);
-          const __cls = __mapCls || typeTextClass(__cat);
-          const TYPE_HTML = __cls ? `<span class="${__cls}">${escapeHtml(typeLabel)}</span>` : `${escapeHtml(typeLabel)}`;
-          const posPart = t.stopped ? `${escapeHtml(t.atName || "")}` : (() => {
-            const from = t.direction === 0 ? t.nextName : t.atName;
-            const to = t.direction === 0 ? t.atName : t.nextName;
-            return `${escapeHtml(from || "")} \u2192 ${escapeHtml(to || "")}`;
-          })();
-          const destText = escapeHtml(getDestText(t, indexes, "dest"));
-          let carsText = t.numberOfCars != null ? escapeHtml(String(t.numberOfCars)) : "";
-          try {
-            const th = getCarsThreshold();
-            const n = Number(t.numberOfCars);
-            if (Number.isFinite(n) && n >= th) {
-              carsText = `<span class="cars-emph">${carsText}</span>`;
-            }
-          } catch (e) {
-          }
-          tr.innerHTML = `
-      <td>${escapeHtml(t.no || "")}</td>
-      <td>${TYPE_HTML}</td>
-      <td>${escapeHtml(getNickname(t))}</td>
-      <td>${carsText}</td>
-      <td>${destText}</td>
-      <td>${posPart}</td>
-      <td>${delayText}</td>
-    `;
-          tbody.appendChild(tr);
-        }
-        table.appendChild(tbody);
-        container.appendChild(table);
-      }
       function filterByStationSetting(train, allowed, passSetting) {
         if (!allowed) return true;
-        const cat = trainCategoryFromDisplayType(train.displayType);
-        const stopsHere = cat !== -1 && allowed.has(cat) || cat === -1;
+        const category = trainCategoryFromDisplayType(train.displayType);
+        const stopsHere = category !== -1 && allowed.has(category) || category === -1;
         if (passSetting === "show") return true;
         return stopsHere;
       }
-      function enhanceTrain(t, byCode) {
-        const { atCode, nextCode, stopped } = parsePos(t.pos);
-        const a = byCode.get(atCode);
-        const b = nextCode ? byCode.get(nextCode) : null;
-        let posIndex = a ? a.index : 0;
-        if (!stopped && a && b) {
-          posIndex = (a.index + b.index) / 2;
+      function enhanceTrain(train, byCode) {
+        const { atCode, nextCode, stopped } = parsePos(train.pos);
+        const at = byCode.get(atCode);
+        const next = nextCode ? byCode.get(nextCode) : null;
+        let posIndex = at ? at.index : 0;
+        if (!stopped && at && next) {
+          posIndex = (at.index + next.index) / 2;
         }
-        const atName = (a == null ? void 0 : a.name) || getStationNameByPriority(atCode, { byCode }, "pos.at", nextCode) || atCode || "";
-        const nextName = (b == null ? void 0 : b.name) || (nextCode ? getStationNameByPriority(nextCode, { byCode }, "pos.next", atCode) || nextCode : "") || "";
-        return __spreadProps(__spreadValues({}, t), {
+        const stationLookup = { area, line, dbg, warn };
+        const atName = (at == null ? void 0 : at.name) || getStationNameByPriority(atCode, { byCode }, __spreadProps(__spreadValues({}, stationLookup), { neighborCode: nextCode })) || atCode || "";
+        const nextName = (next == null ? void 0 : next.name) || (nextCode ? getStationNameByPriority(nextCode, { byCode }, __spreadProps(__spreadValues({}, stationLookup), { neighborCode: atCode })) || nextCode : "") || "";
+        return __spreadProps(__spreadValues({}, train), {
           atCode,
           nextCode,
           stopped,
@@ -3344,323 +3210,20 @@
         }
         return { atCode: left, nextCode: right, stopped: false };
       }
-      function escapeHtml(str) {
-        return String(str || "").replace(/[&<>\"]/g, (s) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[s]);
-      }
-      function getDestText(t, indexes, tag) {
-        const d = t && t.dest;
-        if (d == null) return "";
-        if (typeof d === "string") return d;
-        if (typeof d === "object") {
-          const code = d.code != null ? String(d.code) : "";
-          const text = d.text || d.name || "";
+      function getDestText(train, indexes, tag) {
+        const dest = train && train.dest;
+        if (dest == null) return "";
+        if (typeof dest === "string") return dest;
+        if (typeof dest === "object") {
+          const code = dest.code != null ? String(dest.code) : "";
+          const text = dest.text || dest.name || "";
           if (text && String(text).trim()) return String(text);
           if (code) {
-            const name = getStationNameByPriority(code, indexes, tag || "dest");
-            if (name) return name;
-            return code;
+            return getStationNameByPriority(code, indexes, { area, line, dbg, warn, tag }) || code;
           }
           return "";
         }
-        return String(d);
-      }
-      function getStationNameByPriority(code, indexes, tag, neighborCode) {
-        var _a;
-        const c = String(code);
-        if (indexes && indexes.byCode && indexes.byCode.has(c)) {
-          const hit = String(((_a = indexes.byCode.get(c)) == null ? void 0 : _a.name) || "");
-          dbg("station hit [line]", { tag, line, area, code: c, name: hit });
-          return hit;
-        }
-        const areaObj = loadAreaStationsCache(area);
-        if (areaObj) {
-          const ls = areaObj.lineStations && areaObj.lineStations[line];
-          if (ls && ls[c]) {
-            const v = ls[c];
-            const hit = typeof v === "string" ? v : String((v == null ? void 0 : v.name) || "");
-            dbg("station hit [area-line]", { tag, line, area, code: c, name: hit });
-            return hit;
-          }
-          if (neighborCode) {
-            const neighbor = String(neighborCode);
-            const linesMap = areaObj.lineStations || {};
-            const orders = areaObj.lines || {};
-            const pref = getCrossPreferredLine(area, line, c, neighbor);
-            if (pref && linesMap[pref]) {
-              const perLineP = linesMap[pref] || {};
-              const orderP = orders[pref] || [];
-              if (perLineP[c] && Array.isArray(orderP) && orderP.includes(neighbor)) {
-                const vP = perLineP[c];
-                const hit = typeof vP === "string" ? vP : String((vP == null ? void 0 : vP.name) || "");
-                dbg("station hit [area-line-crosscache]", { tag, area, lineId: pref, code: c, neighbor, name: hit });
-                return hit;
-              }
-            }
-            const neighborRec = linesMap[line] && linesMap[line][neighbor] || null;
-            const tLines = Array.isArray(neighborRec == null ? void 0 : neighborRec.transferLines) ? neighborRec.transferLines : [];
-            for (const tl of tLines) {
-              const order = orders[tl] || [];
-              if (Array.isArray(order) && order.includes(neighbor)) {
-                const perLine2 = linesMap[tl] || {};
-                const v2 = perLine2[c];
-                if (v2) {
-                  const hit = typeof v2 === "string" ? v2 : String((v2 == null ? void 0 : v2.name) || "");
-                  dbg("station hit [area-line-transfer]", { tag, area, lineId: tl, neighbor, code: c, name: hit });
-                  setCrossPreferredLine(area, line, c, neighbor, tl);
-                  return hit;
-                }
-              }
-            }
-            for (const lid of Object.keys(linesMap)) {
-              const perLine = linesMap[lid] || {};
-              const order = orders[lid] || [];
-              if (perLine[c] && Array.isArray(order) && order.includes(neighbor)) {
-                const v = perLine[c];
-                const hit = typeof v === "string" ? v : String((v == null ? void 0 : v.name) || "");
-                dbg("station hit [area-line-neighbor]", { tag, area, lineId: lid, code: c, neighbor, name: hit });
-                setCrossPreferredLine(area, line, c, neighbor, lid);
-                return hit;
-              }
-            }
-          }
-          if (areaObj.stations && areaObj.stations[c]) {
-            const v = areaObj.stations[c];
-            const hit = typeof v === "string" ? v : String((v == null ? void 0 : v.name) || "");
-            dbg("station hit [area-flat]", { tag, area, code: c, name: hit });
-            return hit;
-          }
-        }
-        for (const a of AREA_LIST) {
-          const obj = loadAreaStationsCache(a);
-          if (!obj) continue;
-          const lso = obj.lineStations;
-          if (lso) {
-            const orders = obj.lines || {};
-            if (neighborCode) {
-              const neighbor = String(neighborCode);
-              for (const lid of Object.keys(lso)) {
-                const perLine = lso[lid] || {};
-                const order = orders[lid] || [];
-                if (perLine[c] && Array.isArray(order) && order.includes(neighbor)) {
-                  const v = perLine[c];
-                  const hit = typeof v === "string" ? v : String((v == null ? void 0 : v.name) || "");
-                  dbg("station hit [other-area-line-neighbor]", { tag, area: a, lineId: lid, code: c, neighbor, name: hit });
-                  return hit;
-                }
-              }
-            }
-            for (const lid of Object.keys(lso)) {
-              const v = lso[lid] && lso[lid][c];
-              if (v) {
-                const hit = typeof v === "string" ? v : String((v == null ? void 0 : v.name) || "");
-                dbg("station hit [other-area-line]", { tag, area: a, lineId: lid, code: c, name: hit });
-                return hit;
-              }
-            }
-          }
-          if (obj.stations && obj.stations[c]) {
-            const v = obj.stations[c];
-            const hit = typeof v === "string" ? v : String((v == null ? void 0 : v.name) || "");
-            dbg("station hit [other-area-flat]", { tag, area: a, code: c, name: hit });
-            return hit;
-          }
-        }
-        if (globalStationsByCode.has(c)) {
-          const hit = String(globalStationsByCode.get(c));
-          dbg("station hit [global]", { tag, code: c, name: hit });
-          return hit;
-        }
-        warn("station miss", { tag, line, area, code: c });
-        return "";
-      }
-      function clearAreaStationsCache(a) {
-        try {
-          localStorage.removeItem(areaCacheKey(a));
-        } catch (e) {
-        }
-      }
-      function clearAreaCrossCache(a) {
-        try {
-          localStorage.removeItem(areaCrossKey(a));
-        } catch (e) {
-        }
-      }
-      var SETTINGS_ROOT_KEY = "tid:v1:settings";
-      function loadSettingsRoot() {
-        try {
-          const raw = localStorage.getItem(SETTINGS_ROOT_KEY);
-          if (!raw) return {};
-          const obj = JSON.parse(raw);
-          return obj && typeof obj === "object" ? obj : {};
-        } catch (e) {
-          return {};
-        }
-      }
-      function saveSettingsRoot(obj) {
-        try {
-          localStorage.setItem(SETTINGS_ROOT_KEY, JSON.stringify(obj || {}));
-        } catch (e) {
-        }
-      }
-      function getPath(obj, path) {
-        try {
-          const segs = String(path || "").split(".");
-          let cur = obj;
-          for (const s of segs) {
-            if (!cur || typeof cur !== "object") return void 0;
-            cur = cur[s];
-          }
-          return cur;
-        } catch (e) {
-          return void 0;
-        }
-      }
-      function setPath(obj, path, val) {
-        try {
-          const segs = String(path || "").split(".");
-          let cur = obj;
-          for (let i = 0; i < segs.length - 1; i++) {
-            const k = segs[i];
-            if (!cur[k] || typeof cur[k] !== "object") cur[k] = {};
-            cur = cur[k];
-          }
-          cur[segs[segs.length - 1]] = val;
-        } catch (e) {
-        }
-      }
-      function getSetting(path, fallback) {
-        const root = loadSettingsRoot();
-        const v = getPath(root, path);
-        return v === void 0 ? fallback : v;
-      }
-      function setSetting(path, val) {
-        const root = loadSettingsRoot();
-        setPath(root, path, val);
-        saveSettingsRoot(root);
-      }
-      function ensureLineConfig(lineId) {
-        const root = loadSettingsRoot();
-        if (!root.lines) root.lines = {};
-        if (!root.lines[lineId]) root.lines[lineId] = {};
-        saveSettingsRoot(root);
-        return root.lines[lineId];
-      }
-      function getLineConfig(lineId) {
-        const root = loadSettingsRoot();
-        return root.lines && root.lines[lineId] || {};
-      }
-      function migrateLegacySettings() {
-        try {
-          const root = loadSettingsRoot();
-          const open = localStorage.getItem("tid:settings:open");
-          if (open != null) {
-            setPath(root, "ui.settingsOpen", open);
-            try {
-              localStorage.removeItem("tid:settings:open");
-            } catch (e) {
-            }
-          }
-          const aud = localStorage.getItem("tid:audio:unlocked");
-          if (aud != null) {
-            setPath(root, "ui.audioUnlocked", aud);
-            try {
-              localStorage.removeItem("tid:audio:unlocked");
-            } catch (e) {
-            }
-          }
-          const v = localStorage.getItem("tid:tts:voice");
-          if (v != null) {
-            setPath(root, "tts.voice", v);
-            try {
-              localStorage.removeItem("tid:tts:voice");
-            } catch (e) {
-            }
-          }
-          const th = localStorage.getItem("tid:delay:threshold");
-          if (th != null) {
-            setPath(root, "delay.threshold", Number(th));
-            try {
-              localStorage.removeItem("tid:delay:threshold");
-            } catch (e) {
-            }
-          }
-          const bg = localStorage.getItem("tid:bgnotify");
-          if (bg != null) {
-            setPath(root, "bg.notify", bg);
-          }
-          const wl = localStorage.getItem("tid:wakelock");
-          if (wl != null) {
-            setPath(root, "bg.wakelock", wl);
-            try {
-              localStorage.removeItem("tid:wakelock");
-            } catch (e) {
-            }
-          }
-          try {
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i);
-              if (!k) continue;
-              const mStation = k.match(/^tid:station:(.+)$/);
-              if (mStation) {
-                const lineId = mStation[1];
-                const val = localStorage.getItem(k) || "";
-                if (val) {
-                  ensureLineConfig(lineId);
-                  setSetting(`lines.${lineId}.station`, val);
-                }
-                continue;
-              }
-              const mPass = k.match(/^tid:pass:(.+)$/);
-              if (mPass) {
-                const lineId = mPass[1];
-                const val = localStorage.getItem(k) || "";
-                if (val) {
-                  ensureLineConfig(lineId);
-                  setSetting(`lines.${lineId}.pass`, val);
-                }
-                continue;
-              }
-            }
-          } catch (e) {
-          }
-          try {
-            for (let i = 0; i < localStorage.length; i++) {
-              const k = localStorage.key(i);
-              if (!k) continue;
-              let m;
-              m = k.match(/^tid:alarm:disable:([^:]+):([^:]+):(up|down)$/);
-              if (m) {
-                const [_, lineId, st, dir2] = m;
-                const val = localStorage.getItem(k) === "1";
-                setSetting(`lines.${lineId}.alarms.${st}.${dir2}.disabled`, val);
-                continue;
-              }
-              m = k.match(/^tid:alarm:([^:]+):([^:]+):(up|down)$/);
-              if (m) {
-                const [_, lineId, st, dir2] = m;
-                try {
-                  const arr = JSON.parse(localStorage.getItem(k) || "[]");
-                  if (Array.isArray(arr)) setSetting(`lines.${lineId}.alarms.${st}.${dir2}.prefs`, arr);
-                } catch (e) {
-                }
-                continue;
-              }
-              m = k.match(/^tid:alarm:target:([^:]+):([^:]+):(up|down)$/);
-              if (m) {
-                const [_, lineId, st, dir2] = m;
-                try {
-                  const obj = JSON.parse(localStorage.getItem(k) || "{}");
-                  if (obj && typeof obj === "object") setSetting(`lines.${lineId}.alarms.${st}.${dir2}.targets`, obj);
-                } catch (e) {
-                }
-                continue;
-              }
-            }
-          } catch (e) {
-          }
-          saveSettingsRoot(root);
-        } catch (e) {
-        }
+        return String(dest);
       }
       function initDebugPanel() {
         const panel = document.createElement("div");
@@ -3672,7 +3235,7 @@
     border: 2px solid #0f0; z-index: 9999; border-radius: 5px;
   `;
         const title = document.createElement("div");
-        title.textContent = "\u{1F41B} TID Debug Panel";
+        title.textContent = "TID Debug Panel";
         title.style.cssText = "font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #ff0;";
         panel.appendChild(title);
         const logContainer = document.createElement("div");
@@ -3689,11 +3252,11 @@
             entry.style.cssText = "margin: 3px 0; padding: 3px; border-bottom: 1px solid #333;";
             const timestamp = (/* @__PURE__ */ new Date()).toLocaleTimeString("ja-JP");
             entry.textContent = `[${timestamp}] ${JSON.stringify(args)}`;
-            const msg = args.join(" ");
-            if (msg.includes("ALARM_TRIGGER")) entry.style.color = "#0f0";
-            else if (msg.includes("ALARM_SKIP") || msg.includes("ALARM_NO")) entry.style.color = "#f80";
-            else if (msg.includes("ALARM_QUEUED")) entry.style.color = "#0ff";
-            else if (msg.includes("ALARM_PREFS")) entry.style.color = "#ff0";
+            const message = args.join(" ");
+            if (message.includes("ALARM_TRIGGER")) entry.style.color = "#0f0";
+            else if (message.includes("ALARM_SKIP") || message.includes("ALARM_NO")) entry.style.color = "#f80";
+            else if (message.includes("ALARM_QUEUED")) entry.style.color = "#0ff";
+            else if (message.includes("ALARM_PREFS")) entry.style.color = "#ff0";
             logEl.appendChild(entry);
             if (logEl.children.length > 100) logEl.removeChild(logEl.firstChild);
             logEl.scrollTop = logEl.scrollHeight;
@@ -3704,14 +3267,14 @@
       if (TID_DEBUG) {
         window.tidTestAlarm = function(trainNo, direction, targetCode) {
           console.log("[TID][TEST] Simulating alarm", trainNo, direction, targetCode);
-          const dir2 = direction === "up" ? 0 : 1;
-          const key = `${trainNo}:${dir2}:${targetCode}`;
+          const dirNum = direction === "up" ? 0 : 1;
+          const key = `${trainNo}:${dirNum}:${targetCode}`;
           const msg = `\u30C6\u30B9\u30C8: ${trainNo}\u53F7\u3001${direction}\u3001${targetCode}\u99C5\u63A5\u8FD1`;
           const meta = {
             area,
             line,
             dir: direction,
-            direction: dir2,
+            direction: dirNum,
             trainNo,
             atCode: targetCode,
             nextCode: "",

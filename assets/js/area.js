@@ -1,9 +1,4 @@
-const API_BASE = (typeof window !== 'undefined' && window.TID_API_BASE) || '/api/v3/';
-const AREA_ENDPOINT = (area) => `${API_BASE}area_${area}_master.json`;
-const FALLBACK_AREA_ENDPOINTS = (area) => [
-  `/assets/data/area_${area}_master.json`,
-  `/area_${area}_master.json`
-];
+import { fetchAreaMaster } from './tid-data.js';
 
 const STORAGE_KEYS = Object.freeze({
   selectedArea: 'selectedArea',
@@ -163,23 +158,6 @@ async function populateLinesForArea(area, lineSelect){
     console.error('エリア取得に失敗', error);
     setSelectMessage(lineSelect, '取得に失敗しました', { disabled: true });
   }
-}
-
-async function fetchAreaMaster(area){
-  const candidates = [AREA_ENDPOINT(area), ...FALLBACK_AREA_ENDPOINTS(area)];
-  let lastError = null;
-
-  for(const url of candidates){
-    try{
-      const response = await fetch(url, { cache: 'no-store' });
-      if(!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      return await response.json();
-    }catch(error){
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error(`Failed to load area master: ${area}`);
 }
 
 function normalizeLines(lines){
