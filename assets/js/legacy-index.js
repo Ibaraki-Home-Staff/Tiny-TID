@@ -376,8 +376,13 @@
   }
 
   // assets/js/main.js
-  document.addEventListener("DOMContentLoaded", () => {
+  function initIndexPage() {
     loadComponents();
     initAreaAndLineSelectors();
-  });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initIndexPage, { once: true });
+  } else {
+    initIndexPage();
+  }
 })();

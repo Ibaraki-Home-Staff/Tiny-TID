@@ -73,11 +73,11 @@
   var modern = supportsModule() && supportsModernSyntax();
 
   var legacyMap = {
-    index: '/assets/js/legacy-index.js?v=2',
-    tid: '/assets/js/legacy-tid.js?v=2'
+    index: '/assets/js/legacy-index.js?v=3',
+    tid: '/assets/js/legacy-tid.js?v=3'
   };
   var modernMap = {
-    index: ['/assets/js/pwa.js?v=3', '/assets/js/main.js?v=40'],
+    index: ['/assets/js/pwa.js?v=3', '/assets/js/main.js?v=41'],
     tid: ['/assets/js/pwa.js?v=3', '/assets/js/tid.js?v=40']
   };
 
