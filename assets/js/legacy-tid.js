@@ -2136,6 +2136,19 @@
   });
 
   // assets/js/tid-settings.js
+  function isMigrationDone() {
+    try {
+      return localStorage.getItem(MIGRATION_DONE_KEY) === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+  function markMigrationDone() {
+    try {
+      localStorage.setItem(MIGRATION_DONE_KEY, "1");
+    } catch (e) {
+    }
+  }
   function loadSettingsRoot() {
     try {
       const raw = localStorage.getItem(SETTINGS_ROOT_KEY);
@@ -2198,6 +2211,7 @@
   }
   function migrateLegacySettings() {
     try {
+      if (isMigrationDone()) return;
       const root = loadSettingsRoot();
       const open = localStorage.getItem("tid:settings:open");
       if (open != null) {
@@ -2298,13 +2312,15 @@
       } catch (e) {
       }
       saveSettingsRoot(root);
+      markMigrationDone();
     } catch (e) {
     }
   }
-  var SETTINGS_ROOT_KEY;
+  var SETTINGS_ROOT_KEY, MIGRATION_DONE_KEY;
   var init_tid_settings = __esm({
     "assets/js/tid-settings.js"() {
       SETTINGS_ROOT_KEY = "tid:v1:settings";
+      MIGRATION_DONE_KEY = "tid:v1:migrationDone";
     }
   });
 
@@ -2381,11 +2397,12 @@
       var dirLabel = dir === "up" ? "\u4E0A\u308A" : dir === "down" ? "\u4E0B\u308A" : "\u4E21\u65B9";
       var fixedStationMode = Boolean(fixedStationName);
       var multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
+      var lineScope = multiLineFixedMode ? [...currentLineIds].sort().join("+") : line;
       var currentLineLabel = currentLineIds.length ? currentLineIds.join(", ") : line || "(\u672A\u6307\u5B9A)";
       paramsView.textContent = fixedStationMode ? `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${currentLineLabel} / \u99C5: ${fixedStationName} / \u65B9\u5411: ${dirLabel}` : `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
       alarmSystem = createAlarmSystem({
         area,
-        line,
+        line: lineScope,
         getSetting,
         setSetting,
         getLineConfig,
@@ -2671,6 +2688,7 @@
                 dbg("CARS_FILTER_ENABLED", { enabled: filterCheckbox.checked, threshold: getCarsThreshold() });
               } catch (e) {
               }
+              refreshTrains();
             });
           } catch (e) {
           }
@@ -3012,8 +3030,18 @@
           });
           return { byCode: byCode2, order: order2 };
         }
-        const primaryOrder = ordersByLine.get(line) || ordersByLine.get(currentLineIds[0]) || Array.from(stationsByCode.keys());
-        const selectedIdx = primaryOrder.indexOf(selectedStation.code);
+        let primaryOrder = ordersByLine.get(line) || ordersByLine.get(currentLineIds[0]) || ordersByLine.values().next().value || Array.from(stationsByCode.keys());
+        let selectedIdx = primaryOrder.indexOf(selectedStation.code);
+        if (selectedIdx < 0) {
+          for (const [, order2] of ordersByLine.entries()) {
+            const idx = order2.indexOf(selectedStation.code);
+            if (idx >= 0) {
+              primaryOrder = order2;
+              selectedIdx = idx;
+              break;
+            }
+          }
+        }
         const negativeHop = selectedIdx > 0 ? primaryOrder[selectedIdx - 1] : "";
         const positiveHop = selectedIdx >= 0 && selectedIdx < primaryOrder.length - 1 ? primaryOrder[selectedIdx + 1] : "";
         const metrics = buildGraphMetrics(adjacency, selectedStation.code, { negativeHop, positiveHop });
@@ -3133,7 +3161,7 @@
         filterControlsBound = true;
         stationFilterEl == null ? void 0 : stationFilterEl.addEventListener("change", () => {
           try {
-            setSetting(`lines.${line}.station`, stationFilterEl.value || "");
+            setSetting(`lines.${lineScope}.station`, stationFilterEl.value || "");
           } catch (e) {
           }
           try {
@@ -3144,7 +3172,7 @@
         });
         passFilterEl == null ? void 0 : passFilterEl.addEventListener("change", () => {
           try {
-            setSetting(`lines.${line}.pass`, passFilterEl.value);
+            setSetting(`lines.${lineScope}.pass`, passFilterEl.value);
           } catch (e) {
           }
           try {
@@ -3170,8 +3198,8 @@
       }
       function renderStationFilter(indexes) {
         if (!stationFilterEl) return;
-        const savedStation = getSetting(`lines.${line}.station`, "");
-        const savedPass = getSetting(`lines.${line}.pass`, null);
+        const savedStation = getSetting(`lines.${lineScope}.station`, "");
+        const savedPass = getSetting(`lines.${lineScope}.pass`, null);
         stationFilterEl.length = 0;
         if (fixedStationMode) {
           const station = findStationByName(indexes, fixedStationName);
@@ -3182,7 +3210,7 @@
             stationFilterEl.appendChild(option);
             stationFilterEl.value = station.code;
             try {
-              setSetting(`lines.${line}.station`, station.code);
+              setSetting(`lines.${lineScope}.station`, station.code);
             } catch (e) {
             }
           } else {
