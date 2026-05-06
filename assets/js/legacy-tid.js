@@ -2365,9 +2365,9 @@
         }
       }
       function getMetaContent(name) {
-        var _a;
+        var _a2;
         try {
-          return ((_a = document.querySelector(`meta[name="${name}"]`)) == null ? void 0 : _a.getAttribute("content")) || "";
+          return ((_a2 = document.querySelector(`meta[name="${name}"]`)) == null ? void 0 : _a2.getAttribute("content")) || "";
         } catch (e) {
           return "";
         }
@@ -2398,6 +2398,23 @@
       var fixedStationMode = Boolean(fixedStationName);
       var multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
       var lineScope = multiLineFixedMode ? [...currentLineIds].sort().join("+") : line;
+      var _a;
+      if (multiLineFixedMode && line && line !== lineScope) {
+        try {
+          const rootKey = "tid:v1:settings";
+          const raw = localStorage.getItem(rootKey);
+          if (raw) {
+            const root = JSON.parse(raw);
+            if (((_a = root == null ? void 0 : root.lines) == null ? void 0 : _a[line]) && !root.lines[lineScope]) {
+              root.lines[lineScope] = root.lines[line];
+              delete root.lines[line];
+              localStorage.setItem(rootKey, JSON.stringify(root));
+              dbg("migrated settings to lineScope", { from: line, to: lineScope });
+            }
+          }
+        } catch (e) {
+        }
+      }
       var currentLineLabel = currentLineIds.length ? currentLineIds.join(", ") : line || "(\u672A\u6307\u5B9A)";
       paramsView.textContent = fixedStationMode ? `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${currentLineLabel} / \u99C5: ${fixedStationName} / \u65B9\u5411: ${dirLabel}` : `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
       alarmSystem = createAlarmSystem({
@@ -2594,14 +2611,14 @@
         return "";
       }
       function buildAlarmMessage(train, targetCode, indexes) {
-        var _a, _b;
+        var _a2, _b;
         try {
           const parts = [];
           const no = String((train == null ? void 0 : train.no) || "").trim();
           const type = String((train == null ? void 0 : train.displayType) || "").trim();
           const nickname = getNickname(train);
           const dest = getDestText(train, indexes, "alarm.dest");
-          const stationName = ((_a = indexes.byCode.get(String(targetCode))) == null ? void 0 : _a.name) || String(targetCode);
+          const stationName = ((_a2 = indexes.byCode.get(String(targetCode))) == null ? void 0 : _a2.name) || String(targetCode);
           if (no) parts.push(no);
           if (type && nickname) parts.push(`${type} ${nickname}`);
           else if (type) parts.push(`${type}\u5217\u8ECA`);
@@ -2983,13 +3000,13 @@
         adjacency.get(right).add(left);
       }
       function buildMergedIndexesForLines(lineStations) {
-        var _a;
+        var _a2;
         const stationsByCode = /* @__PURE__ */ new Map();
         const adjacency = /* @__PURE__ */ new Map();
         const ordersByLine = /* @__PURE__ */ new Map();
         for (const entry of lineStations) {
           const lineId = String((entry == null ? void 0 : entry.lineId) || "").trim();
-          const stations = Array.isArray((_a = entry == null ? void 0 : entry.data) == null ? void 0 : _a.stations) ? entry.data.stations : [];
+          const stations = Array.isArray((_a2 = entry == null ? void 0 : entry.data) == null ? void 0 : _a2.stations) ? entry.data.stations : [];
           const order2 = [];
           let previousCode = null;
           for (const station of stations) {
@@ -3105,7 +3122,7 @@
         return Number.isFinite(ms) ? ms : null;
       }
       function mergeTrainPayloads(payloads) {
-        var _a;
+        var _a2;
         const trains = [];
         const seen = /* @__PURE__ */ new Set();
         let latestMs = null;
@@ -3118,7 +3135,7 @@
           }
           const list = Array.isArray(payload == null ? void 0 : payload.trains) ? payload.trains : [];
           for (const train of list) {
-            const key = `${(train == null ? void 0 : train.no) || ""}|${(train == null ? void 0 : train.pos) || ""}|${(_a = train == null ? void 0 : train.direction) != null ? _a : ""}`;
+            const key = `${(train == null ? void 0 : train.no) || ""}|${(train == null ? void 0 : train.pos) || ""}|${(_a2 = train == null ? void 0 : train.direction) != null ? _a2 : ""}`;
             if (seen.has(key)) continue;
             seen.add(key);
             trains.push(train);
@@ -3304,8 +3321,8 @@
             hour12: false
           }).formatToParts(date);
           const get = (type) => {
-            var _a;
-            return ((_a = parts.find((part) => part.type === type)) == null ? void 0 : _a.value) || "";
+            var _a2;
+            return ((_a2 = parts.find((part) => part.type === type)) == null ? void 0 : _a2.value) || "";
           };
           return `${get("year")}\u5E74${get("month")}\u6708${get("day")}\u65E5 ${get("hour")}\u6642${get("minute")}\u5206${get("second")}\u79D2\u66F4\u65B0`;
         } catch (e) {
@@ -3313,7 +3330,7 @@
         }
       }
       function renderTrains(indexes, trainsData, dirParam) {
-        var _a;
+        var _a2;
         const items = Array.isArray(trainsData == null ? void 0 : trainsData.trains) ? trainsData.trains : [];
         const selectedCode = ((stationFilterEl == null ? void 0 : stationFilterEl.value) || "").trim();
         if (fixedStationMode && !selectedCode) {
@@ -3328,7 +3345,7 @@
         const passSetting = (passFilterEl == null ? void 0 : passFilterEl.value) || "hide";
         const enhanced = items.map((train) => normalizeTrain(train)).map((train) => enhanceTrain(train, indexes.byCode));
         const parsed = enhanced.filter((train) => filterByStationSetting(train, allowedCats, passSetting));
-        const stationIdx = selectedCode ? (_a = indexes.byCode.get(selectedCode)) == null ? void 0 : _a.index : null;
+        const stationIdx = selectedCode ? (_a2 = indexes.byCode.get(selectedCode)) == null ? void 0 : _a2.index : null;
         const heading = document.getElementById("trainsHeading");
         if (heading) {
           if (selectedCode) {
@@ -3400,9 +3417,9 @@
         try {
           if (passSetting === "show" && selectedCode) {
             const addExtrasForPass = (list, direction) => {
-              var _a2;
+              var _a3;
               try {
-                if (!((_a2 = alarmSystem == null ? void 0 : alarmSystem.hasPassAlarmForDirection) == null ? void 0 : _a2.call(alarmSystem, direction))) return list;
+                if (!((_a3 = alarmSystem == null ? void 0 : alarmSystem.hasPassAlarmForDirection) == null ? void 0 : _a3.call(alarmSystem, direction))) return list;
                 const selected = String(selectedCode);
                 const base = parsed.filter((train) => train.direction === direction);
                 const extras = base.filter((train) => !train.stopped && (direction === 0 ? String(train.nextCode || "") === selected : String(train.atCode || "") === selected));
