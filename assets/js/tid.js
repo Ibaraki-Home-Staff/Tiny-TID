@@ -357,6 +357,7 @@ function initCarsControls(){
           setSetting('cars.filterEnabled', filterCheckbox.checked);
           dbg('CARS_FILTER_ENABLED', { enabled: filterCheckbox.checked, threshold: getCarsThreshold() });
         }catch{}
+        refreshTrains();
       });
     }catch{}
   }
@@ -693,11 +694,24 @@ function buildMergedIndexesForLines(lineStations){
     return { byCode, order };
   }
 
-  const primaryOrder =
+  let primaryOrder =
     ordersByLine.get(line) ||
     ordersByLine.get(currentLineIds[0]) ||
+    ordersByLine.values().next().value ||
     Array.from(stationsByCode.keys());
-  const selectedIdx = primaryOrder.indexOf(selectedStation.code);
+  let selectedIdx = primaryOrder.indexOf(selectedStation.code);
+
+  if(selectedIdx < 0){
+    for(const [, order] of ordersByLine.entries()){
+      const idx = order.indexOf(selectedStation.code);
+      if(idx >= 0){
+        primaryOrder = order;
+        selectedIdx = idx;
+        break;
+      }
+    }
+  }
+
   const negativeHop = selectedIdx > 0 ? primaryOrder[selectedIdx - 1] : '';
   const positiveHop = selectedIdx >= 0 && selectedIdx < primaryOrder.length - 1 ? primaryOrder[selectedIdx + 1] : '';
   const metrics = buildGraphMetrics(adjacency, selectedStation.code, { negativeHop, positiveHop });
