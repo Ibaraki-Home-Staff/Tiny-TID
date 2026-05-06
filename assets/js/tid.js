@@ -96,6 +96,22 @@ const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
 const fixedStationMode = Boolean(fixedStationName);
 const multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
 const lineScope = multiLineFixedMode ? [...currentLineIds].sort().join('+') : line;
+
+if(multiLineFixedMode && line && line !== lineScope){
+  try{
+    const rootKey = 'tid:v1:settings';
+    const raw = localStorage.getItem(rootKey);
+    if(raw){
+      const root = JSON.parse(raw);
+      if(root?.lines?.[line] && !root.lines[lineScope]){
+        root.lines[lineScope] = root.lines[line];
+        delete root.lines[line];
+        localStorage.setItem(rootKey, JSON.stringify(root));
+        dbg('migrated settings to lineScope', { from: line, to: lineScope });
+      }
+    }
+  }catch{}
+}
 const currentLineLabel = currentLineIds.length ? currentLineIds.join(', ') : line || '(未指定)';
 paramsView.textContent = fixedStationMode
   ? `選択中のエリア: ${area || '(未指定)'} / 路線: ${currentLineLabel} / 駅: ${fixedStationName} / 方向: ${dirLabel}`
