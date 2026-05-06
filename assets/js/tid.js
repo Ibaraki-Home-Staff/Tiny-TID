@@ -95,6 +95,7 @@ const currentLineIds = Array.from(new Set((fixedLineIds.length ? fixedLineIds : 
 const dirLabel = dir === 'up' ? '上り' : dir === 'down' ? '下り' : '両方';
 const fixedStationMode = Boolean(fixedStationName);
 const multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
+const lineScope = multiLineFixedMode ? [...currentLineIds].sort().join('+') : line;
 const currentLineLabel = currentLineIds.length ? currentLineIds.join(', ') : line || '(未指定)';
 paramsView.textContent = fixedStationMode
   ? `選択中のエリア: ${area || '(未指定)'} / 路線: ${currentLineLabel} / 駅: ${fixedStationName} / 方向: ${dirLabel}`
@@ -102,7 +103,7 @@ paramsView.textContent = fixedStationMode
 
 alarmSystem = createAlarmSystem({
   area,
-  line,
+  line: lineScope,
   getSetting,
   setSetting,
   getLineConfig,
@@ -851,13 +852,13 @@ function bindFilterControls(){
   filterControlsBound = true;
 
   stationFilterEl?.addEventListener('change', () => {
-    try{ setSetting(`lines.${line}.station`, stationFilterEl.value || ''); }catch{}
+    try{ setSetting(`lines.${lineScope}.station`, stationFilterEl.value || ''); }catch{}
     try{ alarmSystem?.clearNotified(); }catch{}
     refreshTrains();
   });
 
   passFilterEl?.addEventListener('change', () => {
-    try{ setSetting(`lines.${line}.pass`, passFilterEl.value); }catch{}
+    try{ setSetting(`lines.${lineScope}.pass`, passFilterEl.value); }catch{}
     try{ alarmSystem?.clearNotified(); }catch{}
     refreshTrains();
   });
@@ -881,8 +882,8 @@ function bindFilterControls(){
 function renderStationFilter(indexes){
   if(!stationFilterEl) return;
 
-  const savedStation = getSetting(`lines.${line}.station`, '');
-  const savedPass = getSetting(`lines.${line}.pass`, null);
+  const savedStation = getSetting(`lines.${lineScope}.station`, '');
+  const savedPass = getSetting(`lines.${lineScope}.pass`, null);
 
   stationFilterEl.length = 0;
   if(fixedStationMode){
@@ -893,7 +894,7 @@ function renderStationFilter(indexes){
       option.textContent = station.name || fixedStationName;
       stationFilterEl.appendChild(option);
       stationFilterEl.value = station.code;
-      try{ setSetting(`lines.${line}.station`, station.code); }catch{}
+      try{ setSetting(`lines.${lineScope}.station`, station.code); }catch{}
     }else{
       option.value = '';
       option.textContent = `${fixedStationName} が見つかりません`;

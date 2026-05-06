@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Root page: `index.html` is the Ibaraki-only train status view (`kinki` / `kyoto,kobesanyo,hokurikubiwako,ako,kosei` / `茨木`).
+- Root page: `index.html` is the Ibaraki-only train status view (`kinki` / `kyoto,kobesanyo,hokurikubiwako,ako,kosei,takarazuka` / `茨木`).
 - Archived full-flow pages live in `old/`: `old/index.html` for area/line selection and `old/TID.html` for the generic train status view.
 - JavaScript lives in `assets/js/`. Main entry points are `main.js` for the archived selector flow and `tid.js` for the runtime view; `tid-*.js` files split alarms, categories, rules, and background behavior by feature.
 - CSS is organized under `assets/css/` with `main.css` as the entry and shared layers such as `variables.css`, `layout.css`, and `components.css`.

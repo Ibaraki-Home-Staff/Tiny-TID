@@ -1,4 +1,13 @@
 const SETTINGS_ROOT_KEY = 'tid:v1:settings';
+const MIGRATION_DONE_KEY = 'tid:v1:migrationDone';
+
+function isMigrationDone(){
+  try{ return localStorage.getItem(MIGRATION_DONE_KEY) === '1'; }catch{ return false; }
+}
+
+function markMigrationDone(){
+  try{ localStorage.setItem(MIGRATION_DONE_KEY, '1'); }catch{}
+}
 
 function loadSettingsRoot(){
   try{
@@ -68,6 +77,7 @@ export function getLineConfig(lineId){
 
 export function migrateLegacySettings(){
   try{
+    if(isMigrationDone()) return;
     const root = loadSettingsRoot();
 
     const open = localStorage.getItem('tid:settings:open');
@@ -162,5 +172,6 @@ export function migrateLegacySettings(){
     }catch{}
 
     saveSettingsRoot(root);
+    markMigrationDone();
   }catch{}
 }
