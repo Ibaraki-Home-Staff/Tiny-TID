@@ -1,27 +1,10 @@
 (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
-  var __defProps = Object.defineProperties;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-  var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
   var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __getOwnPropSymbols = Object.getOwnPropertySymbols;
   var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
-  var __propIsEnum = Object.prototype.propertyIsEnumerable;
-  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-  var __spreadValues = (a, b) => {
-    for (var prop in b || (b = {}))
-      if (__hasOwnProp.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    if (__getOwnPropSymbols)
-      for (var prop of __getOwnPropSymbols(b)) {
-        if (__propIsEnum.call(b, prop))
-          __defNormalProp(a, prop, b[prop]);
-      }
-    return a;
-  };
-  var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   var __esm = (fn, res) => function __init() {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   };
@@ -138,20 +121,6 @@
     }
   });
 
-  // assets/js/tid-rules.js
-  var U_TOKEN_TYPE_MAP;
-  var init_tid_rules = __esm({
-    "assets/js/tid-rules.js"() {
-      U_TOKEN_TYPE_MAP = {
-        "\u76F4\u5FEB": "\u76F4\u901A\u5FEB\u901F",
-        "\u533A\u5FEB": "\u533A\u9593\u5FEB\u901F",
-        "\u307F\u5FEB": "\u307F\u3084\u3053\u8DEF\u5FEB\u901F",
-        "\u65B0\u5FEB": "\u65B0\u5FEB\u901F"
-        // Add more pairs here as needed
-      };
-    }
-  });
-
   // assets/js/tid-category.js
   function trainCategoryFromDisplayType(displayType) {
     const label = String(displayType || "").trim();
@@ -169,47 +138,6 @@
   function getNickname(train) {
     return String((train == null ? void 0 : train.nickname) || "").trim();
   }
-  function normalizeTrain(train) {
-    if (!train || typeof train !== "object") return train;
-    const normalized = __spreadValues({}, train);
-    const displayType = String(normalized.displayType || "").trim();
-    normalizeAShinkaisoku(displayType, normalized);
-    normalizeUreshito(displayType, normalized);
-    return normalized;
-  }
-  function normalizeAShinkaisoku(displayType, train) {
-    let match = displayType.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
-    if (match) {
-      train.displayType = "\u65B0\u5FEB\u901F";
-      appendNicknameSuffix(train, `A\u30B7\u30FC\u30C8${match[1]}`, /Aシート/i);
-      return;
-    }
-    match = displayType.match(/^A→新快/i);
-    if (match) {
-      train.displayType = "\u65B0\u5FEB\u901F";
-      appendNicknameSuffix(train, "A\u30B7\u30FC\u30C8\xD7", /Aシート/i);
-      return;
-    }
-  }
-  function normalizeUreshito(displayType, train) {
-    const match = displayType.match(/^う[\s　]*([^\s○◯〇×]+)[\s　]*([○◯〇×])$/);
-    if (!match) return;
-    const [, token, mark] = match;
-    const resolvedType = resolveUTokenType(token);
-    if (!resolvedType) return;
-    train.displayType = resolvedType;
-    appendNicknameSuffix(train, `\u3046\u308C\u3057\u30FC\u30C8${mark}`, /うれしート/i);
-  }
-  function resolveUTokenType(token) {
-    var _a;
-    if (token === "\u5FEB\u901F" || token === "\u666E\u901A") return token;
-    return (_a = U_TOKEN_TYPE_MAP) == null ? void 0 : _a[token];
-  }
-  function appendNicknameSuffix(train, suffix, alreadyHasPattern) {
-    const nickname = getNickname(train);
-    if (alreadyHasPattern.test(nickname)) return;
-    train.nickname = nickname ? `${nickname} ${suffix}` : suffix;
-  }
   function stationAllowedCategories(stationData) {
     if (!Array.isArray(stationData == null ? void 0 : stationData.stopTrains)) return null;
     const categories = new Set(stationData.stopTrains.map((value) => Number(value)));
@@ -219,7 +147,6 @@
   var CATEGORY, CATEGORY_MATCHERS, CATEGORY_LABELS, CATEGORY_COLOR_CLASS;
   var init_tid_category = __esm({
     "assets/js/tid-category.js"() {
-      init_tid_rules();
       CATEGORY = Object.freeze({
         LOCAL: 0,
         RAPID_SPECIAL: 1,
@@ -1577,416 +1504,6 @@
     }
   });
 
-  // assets/js/tid-data.js
-  function apiBase() {
-    return window.TID_API_BASE && String(window.TID_API_BASE) || "/api/v3/";
-  }
-  function areaCacheKey(area) {
-    return `tid:areaStations:${area}`;
-  }
-  function areaCrossKey(area) {
-    return `tid:cross:${area}`;
-  }
-  function fetchJsonWithFallbacks(_0) {
-    return __async(this, arguments, function* (url, fallbacks = []) {
-      try {
-        const response = yield fetch(url, { cache: "no-store" });
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-        return yield response.json();
-      } catch (error) {
-        for (const fallback of fallbacks) {
-          try {
-            const response = yield fetch(fallback, { cache: "no-store" });
-            if (response.ok) return yield response.json();
-          } catch (e) {
-          }
-        }
-        throw error;
-      }
-    });
-  }
-  function fetchAreaMaster(area) {
-    return __async(this, null, function* () {
-      return yield fetchJsonWithFallbacks(
-        `${apiBase()}area_${area}_master.json`,
-        [
-          `/assets/data/area_${area}_master.json`,
-          `/area_${area}_master.json`
-        ]
-      );
-    });
-  }
-  function fetchStations(line) {
-    return __async(this, null, function* () {
-      return yield fetchJsonWithFallbacks(
-        `${apiBase()}${line}_st.json`,
-        [
-          `/assets/data/${line}_st.json`,
-          `/${line}_st.json`
-        ]
-      );
-    });
-  }
-  function fetchTrains(line) {
-    return __async(this, null, function* () {
-      return yield fetchJsonWithFallbacks(
-        `${apiBase()}${line}.json`,
-        [
-          `/assets/data/${line}.json`,
-          `/${line}.json`
-        ]
-      );
-    });
-  }
-  function fetchTrafficInfo(area) {
-    return __async(this, null, function* () {
-      return yield fetchJsonWithFallbacks(
-        `${apiBase()}area_${area}_trafficinfo.json`,
-        [
-          `/assets/data/area_${area}_trafficinfo.json`,
-          `/area_${area}_trafficinfo.json`
-        ]
-      );
-    });
-  }
-  function loadAreaStationsCache(area) {
-    try {
-      const raw = localStorage.getItem(areaCacheKey(area));
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (!obj || !obj.updatedAt || !obj.stations) return null;
-      const age = Date.now() - Number(obj.updatedAt);
-      if (age > CACHE_TTL_MS) return null;
-      return obj;
-    } catch (e) {
-      return null;
-    }
-  }
-  function saveAreaStationsCache(area, data) {
-    try {
-      localStorage.setItem(areaCacheKey(area), JSON.stringify({
-        updatedAt: Date.now(),
-        stations: data.stations || {},
-        lines: data.lines || {},
-        lineStations: data.lineStations || {}
-      }));
-    } catch (e) {
-    }
-  }
-  function loadAreaCrossCache(area) {
-    try {
-      const raw = localStorage.getItem(areaCrossKey(area));
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (!obj || !obj.updatedAt || !obj.lines) return null;
-      const age = Date.now() - Number(obj.updatedAt);
-      if (age > CACHE_TTL_MS) return null;
-      return obj;
-    } catch (e) {
-      return null;
-    }
-  }
-  function saveAreaCrossCache(area, data) {
-    try {
-      localStorage.setItem(areaCrossKey(area), JSON.stringify({
-        updatedAt: Date.now(),
-        lines: data.lines || {}
-      }));
-    } catch (e) {
-    }
-  }
-  function pairKey(left, right) {
-    const a = String(left);
-    const b = String(right);
-    return a < b ? `${a}_${b}` : `${b}_${a}`;
-  }
-  function getCrossPreferredLine(area, userLine, codeA, codeB) {
-    const cache = loadAreaCrossCache(area);
-    if (!cache || !cache.lines) return null;
-    const table = cache.lines[userLine];
-    if (!table) return null;
-    return table[pairKey(codeA, codeB)] || null;
-  }
-  function setCrossPreferredLine(area, userLine, codeA, codeB, chosenLine, dbg) {
-    try {
-      const cache = loadAreaCrossCache(area) || { updatedAt: Date.now(), lines: {} };
-      if (!cache.lines[userLine]) cache.lines[userLine] = {};
-      cache.lines[userLine][pairKey(codeA, codeB)] = String(chosenLine);
-      saveAreaCrossCache(area, cache);
-      dbg == null ? void 0 : dbg("cross pair cached", { area, userLine, pair: pairKey(codeA, codeB), chosenLine });
-    } catch (e) {
-    }
-  }
-  function extractTransferLinesFromInfo(info) {
-    const out = /* @__PURE__ */ new Set();
-    const transfers = Array.isArray(info == null ? void 0 : info.transfer) ? info.transfer : [];
-    for (const transfer of transfers) {
-      const link = transfer && transfer.link;
-      const code = transfer && transfer.code;
-      if (typeof link === "string" && link) out.add(link);
-      else if (typeof code === "string" && code) out.add(code);
-    }
-    return Array.from(out);
-  }
-  function buildStationIndexes(data) {
-    const byCode = /* @__PURE__ */ new Map();
-    const list = Array.isArray(data == null ? void 0 : data.stations) ? data.stations : [];
-    list.forEach((station, index) => {
-      const info = (station == null ? void 0 : station.info) || {};
-      const code = info == null ? void 0 : info.code;
-      if (!code) return;
-      byCode.set(String(code), {
-        index,
-        name: String((info == null ? void 0 : info.name) || ""),
-        code: String(code),
-        stopTrains: Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : null,
-        transferLines: extractTransferLinesFromInfo(info)
-      });
-    });
-    return {
-      byCode,
-      order: list.map((station) => {
-        var _a;
-        return String(((_a = station == null ? void 0 : station.info) == null ? void 0 : _a.code) || "");
-      })
-    };
-  }
-  function buildIndexesFromCache(area, line, { dbg } = {}) {
-    const cached = loadAreaStationsCache(area);
-    if (!cached || !cached.stations) return null;
-    let order = cached.lines && cached.lines[line] || globalLineOrders.get(line) || null;
-    if (!Array.isArray(order) || !order.length) {
-      const codes = Object.keys(cached.stations || {});
-      if (!codes.length) return null;
-      order = codes.sort();
-      dbg == null ? void 0 : dbg("cache order fallback", { area, line, count: order.length });
-    }
-    const byCode = /* @__PURE__ */ new Map();
-    order.forEach((code, index) => {
-      const record = cached.lineStations && cached.lineStations[line] && cached.lineStations[line][code] || cached.stations[code] || {};
-      const name = (record == null ? void 0 : record.name) || globalStationsByCode.get(code) || code;
-      const stopTrains = Array.isArray(record == null ? void 0 : record.stopTrains) ? record.stopTrains : [];
-      byCode.set(String(code), {
-        index,
-        name: String(name),
-        code: String(code),
-        stopTrains
-      });
-    });
-    dbg == null ? void 0 : dbg("buildIndexesFromCache OK", { area, line, size: byCode.size });
-    return { byCode, order: order.map(String) };
-  }
-  function warmAreaFromCache(area) {
-    const cached = loadAreaStationsCache(area);
-    if (!cached) return;
-    for (const [code, value] of Object.entries(cached.stations || {})) {
-      const name = typeof value === "string" ? value : value == null ? void 0 : value.name;
-      if (name) globalStationsByCode.set(String(code), String(name));
-    }
-    for (const [lineId, order] of Object.entries(cached.lines || {})) {
-      if (Array.isArray(order)) globalLineOrders.set(lineId, order.map(String));
-    }
-  }
-  function buildGlobalStationsForArea(_0) {
-    return __async(this, arguments, function* (area, { force = false, dbg } = {}) {
-      if (!area) return;
-      if (!force) {
-        const cached = loadAreaStationsCache(area);
-        if (cached) {
-          for (const [code, value] of Object.entries(cached.stations || {})) {
-            const name = typeof value === "string" ? value : value == null ? void 0 : value.name;
-            if (name) globalStationsByCode.set(String(code), String(name));
-          }
-          for (const [lineId, order] of Object.entries(cached.lines || {})) {
-            if (Array.isArray(order)) globalLineOrders.set(lineId, order.map(String));
-          }
-          return;
-        }
-      }
-      try {
-        const master = yield fetchAreaMaster(area);
-        const lineIds = Object.keys((master == null ? void 0 : master.lines) || {});
-        if (!lineIds.length) return;
-        const results = yield Promise.allSettled(
-          lineIds.map((lineId) => fetchStations(lineId).then((data) => ({ lineId, data })))
-        );
-        const stationsToCache = {};
-        const linesToCache = {};
-        const lineStationsToCache = {};
-        for (const result of results) {
-          if (result.status !== "fulfilled") continue;
-          const { lineId, data } = result.value;
-          const stations = Array.isArray(data == null ? void 0 : data.stations) ? data.stations : [];
-          const orderCodes = [];
-          const perLineStations = {};
-          for (const station of stations) {
-            const info = (station == null ? void 0 : station.info) || {};
-            const code = info == null ? void 0 : info.code;
-            const name = info == null ? void 0 : info.name;
-            if (!code) continue;
-            const stationCode = String(code);
-            orderCodes.push(stationCode);
-            if (!name) continue;
-            const stationName = String(name);
-            const stopTrains = Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : void 0;
-            const transferLines = extractTransferLinesFromInfo(info);
-            globalStationsByCode.set(stationCode, stationName);
-            stationsToCache[stationCode] = { name: stationName, stopTrains };
-            perLineStations[stationCode] = { name: stationName, stopTrains, transferLines };
-          }
-          if (orderCodes.length) {
-            globalLineOrders.set(lineId, orderCodes);
-            linesToCache[lineId] = orderCodes;
-            lineStationsToCache[lineId] = perLineStations;
-          }
-        }
-        saveAreaStationsCache(area, {
-          stations: stationsToCache,
-          lines: linesToCache,
-          lineStations: lineStationsToCache
-        });
-      } catch (error) {
-        console.warn("\u30A8\u30EA\u30A2\u99C5\u540D\u306E\u69CB\u7BC9\u306B\u5931\u6557", error);
-        dbg == null ? void 0 : dbg("buildGlobalStationsForArea failed", error);
-      }
-    });
-  }
-  function getStationNameByPriority(code, indexes, { area, line, dbg, warn, neighborCode } = {}) {
-    var _a;
-    const stationCode = String(code);
-    if (indexes && indexes.byCode && indexes.byCode.has(stationCode)) {
-      const hit = String(((_a = indexes.byCode.get(stationCode)) == null ? void 0 : _a.name) || "");
-      dbg == null ? void 0 : dbg("station hit [line]", { line, area, code: stationCode, name: hit });
-      return hit;
-    }
-    const areaObj = loadAreaStationsCache(area);
-    if (areaObj) {
-      const lineStations = areaObj.lineStations && areaObj.lineStations[line];
-      if (lineStations && lineStations[stationCode]) {
-        const value = lineStations[stationCode];
-        const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-        dbg == null ? void 0 : dbg("station hit [area-line]", { line, area, code: stationCode, name: hit });
-        return hit;
-      }
-      if (neighborCode) {
-        const neighbor = String(neighborCode);
-        const linesMap = areaObj.lineStations || {};
-        const orders = areaObj.lines || {};
-        const preferredLine = getCrossPreferredLine(area, line, stationCode, neighbor);
-        if (preferredLine && linesMap[preferredLine]) {
-          const preferredStations = linesMap[preferredLine] || {};
-          const preferredOrder = orders[preferredLine] || [];
-          if (preferredStations[stationCode] && Array.isArray(preferredOrder) && preferredOrder.includes(neighbor)) {
-            const value = preferredStations[stationCode];
-            const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-            dbg == null ? void 0 : dbg("station hit [area-line-crosscache]", { area, lineId: preferredLine, code: stationCode, neighbor, name: hit });
-            return hit;
-          }
-        }
-        const neighborRecord = linesMap[line] && linesMap[line][neighbor] || null;
-        const transferLines = Array.isArray(neighborRecord == null ? void 0 : neighborRecord.transferLines) ? neighborRecord.transferLines : [];
-        for (const transferLine of transferLines) {
-          const order = orders[transferLine] || [];
-          if (Array.isArray(order) && order.includes(neighbor)) {
-            const perLine = linesMap[transferLine] || {};
-            const value = perLine[stationCode];
-            if (value) {
-              const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-              dbg == null ? void 0 : dbg("station hit [area-line-transfer]", { area, lineId: transferLine, neighbor, code: stationCode, name: hit });
-              setCrossPreferredLine(area, line, stationCode, neighbor, transferLine, dbg);
-              return hit;
-            }
-          }
-        }
-        for (const lineId of Object.keys(linesMap)) {
-          const perLine = linesMap[lineId] || {};
-          const order = orders[lineId] || [];
-          if (perLine[stationCode] && Array.isArray(order) && order.includes(neighbor)) {
-            const value = perLine[stationCode];
-            const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-            dbg == null ? void 0 : dbg("station hit [area-line-neighbor]", { area, lineId, code: stationCode, neighbor, name: hit });
-            setCrossPreferredLine(area, line, stationCode, neighbor, lineId, dbg);
-            return hit;
-          }
-        }
-      }
-      if (areaObj.stations && areaObj.stations[stationCode]) {
-        const value = areaObj.stations[stationCode];
-        const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-        dbg == null ? void 0 : dbg("station hit [area-flat]", { area, code: stationCode, name: hit });
-        return hit;
-      }
-    }
-    for (const otherArea of AREA_LIST) {
-      const otherCache = loadAreaStationsCache(otherArea);
-      if (!otherCache) continue;
-      const lineStations = otherCache.lineStations;
-      if (lineStations) {
-        const orders = otherCache.lines || {};
-        if (neighborCode) {
-          const neighbor = String(neighborCode);
-          for (const lineId of Object.keys(lineStations)) {
-            const perLine = lineStations[lineId] || {};
-            const order = orders[lineId] || [];
-            if (perLine[stationCode] && Array.isArray(order) && order.includes(neighbor)) {
-              const value = perLine[stationCode];
-              const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-              dbg == null ? void 0 : dbg("station hit [other-area-line-neighbor]", { area: otherArea, lineId, code: stationCode, neighbor, name: hit });
-              return hit;
-            }
-          }
-        }
-        for (const lineId of Object.keys(lineStations)) {
-          const value = lineStations[lineId] && lineStations[lineId][stationCode];
-          if (!value) continue;
-          const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-          dbg == null ? void 0 : dbg("station hit [other-area-line]", { area: otherArea, lineId, code: stationCode, name: hit });
-          return hit;
-        }
-      }
-      if (otherCache.stations && otherCache.stations[stationCode]) {
-        const value = otherCache.stations[stationCode];
-        const hit = typeof value === "string" ? value : String((value == null ? void 0 : value.name) || "");
-        dbg == null ? void 0 : dbg("station hit [other-area-flat]", { area: otherArea, code: stationCode, name: hit });
-        return hit;
-      }
-    }
-    if (globalStationsByCode.has(stationCode)) {
-      const hit = String(globalStationsByCode.get(stationCode));
-      dbg == null ? void 0 : dbg("station hit [global]", { code: stationCode, name: hit });
-      return hit;
-    }
-    warn == null ? void 0 : warn("station miss", { line, area, code: stationCode });
-    return "";
-  }
-  function clearAreaStationsCache(area) {
-    try {
-      localStorage.removeItem(areaCacheKey(area));
-    } catch (e) {
-    }
-  }
-  function clearAreaCrossCache(area) {
-    try {
-      localStorage.removeItem(areaCrossKey(area));
-    } catch (e) {
-    }
-  }
-  var AREA_LIST, CACHE_TTL_MS, globalStationsByCode, globalLineOrders;
-  var init_tid_data = __esm({
-    "assets/js/tid-data.js"() {
-      AREA_LIST = ["kinki", "hokuriku", "okayama", "hiroshima", "sanin"];
-      CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1e3;
-      globalStationsByCode = /* @__PURE__ */ new Map();
-      globalLineOrders = /* @__PURE__ */ new Map();
-      (function warmAllAreasFromCache() {
-        try {
-          AREA_LIST.forEach((area) => warmAreaFromCache(area));
-        } catch (e) {
-        }
-      })();
-    }
-  });
-
   // assets/js/tid-render.js
   function escapeHtml(value) {
     return String(value || "").replace(/[&<>"]/g, (char) => ({
@@ -2340,95 +1857,242 @@
       init_tid_category();
       init_tid_background();
       init_tid_alarm();
-      init_tid_data();
       init_tid_render();
       init_tid_settings();
       loadComponents();
       var paramsView = document.getElementById("paramsView");
       var trainsContainer = document.getElementById("trainsContainer");
-      var upContainer = document.querySelector("#trainsUp .train-items");
-      var downContainer = document.querySelector("#trainsDown .train-items");
+      var trainsUp = document.getElementById("trainsUp");
+      var trainsDown = document.getElementById("trainsDown");
       var updatedAtEl = document.getElementById("updatedAt");
-      var settingsPanel = document.getElementById("settingsPanel");
       var trafficInfoEl = document.getElementById("trafficInfo");
-      var audioOverlay = document.getElementById("audioUnlockOverlay");
-      var audioOverlayBtn = document.getElementById("audioUnlockBtn");
-      var audioOverlayHint = document.getElementById("audioUnlockHint");
-      var audioOverlayLater = document.getElementById("audioUnlockLater");
-      var audioOverlayClose = document.getElementById("audioUnlockClose");
-      var stationFilterEl = document.getElementById("stationFilter");
-      var passFilterEl = document.getElementById("passFilter");
+      var stationFilter = document.getElementById("stationFilter");
+      var passFilter = document.getElementById("passFilter");
       var refreshStationsBtn = document.getElementById("refreshStationsBtn");
-      var debugParam = new URLSearchParams(window.location.search).get("debug");
-      var TID_DEBUG = debugParam === "1" || localStorage.getItem("tid:debug") === "1";
-      function dbg() {
-        try {
-          if (TID_DEBUG) console.log("[TID]", ...arguments);
-        } catch (e) {
-        }
+      var debugPanel = document.getElementById("debugPanel");
+      function meta(name) {
+        var _a;
+        return (((_a = document.querySelector(`meta[name="tid:${name}"]`)) == null ? void 0 : _a.getAttribute("content")) || "").trim();
       }
-      function warn() {
-        try {
-          console.warn("[TID]", ...arguments);
-        } catch (e) {
-        }
+      function getArea() {
+        return meta("fixedArea");
       }
-      function getMetaContent(name) {
-        var _a2;
-        try {
-          return ((_a2 = document.querySelector(`meta[name="${name}"]`)) == null ? void 0 : _a2.getAttribute("content")) || "";
-        } catch (e) {
-          return "";
-        }
+      function getLines() {
+        return meta("fixedLines");
       }
-      function parseMetaList(name) {
-        return getMetaContent(name).split(",").map((value) => String(value || "").trim()).filter(Boolean);
+      function getFixedStationName() {
+        return meta("fixedStationName");
       }
-      var alarmSystem = null;
-      var audioCtx = null;
+      var currentData = null;
+      var selectedCode = "";
+      var currentDir = "both";
+      var refreshing = false;
+      var typeColorsMap = /* @__PURE__ */ new Map();
+      var debugLogEl = null;
+      var apiBaseUrl = "";
+      var alarmAudio = document.createElement("audio");
+      alarmAudio.src = "/assets/sound/alarm.mp3";
+      alarmAudio.preload = "auto";
+      alarmAudio.loop = false;
+      document.body.appendChild(alarmAudio);
       var audioUnlocked = false;
       var audioUnlockBound = false;
-      var audioOverlayBound = false;
-      var refreshing = false;
-      var filterControlsBound = false;
-      var refreshTimer = null;
-      var visBound = false;
-      var searchParams = new URLSearchParams(window.location.search);
-      var fixedArea = getMetaContent("tid:fixedArea").trim();
-      var fixedLine = getMetaContent("tid:fixedLine").trim();
-      var fixedLineIds = parseMetaList("tid:fixedLines");
-      var fixedStationName = getMetaContent("tid:fixedStationName").trim();
-      var fixedDir = getMetaContent("tid:fixedDir").trim();
-      var area = searchParams.get("area") || fixedArea || "";
-      var line = searchParams.get("line") || fixedLine || "";
-      var dir = searchParams.get("dir") || fixedDir || null;
-      var currentLineIds = Array.from(new Set((fixedLineIds.length ? fixedLineIds : [line]).filter(Boolean)));
-      var dirLabel = dir === "up" ? "\u4E0A\u308A" : dir === "down" ? "\u4E0B\u308A" : "\u4E21\u65B9";
-      var fixedStationMode = Boolean(fixedStationName);
-      var multiLineFixedMode = fixedStationMode && currentLineIds.length > 1;
-      var lineScope = multiLineFixedMode ? [...currentLineIds].sort().join("+") : line;
-      var _a;
-      if (multiLineFixedMode && line && line !== lineScope) {
-        try {
-          const rootKey = "tid:v1:settings";
-          const raw = localStorage.getItem(rootKey);
-          if (raw) {
-            const root = JSON.parse(raw);
-            if (((_a = root == null ? void 0 : root.lines) == null ? void 0 : _a[line]) && !root.lines[lineScope]) {
-              root.lines[lineScope] = root.lines[line];
-              delete root.lines[line];
-              localStorage.setItem(rootKey, JSON.stringify(root));
-              dbg("migrated settings to lineScope", { from: line, to: lineScope });
-            }
+      function getAudioUnlocked() {
+        return audioUnlocked;
+      }
+      function performAudioUnlock() {
+        return __async(this, null, function* () {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const buf = ctx.createBuffer(1, 1, 22050);
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(ctx.destination);
+            src.start(0);
+            yield ctx.resume();
+            src.stop();
+            ctx.close();
+          } catch (e) {
           }
+          alarmAudio.muted = false;
+          try {
+            yield alarmAudio.play();
+            alarmAudio.pause();
+            alarmAudio.currentTime = 0;
+          } catch (e) {
+          }
+          audioUnlocked = true;
+        });
+      }
+      function bindAudioUnlockOnce() {
+        if (audioUnlockBound) return;
+        audioUnlockBound = true;
+        const events = ["click", "touchstart", "keydown"];
+        function unlock() {
+          return __async(this, null, function* () {
+            if (audioUnlocked) {
+              events.forEach((e) => document.removeEventListener(e, unlock, { once: true, capture: true }));
+              return;
+            }
+            yield performAudioUnlock();
+            events.forEach((e) => document.removeEventListener(e, unlock, { once: true, capture: true }));
+          });
+        }
+        events.forEach((e) => document.addEventListener(e, unlock, { once: true, capture: true }));
+      }
+      var unlockOverlay = document.getElementById("audioUnlockOverlay");
+      var unlockBtn = document.getElementById("audioUnlockBtn");
+      var unlockClose = document.getElementById("audioUnlockClose");
+      var unlockLater = document.getElementById("audioUnlockLater");
+      var unlockHint = document.getElementById("audioUnlockHint");
+      if (unlockBtn) {
+        unlockBtn.addEventListener("click", () => __async(null, null, function* () {
+          yield performAudioUnlock();
+          unlockOverlay == null ? void 0 : unlockOverlay.classList.add("is-hidden");
+          unlockOverlay == null ? void 0 : unlockOverlay.setAttribute("aria-hidden", "true");
+          try {
+            alarmSystem.flushPendingAudio();
+          } catch (e) {
+          }
+        }));
+      }
+      if (unlockClose || unlockLater) {
+        const hide = () => {
+          unlockOverlay == null ? void 0 : unlockOverlay.classList.add("is-hidden");
+          unlockOverlay == null ? void 0 : unlockOverlay.setAttribute("aria-hidden", "true");
+        };
+        unlockClose == null ? void 0 : unlockClose.addEventListener("click", hide);
+        unlockLater == null ? void 0 : unlockLater.addEventListener("click", hide);
+      }
+      var TID_DEBUG = !!getSetting("ui.debug", false) || new URL(window.location.href).searchParams.has("debug");
+      function dbg(...args) {
+        if (!TID_DEBUG) return;
+        console.log("[TID]", ...args);
+      }
+      function initDebugPanel() {
+        if (!TID_DEBUG) return;
+        let panel = document.getElementById("tidDebugPanel");
+        if (!panel) {
+          panel = document.createElement("div");
+          panel.id = "tidDebugPanel";
+          Object.assign(panel.style, {
+            position: "fixed",
+            left: "10px",
+            bottom: "10px",
+            zIndex: "2147483646",
+            background: "rgba(0,0,0,.82)",
+            color: "#0f0",
+            padding: "10px 14px",
+            borderRadius: "8px",
+            font: "12px/1.4 monospace",
+            maxWidth: "520px",
+            maxHeight: "340px",
+            overflowY: "auto",
+            whiteSpace: "pre-wrap",
+            pointerEvents: "auto"
+          });
+          document.body.appendChild(panel);
+        }
+        debugLogEl = panel;
+      }
+      function debugLog(msg) {
+        if (!TID_DEBUG || !debugLogEl) return;
+        const dt = /* @__PURE__ */ new Date();
+        const hh = String(dt.getHours()).padStart(2, "0");
+        const mm = String(dt.getMinutes()).padStart(2, "0");
+        const ss = String(dt.getSeconds()).padStart(2, "0");
+        debugLogEl.textContent = `[${hh}:${mm}:${ss}] ${msg}
+` + debugLogEl.textContent;
+      }
+      function getDestText(train) {
+        return String((train == null ? void 0 : train.destName) || (train == null ? void 0 : train.dest) || "").trim();
+      }
+      function buildAlarmMessage(train, indexes, stationIdx, stopped) {
+        const type = String((train == null ? void 0 : train.displayType) || "");
+        const nick = String((train == null ? void 0 : train.nickname) || "");
+        const typePart = nick ? `${type} ${nick}` : type;
+        const dest = getDestText(train);
+        const destPart = dest ? `${dest}\u884C\u304D` : "";
+        const stoppedPart = stopped ? "\uFF08\u505C\u8ECA\uFF09" : "";
+        return `${typePart} ${destPart} ${stoppedPart}`.trim();
+      }
+      function configuredTypeTextClass(typeLabel) {
+        if (!typeLabel) return "";
+        const trimmed = String(typeLabel).trim();
+        const exact = typeColorsMap.get(trimmed);
+        if (exact) return exact;
+        for (const [key, cls] of typeColorsMap.entries()) {
+          if (trimmed.includes(key) || key.includes(trimmed)) return cls;
+        }
+        return "";
+      }
+      function getDelayThreshold() {
+        try {
+          const v = getSetting("delay.threshold", null);
+          if (v !== null && v !== void 0) return Number(v) || 0;
+          const el = document.getElementById("delayThreshold");
+          return el ? Number(el.value) || 4 : 4;
         } catch (e) {
+          return 4;
         }
       }
-      var currentLineLabel = currentLineIds.length ? currentLineIds.join(", ") : line || "(\u672A\u6307\u5B9A)";
-      paramsView.textContent = fixedStationMode ? `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${currentLineLabel} / \u99C5: ${fixedStationName} / \u65B9\u5411: ${dirLabel}` : `\u9078\u629E\u4E2D\u306E\u30A8\u30EA\u30A2: ${area || "(\u672A\u6307\u5B9A)"} / \u8DEF\u7DDA: ${line || "(\u672A\u6307\u5B9A)"} / \u65B9\u5411: ${dirLabel}`;
-      alarmSystem = createAlarmSystem({
-        area,
-        line: lineScope,
+      function getCarsThreshold() {
+        try {
+          const v = getSetting("cars.threshold", null);
+          if (v !== null && v !== void 0) return Number(v) || 0;
+          const el = document.getElementById("carsThreshold");
+          return el ? Number(el.value) || 9 : 9;
+        } catch (e) {
+          return 9;
+        }
+      }
+      function isCarsFilterEnabled() {
+        try {
+          const v = getSetting("cars.filterEnabled", null);
+          if (v === "1" || v === 1 || v === true) return true;
+          const cb = document.getElementById("carsFilterEnable");
+          return cb ? !!cb.checked : false;
+        } catch (e) {
+          return false;
+        }
+      }
+      function playAlarmSound() {
+        return __async(this, null, function* () {
+          try {
+            alarmAudio.currentTime = 0;
+            yield alarmAudio.play();
+            return alarmAudio.duration * 1e3;
+          } catch (e) {
+            return 0;
+          }
+        });
+      }
+      function playBeep() {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "square";
+          osc.frequency.value = 800;
+          gain.gain.setValueAtTime(0.3, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(1e-3, ctx.currentTime + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + 0.3);
+          return 350;
+        } catch (e) {
+          return 0;
+        }
+      }
+      var alarmSystem = createAlarmSystem({
+        get area() {
+          return getArea();
+        },
+        get line() {
+          var _a, _b, _c;
+          return selectedCode ? ((_c = (_b = (_a = currentData == null ? void 0 : currentData.stations) == null ? void 0 : _a.byCode) == null ? void 0 : _b[selectedCode]) == null ? void 0 : _c.line) || "" : "";
+        },
         getSetting,
         setSetting,
         getLineConfig,
@@ -2445,865 +2109,206 @@
         configuredTypeTextClass,
         typeTextClass,
         buildAlarmMessage,
-        notifyIfBackground: (message, tag) => notifyIfBackground(message, tag, { getSetting, dbg }),
+        notifyIfBackground,
         playAlarmSound,
         playBeep,
         bindAudioUnlockOnce,
-        getAudioUnlocked: () => audioUnlocked
+        getAudioUnlocked
       });
-      (() => __async(null, null, function* () {
-        try {
-          migrateLegacySettings();
-        } catch (e) {
-        }
-        try {
-          bindAudioUnlockOnce();
-        } catch (e) {
-        }
-        try {
-          setupAudioUnlockOverlay();
-        } catch (e) {
-        }
-        if (!line) {
-          upContainer.textContent = "\u8DEF\u7DDA\u304C\u672A\u6307\u5B9A\u3067\u3059";
-          downContainer.textContent = "";
-          return;
-        }
-        try {
-          yield loadTypeColorMap();
-          bindFilterControls();
-          alarmSystem == null ? void 0 : alarmSystem.initAlarmControls();
-          initDelayControls();
-          initCarsControls();
-          initBackgroundControls({ getSetting, setSetting, dbg });
-          if (TID_DEBUG) {
-            try {
-              initDebugPanel();
-            } catch (e) {
-            }
-          }
-          const indexes = yield getIndexesForCurrentLine();
-          renderStationFilter(indexes);
-          const trains = yield fetchTrainsForCurrentView();
-          setUpdatedAt(trains == null ? void 0 : trains.update);
-          renderTrains(indexes, trains, dir);
-          yield updateTrafficInfo(area, currentLineIds);
+      function fetchView() {
+        return __async(this, null, function* () {
+          const lines = getLines();
+          const station = selectedCode || "";
+          if (!lines || !station) return null;
+          const params = new URLSearchParams({ area: getArea(), lines, station, dir: currentDir });
+          const base = apiBaseUrl || "/";
           try {
-            const areaCached = loadAreaStationsCache(area);
-            if (!areaCached && area) {
-              buildGlobalStationsForArea(area, { dbg }).then(() => {
-                try {
-                  refreshTrains();
-                } catch (e) {
-                }
-              });
+            const resp = yield fetch(`${base}api/view?${params}`, { cache: "no-store" });
+            if (!resp.ok) throw new Error(`${resp.status}`);
+            return yield resp.json();
+          } catch (e) {
+            console.warn("Failed to fetch /api/view:", e);
+            return null;
+          }
+        });
+      }
+      function resolveStation(name) {
+        return __async(this, null, function* () {
+          if (!name) return "";
+          const base = apiBaseUrl || "/";
+          try {
+            const resp = yield fetch(`${base}api/resolve-station?area=${encodeURIComponent(getArea())}&name=${encodeURIComponent(name)}`, { cache: "no-store" });
+            if (resp.ok) {
+              const data = yield resp.json();
+              return data.code || "";
             }
           } catch (e) {
           }
-          startAutoRefresh();
-        } catch (error) {
-          console.error("\u5217\u8ECA\u60C5\u5831\u306E\u53D6\u5F97\u306B\u5931\u6557", error);
-          upContainer.textContent = "\u53D6\u5F97\u306B\u5931\u6557\u3057\u307E\u3057\u305F";
-          downContainer.textContent = "";
+          return "";
+        });
+      }
+      function renderAll(data) {
+        var _a, _b, _c;
+        if (!data) return;
+        const stationInfo = data.station;
+        const indexes = data.stations;
+        const upTrains = ((_a = data.trains) == null ? void 0 : _a.up) || [];
+        const downTrains = ((_b = data.trains) == null ? void 0 : _b.down) || [];
+        typeColorsMap.clear();
+        if (data.typeColors) {
+          for (const [k, v] of Object.entries(data.typeColors)) {
+            typeColorsMap.set(k, v);
+          }
         }
-      }))();
-      if (settingsPanel) {
-        try {
-          const applySettingsOpenFromStorage = () => {
-            const saved = String(getSetting("ui.settingsOpen", "1"));
-            const wantOpen = saved !== "0";
-            try {
-              settingsPanel.open = wantOpen;
-              if (wantOpen) settingsPanel.setAttribute("open", "");
-              else settingsPanel.removeAttribute("open");
-            } catch (e) {
-            }
-          };
-          applySettingsOpenFromStorage();
-          try {
-            requestAnimationFrame(() => {
-              applySettingsOpenFromStorage();
-            });
-          } catch (e) {
-          }
-          try {
-            window.addEventListener("load", applySettingsOpenFromStorage, { once: true });
-          } catch (e) {
-          }
-          settingsPanel.addEventListener("toggle", () => {
-            try {
-              setSetting("ui.settingsOpen", settingsPanel.open ? "1" : "0");
-            } catch (e) {
-            }
+        const passSetting = (passFilter == null ? void 0 : passFilter.value) || "hide";
+        let displayUp = upTrains;
+        let displayDown = downTrains;
+        if (passSetting === "hide") {
+          displayUp = upTrains.filter((t) => t.stopped);
+          displayDown = downTrains.filter((t) => t.stopped);
+        }
+        const upEl = trainsUp == null ? void 0 : trainsUp.querySelector(".train-items");
+        const dnEl = trainsDown == null ? void 0 : trainsDown.querySelector(".train-items");
+        if (upEl) renderTrainList(upEl, displayUp, indexes, { typeColorTextClassFn: configuredTypeTextClass });
+        if (dnEl) renderTrainList(dnEl, displayDown, indexes, { typeColorTextClassFn: configuredTypeTextClass });
+        if (trainsUp) trainsUp.style.display = currentDir === "both" || currentDir === "up" ? "" : "none";
+        if (trainsDown) trainsDown.style.display = currentDir === "both" || currentDir === "down" ? "" : "none";
+        if (trafficInfoEl && data.trafficInfo) {
+          renderTrafficInfo(trafficInfoEl, getLines().split(",").filter(Boolean), data.trafficInfo);
+        }
+        if (paramsView && stationInfo) {
+          paramsView.textContent = `${stationInfo.name}\u99C5`;
+        }
+        if (updatedAtEl && data.update) {
+          updatedAtEl.textContent = `\u66F4\u65B0: ${new Date(data.update).toLocaleTimeString("ja-JP")}`;
+        }
+        if (stationFilter && ((_c = indexes == null ? void 0 : indexes.order) == null ? void 0 : _c.length)) {
+          const currentValue = stationFilter.value;
+          const options = indexes.order.map((code) => {
+            const info = indexes.byCode[code];
+            return `<option value="${code}"${code === currentValue ? " selected" : ""}>${(info == null ? void 0 : info.name) || code}</option>`;
           });
-        } catch (e) {
-        }
-      }
-      var TYPE_COLOR_MAP = /* @__PURE__ */ new Map();
-      function typeColorNameToClass(name) {
-        const trimmed = String(name || "").trim();
-        switch (trimmed) {
-          case "\u8D64":
-            return "type-text-red";
-          case "\u9752":
-            return "type-text-blue";
-          case "\u9752\u7070":
-            return "type-text-bluegray";
-          case "\u6A59":
-            return "type-text-orange";
-          case "\u7DD1":
-            return "type-text-green";
-          case "\u30A8\u30E1\u30E9\u30EB\u30C9\u30B0\u30EA\u30FC\u30F3":
-            return "type-text-emerald";
-          default:
-            return "";
-        }
-      }
-      function resolveColorMapUrls() {
-        const urls = [];
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const fromQuery = params.get("colormap") || params.get("color");
-          if (fromQuery) urls.push(String(fromQuery));
-        } catch (e) {
-        }
-        try {
-          const meta = document.querySelector('meta[name="tid:colorUrl"]');
-          const fromMeta = meta && meta.getAttribute("content");
-          if (fromMeta) urls.push(String(fromMeta));
-        } catch (e) {
-        }
-        urls.push("/assets/color.txt", "/color.txt");
-        return urls;
-      }
-      function loadTypeColorMap() {
-        return __async(this, null, function* () {
-          for (const url of resolveColorMapUrls()) {
-            try {
-              const response = yield fetch(url, { cache: "no-store" });
-              if (!response.ok) continue;
-              parseTypeColorText(yield response.text());
-              dbg("color map loaded", { url, size: TYPE_COLOR_MAP.size });
-              return;
-            } catch (e) {
-            }
-          }
-          dbg("color map not found; using defaults");
-        });
-      }
-      function parseTypeColorText(text) {
-        try {
-          TYPE_COLOR_MAP.clear();
-          const lines = String(text || "").split(/\r?\n/);
-          for (const rawLine of lines) {
-            const line2 = rawLine.trim();
-            if (!line2 || line2.startsWith("#")) continue;
-            const parts = line2.split(",");
-            if (parts.length < 2) continue;
-            const type = parts[0].trim();
-            const color = parts[1].trim();
-            const cls = typeColorNameToClass(color);
-            if (type && cls) TYPE_COLOR_MAP.set(type, cls);
-          }
-          dbg("parsed color map", Object.fromEntries(TYPE_COLOR_MAP));
-        } catch (e) {
-        }
-      }
-      function configuredTypeTextClass(typeLabel) {
-        if (!typeLabel) return "";
-        const trimmed = String(typeLabel).trim();
-        const exact = TYPE_COLOR_MAP.get(trimmed);
-        if (exact) return exact;
-        for (const [key, cls] of TYPE_COLOR_MAP.entries()) {
-          if (trimmed.includes(key) || key.includes(trimmed)) return cls;
-        }
-        return "";
-      }
-      function buildAlarmMessage(train, targetCode, indexes) {
-        var _a2, _b;
-        try {
-          const parts = [];
-          const no = String((train == null ? void 0 : train.no) || "").trim();
-          const type = String((train == null ? void 0 : train.displayType) || "").trim();
-          const nickname = getNickname(train);
-          const dest = getDestText(train, indexes, "alarm.dest");
-          const stationName = ((_a2 = indexes.byCode.get(String(targetCode))) == null ? void 0 : _a2.name) || String(targetCode);
-          if (no) parts.push(no);
-          if (type && nickname) parts.push(`${type} ${nickname}`);
-          else if (type) parts.push(`${type}\u5217\u8ECA`);
-          if (dest) parts.push(dest.endsWith("\u884C\u304D") ? dest : `${dest}\u884C\u304D`);
-          parts.push(`${stationName}\u306B\u63A5\u8FD1`);
-          if (typeof (train == null ? void 0 : train.delayMinutes) === "number" && train.delayMinutes > 0) {
-            parts.push(`\u7D04${train.delayMinutes}\u5206\u9045\u5EF6`);
-          }
-          return parts.filter(Boolean).join("\u3001");
-        } catch (e) {
-          const stationName = ((_b = indexes.byCode.get(String(targetCode))) == null ? void 0 : _b.name) || String(targetCode);
-          const no = String((train == null ? void 0 : train.no) || "\u5217\u8ECA");
-          return `${no}\u3001${stationName}\u306B\u63A5\u8FD1`;
-        }
-      }
-      function getDelayThreshold() {
-        try {
-          const raw = getSetting("delay.threshold", void 0);
-          if (raw == null || raw === "") return 4;
-          const value = Number(raw);
-          if (Number.isFinite(value) && value >= 0) return Math.floor(value);
-        } catch (e) {
-        }
-        return 4;
-      }
-      function initDelayControls() {
-        const input = document.getElementById("delayThreshold");
-        if (!input) return;
-        try {
-          input.value = String(getDelayThreshold());
-          input.addEventListener("change", () => {
-            let value = Number(input.value);
-            if (!Number.isFinite(value) || value < 0) value = 4;
-            try {
-              setSetting("delay.threshold", Math.floor(value));
-            } catch (e) {
-            }
-            refreshTrains();
-          }, { once: false });
-        } catch (e) {
-        }
-      }
-      function getCarsThreshold() {
-        try {
-          const raw = getSetting("cars.threshold", void 0);
-          if (raw == null || raw === "") return 9;
-          const value = Number(raw);
-          if (Number.isFinite(value) && value >= 0) return Math.floor(value);
-        } catch (e) {
-        }
-        return 9;
-      }
-      function isCarsFilterEnabled() {
-        try {
-          return !!getSetting("cars.filterEnabled", false);
-        } catch (e) {
-          return false;
-        }
-      }
-      function initCarsControls() {
-        const thresholdInput = document.getElementById("carsThreshold");
-        const filterCheckbox = document.getElementById("carsFilterEnable");
-        if (thresholdInput) {
-          try {
-            thresholdInput.value = String(getCarsThreshold());
-            thresholdInput.addEventListener("change", () => {
-              let value = Number(thresholdInput.value);
-              if (!Number.isFinite(value) || value < 0) value = 9;
-              try {
-                setSetting("cars.threshold", Math.floor(value));
-              } catch (e) {
-              }
-              refreshTrains();
-            });
-          } catch (e) {
-          }
-        }
-        if (filterCheckbox) {
-          try {
-            filterCheckbox.checked = isCarsFilterEnabled();
-            filterCheckbox.addEventListener("change", () => {
-              try {
-                setSetting("cars.filterEnabled", filterCheckbox.checked);
-                dbg("CARS_FILTER_ENABLED", { enabled: filterCheckbox.checked, threshold: getCarsThreshold() });
-              } catch (e) {
-              }
-              refreshTrains();
-            });
-          } catch (e) {
-          }
-        }
-      }
-      function updateTrafficInfo(currentArea, currentLines) {
-        return __async(this, null, function* () {
-          const lineIds = Array.isArray(currentLines) ? currentLines.filter(Boolean) : [currentLines].filter(Boolean);
-          if (!currentArea || !lineIds.length || !trafficInfoEl) return;
-          try {
-            const data = yield fetchTrafficInfo(currentArea);
-            renderTrafficInfo(trafficInfoEl, lineIds, data);
-          } catch (error) {
-            dbg("traffic fetch fail", error);
-          }
-        });
-      }
-      var BEEP_DURATION_MS = 280;
-      var ALARM_SOUND_URL = "/assets/sound/alarm.mp3";
-      var alarmAudioEl = null;
-      var alarmAudioPrimed = false;
-      function ensureAlarmAudioEl() {
-        if (alarmAudioEl) return alarmAudioEl;
-        try {
-          const audio = document.createElement("audio");
-          audio.src = ALARM_SOUND_URL;
-          audio.preload = "auto";
-          audio.controls = false;
-          audio.loop = false;
-          audio.style.display = "none";
-          audio.setAttribute("aria-hidden", "true");
-          try {
-            audio.setAttribute("playsinline", "");
-            audio.setAttribute("webkit-playsinline", "");
-          } catch (e) {
-          }
-          document.body.appendChild(audio);
-          alarmAudioEl = audio;
-        } catch (e) {
-        }
-        return alarmAudioEl;
-      }
-      function primeAlarmAudio() {
-        return __async(this, null, function* () {
-          try {
-            const audio = ensureAlarmAudioEl();
-            if (!audio || alarmAudioPrimed) return true;
-            yield audio.play();
-            try {
-              yield new Promise((resolve) => setTimeout(resolve, 10));
-            } catch (e) {
-            }
-            try {
-              audio.pause();
-              audio.currentTime = 0;
-            } catch (e) {
-            }
-            alarmAudioPrimed = true;
-            return true;
-          } catch (e) {
-            return false;
-          }
-        });
-      }
-      function cleanupAudioUnlockListeners() {
-        audioUnlockBound = false;
-      }
-      function handleAudioUnlockGesture() {
-        performAudioUnlock("gesture");
-      }
-      function performAudioUnlock(source) {
-        if (audioUnlocked) return;
-        try {
-          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx == null ? void 0 : audioCtx.resume) audioCtx.resume().catch(() => {
-          });
-        } catch (e) {
-        }
-        audioUnlocked = true;
-        cleanupAudioUnlockListeners();
-        dbg("audio unlocked", source || "");
-        try {
-          document.dispatchEvent(new CustomEvent("tid:audiounlocked"));
-        } catch (e) {
-        }
-        try {
-          primeAlarmAudio();
-        } catch (e) {
-        }
-        try {
-          alarmSystem == null ? void 0 : alarmSystem.flushPendingAudio();
-        } catch (e) {
-        }
-      }
-      function bindAudioUnlockOnce() {
-        if (audioUnlocked || audioUnlockBound) return;
-        audioUnlockBound = true;
-        try {
-          document.addEventListener("touchstart", handleAudioUnlockGesture, { once: true, passive: true });
-          document.addEventListener("keydown", handleAudioUnlockGesture, { once: true });
-          if ("PointerEvent" in window) {
-            document.addEventListener("pointerdown", handleAudioUnlockGesture, { once: true, passive: true });
-          } else {
-            document.addEventListener("mousedown", handleAudioUnlockGesture, { once: true, passive: true });
-          }
-        } catch (e) {
-        }
-      }
-      function setupAudioUnlockOverlay() {
-        if (!audioOverlay) return;
-        const supported = "AudioContext" in window || "webkitAudioContext" in window;
-        if (!supported) {
-          audioOverlay.classList.add("is-hidden");
-          audioOverlay.setAttribute("aria-hidden", "true");
-          return;
-        }
-        const hide = () => {
-          try {
-            audioOverlay.classList.add("is-hidden");
-            audioOverlay.setAttribute("aria-hidden", "true");
-          } catch (e) {
-          }
-        };
-        const show = () => {
-          try {
-            audioOverlay.classList.remove("is-hidden");
-            audioOverlay.removeAttribute("aria-hidden");
-          } catch (e) {
-          }
-        };
-        try {
-          const isStandalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || window.navigator && window.navigator.standalone === true;
-          const text = isStandalone ? "\u30A2\u30D7\u30EA\u3068\u3057\u3066\u8D77\u52D5\u4E2D\u3067\u3059\u3002\u30A2\u30E9\u30FC\u30E0\u97F3\u3092\u6709\u52B9\u306B\u3059\u308B\u3068\u63A5\u8FD1\u30A2\u30E9\u30FC\u30E0\u3092\u518D\u751F\u3067\u304D\u307E\u3059\u3002" : "\u30D6\u30E9\u30A6\u30B6\u3067\u958B\u3044\u3066\u3044\u307E\u3059\u3002\u30A2\u30E9\u30FC\u30E0\u97F3\u3092\u6709\u52B9\u306B\u3059\u308B\u3068\u63A5\u8FD1\u30A2\u30E9\u30FC\u30E0\u3092\u518D\u751F\u3067\u304D\u307E\u3059\u3002";
-          if (audioOverlayHint) audioOverlayHint.textContent = text;
-        } catch (e) {
-        }
-        show();
-        if (audioOverlayBound) return;
-        audioOverlayBound = true;
-        try {
-          if (audioOverlayBtn) {
-            audioOverlayBtn.addEventListener("click", () => {
-              try {
-                bindAudioUnlockOnce();
-                performAudioUnlock("overlay-button");
-              } catch (error) {
-                dbg("audio unlock button failed", error);
-              }
-            });
-          }
-          if (audioOverlayLater) {
-            audioOverlayLater.addEventListener("click", hide);
-          }
-          if (audioOverlayClose) {
-            audioOverlayClose.addEventListener("click", hide);
-          }
-          document.addEventListener("tid:audiounlocked", hide);
-        } catch (e) {
-        }
-      }
-      function playAlarmSound() {
-        return __async(this, null, function* () {
-          try {
-            if (!audioUnlocked) {
-              bindAudioUnlockOnce();
-              return 0;
-            }
-            const audio = ensureAlarmAudioEl();
-            if (!audio) return 0;
-            try {
-              yield primeAlarmAudio();
-            } catch (e) {
-            }
-            audio.currentTime = 0;
-            audio.volume = 1;
-            return yield new Promise((resolve) => {
-              let settled = false;
-              const done = (ms) => {
-                if (!settled) {
-                  settled = true;
-                  resolve(Number.isFinite(ms) ? ms : 0);
-                }
-              };
-              const cleanup = () => {
-                try {
-                  audio.removeEventListener("ended", onEnded);
-                } catch (e) {
-                }
-                try {
-                  audio.removeEventListener("error", onError);
-                } catch (e) {
-                }
-              };
-              const onEnded = () => {
-                const duration = typeof audio.duration === "number" && isFinite(audio.duration) ? Math.round(audio.duration * 1e3) : 0;
-                cleanup();
-                done(duration);
-              };
-              const onError = () => {
-                cleanup();
-                done(0);
-              };
-              try {
-                audio.addEventListener("ended", onEnded, { once: true });
-                audio.addEventListener("error", onError, { once: true });
-                try {
-                  if (!audio.paused) {
-                    audio.pause();
-                    audio.currentTime = 0;
-                  }
-                } catch (e) {
-                }
-                const playResult = audio.play();
-                if (playResult && typeof playResult.then === "function") {
-                  playResult.catch(() => {
-                    try {
-                      audioUnlocked = false;
-                      bindAudioUnlockOnce();
-                      setupAudioUnlockOverlay();
-                    } catch (e) {
-                    }
-                    cleanup();
-                    done(0);
-                  });
-                }
-              } catch (e) {
-                cleanup();
-                done(0);
-              }
-              setTimeout(() => {
-                cleanup();
-                done(0);
-              }, 6e3);
-            });
-          } catch (error) {
-            dbg("alarm audio failed", error);
-            return 0;
-          }
-        });
-      }
-      function playBeep() {
-        try {
-          if (!audioUnlocked) {
-            bindAudioUnlockOnce();
-            return 0;
-          }
-          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx.state === "suspended" && audioCtx.resume) audioCtx.resume().catch(() => {
-          });
-          const oscillator = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          oscillator.type = "sine";
-          oscillator.frequency.value = 880;
-          gain.gain.setValueAtTime(1e-4, audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.22, audioCtx.currentTime + 0.02);
-          gain.gain.exponentialRampToValueAtTime(1e-4, audioCtx.currentTime + BEEP_DURATION_MS / 1e3 - 0.02);
-          oscillator.connect(gain).connect(audioCtx.destination);
-          oscillator.start();
-          oscillator.stop(audioCtx.currentTime + BEEP_DURATION_MS / 1e3);
-        } catch (error) {
-          dbg("beep failed", error);
-        }
-        return BEEP_DURATION_MS;
-      }
-      function getIndexesForCurrentLine() {
-        return __async(this, null, function* () {
-          if (multiLineFixedMode) {
-            const lineStations = yield fetchStationDataForLines(currentLineIds);
-            return buildMergedIndexesForLines(lineStations);
-          }
-          if (!fixedStationMode) {
-            const cached = buildIndexesFromCache(area, line, { dbg });
-            if (cached) return cached;
-          }
-          const stations = yield fetchStations(line);
-          return buildStationIndexes(stations);
-        });
-      }
-      function fetchStationDataForLines(lineIds) {
-        return __async(this, null, function* () {
-          const results = yield Promise.allSettled(
-            lineIds.map((lineId) => fetchStations(lineId).then((data) => ({ lineId, data })))
-          );
-          return results.filter((result) => result.status === "fulfilled").map((result) => result.value);
-        });
-      }
-      function addAdjacencyEdge(adjacency, left, right) {
-        if (!left || !right || left === right) return;
-        if (!adjacency.has(left)) adjacency.set(left, /* @__PURE__ */ new Set());
-        if (!adjacency.has(right)) adjacency.set(right, /* @__PURE__ */ new Set());
-        adjacency.get(left).add(right);
-        adjacency.get(right).add(left);
-      }
-      function buildMergedIndexesForLines(lineStations) {
-        var _a2;
-        const stationsByCode = /* @__PURE__ */ new Map();
-        const adjacency = /* @__PURE__ */ new Map();
-        const ordersByLine = /* @__PURE__ */ new Map();
-        for (const entry of lineStations) {
-          const lineId = String((entry == null ? void 0 : entry.lineId) || "").trim();
-          const stations = Array.isArray((_a2 = entry == null ? void 0 : entry.data) == null ? void 0 : _a2.stations) ? entry.data.stations : [];
-          const order2 = [];
-          let previousCode = null;
-          for (const station of stations) {
-            const info = (station == null ? void 0 : station.info) || {};
-            const code = String((info == null ? void 0 : info.code) || "").trim();
-            if (!code) continue;
-            const name = String((info == null ? void 0 : info.name) || code).trim();
-            order2.push(code);
-            const existing = stationsByCode.get(code);
-            if (existing) {
-              if (!existing.name && name) existing.name = name;
-              if ((!existing.stopTrains || !existing.stopTrains.length) && Array.isArray(info == null ? void 0 : info.stopTrains)) {
-                existing.stopTrains = info.stopTrains.slice();
-              }
-              existing.lines.add(lineId);
-            } else {
-              stationsByCode.set(code, {
-                index: 0,
-                name,
-                code,
-                stopTrains: Array.isArray(info == null ? void 0 : info.stopTrains) ? info.stopTrains.slice() : null,
-                lines: new Set(lineId ? [lineId] : [])
-              });
-            }
-            addAdjacencyEdge(adjacency, previousCode, code);
-            previousCode = code;
-          }
-          if (order2.length) ordersByLine.set(lineId, order2);
-        }
-        const probeIndexes = { byCode: stationsByCode, order: Array.from(stationsByCode.keys()) };
-        const selectedStation = findStationByName(probeIndexes, fixedStationName);
-        if (!selectedStation) {
-          const byCode2 = /* @__PURE__ */ new Map();
-          const order2 = Array.from(stationsByCode.keys()).sort();
-          order2.forEach((code, index) => {
-            const station = stationsByCode.get(code);
-            byCode2.set(code, __spreadProps(__spreadValues({}, station), { index }));
-          });
-          return { byCode: byCode2, order: order2 };
-        }
-        let primaryOrder = ordersByLine.get(line) || ordersByLine.get(currentLineIds[0]) || ordersByLine.values().next().value || Array.from(stationsByCode.keys());
-        let selectedIdx = primaryOrder.indexOf(selectedStation.code);
-        if (selectedIdx < 0) {
-          for (const [, order2] of ordersByLine.entries()) {
-            const idx = order2.indexOf(selectedStation.code);
-            if (idx >= 0) {
-              primaryOrder = order2;
-              selectedIdx = idx;
-              break;
-            }
-          }
-        }
-        const negativeHop = selectedIdx > 0 ? primaryOrder[selectedIdx - 1] : "";
-        const positiveHop = selectedIdx >= 0 && selectedIdx < primaryOrder.length - 1 ? primaryOrder[selectedIdx + 1] : "";
-        const metrics = buildGraphMetrics(adjacency, selectedStation.code, { negativeHop, positiveHop });
-        const withIndex = [];
-        for (const [code, station] of stationsByCode.entries()) {
-          const metric = metrics.get(code) || null;
-          const hasMetric = metric && Number.isFinite(metric.distance);
-          const distance = hasMetric ? metric.distance : Number.MAX_SAFE_INTEGER;
-          const sign = Number((metric == null ? void 0 : metric.sign) || 0);
-          const normalizedSign = code === selectedStation.code ? 0 : sign || 1;
-          const index = code === selectedStation.code ? 0 : hasMetric ? normalizedSign * distance : 9999;
-          withIndex.push(__spreadProps(__spreadValues({}, station), {
-            index,
-            distance,
-            side: normalizedSign
-          }));
-        }
-        withIndex.sort((left, right) => {
-          if (left.index !== right.index) return left.index - right.index;
-          if (left.distance !== right.distance) return left.distance - right.distance;
-          const leftName = String(left.name || "");
-          const rightName = String(right.name || "");
-          if (leftName !== rightName) return leftName.localeCompare(rightName, "ja");
-          return String(left.code).localeCompare(String(right.code), "ja");
-        });
-        const byCode = /* @__PURE__ */ new Map();
-        const order = [];
-        for (const station of withIndex) {
-          byCode.set(station.code, station);
-          order.push(station.code);
-        }
-        return { byCode, order };
-      }
-      function buildGraphMetrics(adjacency, selectedCode, { negativeHop, positiveHop } = {}) {
-        const metrics = /* @__PURE__ */ new Map();
-        metrics.set(selectedCode, { distance: 0, sign: 0, firstHop: selectedCode });
-        const queue = [selectedCode];
-        for (let i = 0; i < queue.length; i += 1) {
-          const code = queue[i];
-          const current = metrics.get(code);
-          const neighbors = Array.from(adjacency.get(code) || []);
-          for (const neighbor of neighbors) {
-            if (metrics.has(neighbor)) continue;
-            const firstHop = code === selectedCode ? neighbor : current.firstHop;
-            let sign = 0;
-            if (firstHop === negativeHop) sign = -1;
-            else if (firstHop === positiveHop) sign = 1;
-            else sign = current.sign || 0;
-            metrics.set(neighbor, {
-              distance: Number(current.distance || 0) + 1,
-              sign,
-              firstHop
-            });
-            queue.push(neighbor);
-          }
-        }
-        return metrics;
-      }
-      function parseIsoTime(value) {
-        const ms = Date.parse(String(value || ""));
-        return Number.isFinite(ms) ? ms : null;
-      }
-      function mergeTrainPayloads(payloads) {
-        var _a2;
-        const trains = [];
-        const seen = /* @__PURE__ */ new Set();
-        let latestMs = null;
-        let latestRaw = "";
-        for (const payload of payloads) {
-          const updateMs = parseIsoTime(payload == null ? void 0 : payload.update);
-          if (updateMs != null && (latestMs == null || updateMs > latestMs)) {
-            latestMs = updateMs;
-            latestRaw = String(payload.update || "");
-          }
-          const list = Array.isArray(payload == null ? void 0 : payload.trains) ? payload.trains : [];
-          for (const train of list) {
-            const key = `${(train == null ? void 0 : train.no) || ""}|${(train == null ? void 0 : train.pos) || ""}|${(_a2 = train == null ? void 0 : train.direction) != null ? _a2 : ""}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            trains.push(train);
-          }
-        }
-        return {
-          update: latestRaw,
-          trains
-        };
-      }
-      function fetchTrainsForCurrentView() {
-        return __async(this, null, function* () {
-          if (currentLineIds.length <= 1) {
-            return yield fetchTrains(line);
-          }
-          const results = yield Promise.allSettled(
-            currentLineIds.map((lineId) => fetchTrains(lineId))
-          );
-          const payloads = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
-          return mergeTrainPayloads(payloads);
-        });
-      }
-      function normalizeStationName(value) {
-        return String(value || "").trim().replace(/\s+/g, "");
-      }
-      function findStationByName(indexes, stationName) {
-        const target = normalizeStationName(stationName);
-        if (!target) return null;
-        for (const code of indexes.order) {
-          const station = indexes.byCode.get(code);
-          if (!station) continue;
-          if (normalizeStationName(station.name) === target) {
-            return station;
-          }
-        }
-        return null;
-      }
-      function bindFilterControls() {
-        if (filterControlsBound) return;
-        filterControlsBound = true;
-        stationFilterEl == null ? void 0 : stationFilterEl.addEventListener("change", () => {
-          try {
-            setSetting(`lines.${lineScope}.station`, stationFilterEl.value || "");
-          } catch (e) {
-          }
-          try {
-            alarmSystem == null ? void 0 : alarmSystem.clearNotified();
-          } catch (e) {
-          }
-          refreshTrains();
-        });
-        passFilterEl == null ? void 0 : passFilterEl.addEventListener("change", () => {
-          try {
-            setSetting(`lines.${lineScope}.pass`, passFilterEl.value);
-          } catch (e) {
-          }
-          try {
-            alarmSystem == null ? void 0 : alarmSystem.clearNotified();
-          } catch (e) {
-          }
-          refreshTrains();
-        });
-        refreshStationsBtn == null ? void 0 : refreshStationsBtn.addEventListener("click", () => __async(null, null, function* () {
-          const originalText = refreshStationsBtn.textContent;
-          try {
-            refreshStationsBtn.disabled = true;
-            refreshStationsBtn.textContent = "\u66F4\u65B0\u4E2D\u2026";
-            clearAreaStationsCache(area);
-            clearAreaCrossCache(area);
-            yield buildGlobalStationsForArea(area, { force: true, dbg });
-            yield refreshTrains();
-          } finally {
-            refreshStationsBtn.disabled = false;
-            refreshStationsBtn.textContent = originalText;
-          }
-        }));
-      }
-      function renderStationFilter(indexes) {
-        if (!stationFilterEl) return;
-        const savedStation = getSetting(`lines.${lineScope}.station`, "");
-        const savedPass = getSetting(`lines.${lineScope}.pass`, null);
-        stationFilterEl.length = 0;
-        if (fixedStationMode) {
-          const station = findStationByName(indexes, fixedStationName);
-          const option = document.createElement("option");
-          if (station) {
-            option.value = station.code;
-            option.textContent = station.name || fixedStationName;
-            stationFilterEl.appendChild(option);
-            stationFilterEl.value = station.code;
-            try {
-              setSetting(`lines.${lineScope}.station`, station.code);
-            } catch (e) {
-            }
-          } else {
-            option.value = "";
-            option.textContent = `${fixedStationName} \u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093`;
-            stationFilterEl.appendChild(option);
-            stationFilterEl.value = "";
-          }
-          stationFilterEl.disabled = true;
-        } else {
-          const blankOption = document.createElement("option");
-          blankOption.value = "";
-          blankOption.textContent = "\uFF08\u672A\u9078\u629E\uFF09";
-          stationFilterEl.appendChild(blankOption);
-          for (const code of indexes.order) {
-            const station = indexes.byCode.get(code);
-            if (!station) continue;
-            const option = document.createElement("option");
-            option.value = station.code;
-            option.textContent = station.name || station.code;
-            stationFilterEl.appendChild(option);
-          }
-          if (savedStation && Array.from(stationFilterEl.options).some((option) => option.value === savedStation)) {
-            stationFilterEl.value = savedStation;
-          } else {
-            stationFilterEl.value = "";
-          }
-          stationFilterEl.disabled = false;
-        }
-        if (passFilterEl) {
-          if (savedPass === "show" || savedPass === "hide") {
-            passFilterEl.value = savedPass;
-          } else {
-            passFilterEl.value = "hide";
+          if (!stationFilter.innerHTML.includes('option value="' + indexes.order[0] + '"')) {
+            const placeholder = stationFilter.querySelector('option[value=""]');
+            stationFilter.innerHTML = (placeholder ? placeholder.outerHTML : '<option value="">\uFF08\u672A\u9078\u629E\uFF09</option>') + options.join("");
           }
         }
       }
       function refreshTrains() {
         return __async(this, null, function* () {
+          var _a, _b, _c, _d;
           if (refreshing) return;
           refreshing = true;
           try {
-            const indexes = yield getIndexesForCurrentLine();
-            const trains = yield fetchTrainsForCurrentView();
-            setUpdatedAt(trains == null ? void 0 : trains.update);
-            renderStationFilter(indexes);
-            renderTrains(indexes, trains, dir);
-            yield updateTrafficInfo(area, currentLineIds);
-          } catch (error) {
-            console.error("\u518D\u53D6\u5F97\u306B\u5931\u6557", error);
+            if (!selectedCode) return;
+            currentData = yield fetchView();
+            if (currentData) {
+              renderAll(currentData);
+              debugLog(`fetched trains: up=${((_b = (_a = currentData.trains) == null ? void 0 : _a.up) == null ? void 0 : _b.length) || 0} down=${((_d = (_c = currentData.trains) == null ? void 0 : _c.down) == null ? void 0 : _d.length) || 0}`);
+            }
+          } catch (e) {
+            debugLog(`refresh failed: ${e}`);
           } finally {
             refreshing = false;
           }
         });
       }
+      function checkAlarms() {
+        var _a, _b, _c, _d, _e, _f, _g;
+        if (!currentData || !selectedCode) return;
+        const indexes = currentData.stations;
+        const stationIdx = (_b = (_a = indexes == null ? void 0 : indexes.byCode) == null ? void 0 : _a[selectedCode]) == null ? void 0 : _b.index;
+        const stationInfo = (_c = indexes == null ? void 0 : indexes.byCode) == null ? void 0 : _c[selectedCode];
+        const allowedCats = stationAllowedCategories(stationInfo);
+        const dirParam = currentDir === "both" ? "" : currentDir;
+        const allTrains = [
+          ...((_d = currentData.trains) == null ? void 0 : _d.up) || [],
+          ...((_e = currentData.trains) == null ? void 0 : _e.down) || []
+        ];
+        try {
+          alarmSystem.setLastShown(((_f = currentData.trains) == null ? void 0 : _f.up) || [], ((_g = currentData.trains) == null ? void 0 : _g.down) || [], indexes);
+          alarmSystem.handleApproachAlarms(indexes, allTrains, selectedCode, stationIdx, allowedCats, dirParam);
+        } catch (e) {
+          debugLog(`alarm check failed: ${e}`);
+        }
+      }
+      function doRefresh() {
+        return __async(this, null, function* () {
+          yield refreshTrains();
+          checkAlarms();
+        });
+      }
+      function bindControls() {
+        if (stationFilter) {
+          stationFilter.addEventListener("change", () => __async(null, null, function* () {
+            var _a, _b;
+            selectedCode = stationFilter.value;
+            if (selectedCode) {
+              setSetting(`lines.${selectedCode}.station`, selectedCode);
+            }
+            try {
+              alarmSystem.initAlarmControls();
+            } catch (e) {
+            }
+            yield doRefresh();
+            try {
+              const stationInfo = (_b = (_a = currentData == null ? void 0 : currentData.stations) == null ? void 0 : _a.byCode) == null ? void 0 : _b[selectedCode];
+              const allowedCats = stationAllowedCategories(stationInfo);
+              alarmSystem.renderAlarmOptions(currentData == null ? void 0 : currentData.stations, selectedCode, allowedCats, currentDir === "both" ? "" : currentDir);
+            } catch (e) {
+            }
+          }));
+        }
+        if (passFilter) {
+          passFilter.addEventListener("change", () => {
+            if (currentData) renderAll(currentData);
+          });
+        }
+        if (refreshStationsBtn) {
+          refreshStationsBtn.addEventListener("click", () => __async(null, null, function* () {
+            try {
+              clearAreaCache();
+            } catch (e) {
+            }
+            yield doRefresh();
+          }));
+        }
+        const delayEl = document.getElementById("delayThreshold");
+        const carsEl = document.getElementById("carsThreshold");
+        const carsFilterEl = document.getElementById("carsFilterEnable");
+        if (delayEl) {
+          delayEl.value = getDelayThreshold();
+          delayEl.addEventListener("change", () => setSetting("delay.threshold", delayEl.value));
+        }
+        if (carsEl) {
+          carsEl.value = getCarsThreshold();
+          carsEl.addEventListener("change", () => setSetting("cars.threshold", carsEl.value));
+        }
+        if (carsFilterEl) {
+          carsFilterEl.checked = isCarsFilterEnabled();
+          carsFilterEl.addEventListener("change", () => setSetting("cars.filterEnabled", carsFilterEl.checked ? "1" : "0"));
+        }
+        initBackgroundControls({ getSetting, setSetting, dbg });
+      }
+      function clearAreaCache() {
+        const area = getArea();
+        try {
+          for (const key of Object.keys(localStorage)) {
+            if (key.startsWith(`tid:areaStations:${area}`) || key.startsWith(`tid:cross:${area}`)) {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch (e) {
+        }
+      }
+      var refreshTimer = null;
       function startAutoRefresh() {
         stopAutoRefresh();
-        refreshTimer = setInterval(() => {
-          refreshTrains();
-        }, 1e4);
-        if (!visBound) {
-          document.addEventListener("visibilitychange", () => {
-            if (document.hidden) return;
-            refreshTrains();
-          });
-          visBound = true;
-        }
+        doRefresh();
+        refreshTimer = setInterval(doRefresh, 1e4);
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) doRefresh();
+        });
       }
       function stopAutoRefresh() {
         if (refreshTimer) {
@@ -3311,298 +2316,35 @@
           refreshTimer = null;
         }
       }
-      function setUpdatedAt(iso) {
-        if (!updatedAtEl) return;
-        updatedAtEl.textContent = iso ? formatJST(iso) : "";
-      }
-      function formatJST(iso) {
-        try {
-          const date = new Date(iso);
-          if (isNaN(date.getTime())) return "";
-          const parts = new Intl.DateTimeFormat("ja-JP", {
-            timeZone: "Asia/Tokyo",
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false
-          }).formatToParts(date);
-          const get = (type) => {
-            var _a2;
-            return ((_a2 = parts.find((part) => part.type === type)) == null ? void 0 : _a2.value) || "";
-          };
-          return `${get("year")}\u5E74${get("month")}\u6708${get("day")}\u65E5 ${get("hour")}\u6642${get("minute")}\u5206${get("second")}\u79D2\u66F4\u65B0`;
-        } catch (e) {
-          return "";
-        }
-      }
-      function renderTrains(indexes, trainsData, dirParam) {
-        var _a2;
-        const items = Array.isArray(trainsData == null ? void 0 : trainsData.trains) ? trainsData.trains : [];
-        const selectedCode = ((stationFilterEl == null ? void 0 : stationFilterEl.value) || "").trim();
-        if (fixedStationMode && !selectedCode) {
-          upContainer.textContent = `${fixedStationName} \u306E\u99C5\u30B3\u30FC\u30C9\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F`;
-          downContainer.textContent = `${fixedStationName} \u306E\u99C5\u30B3\u30FC\u30C9\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F`;
-          upContainer.parentElement.style.display = dirParam === "down" ? "none" : "";
-          downContainer.parentElement.style.display = dirParam === "up" ? "none" : "";
-          trainsContainer == null ? void 0 : trainsContainer.classList.toggle("single", dirParam === "up" || dirParam === "down");
-          return;
-        }
-        const allowedCats = stationAllowedCategories(indexes.byCode.get(selectedCode));
-        const passSetting = (passFilterEl == null ? void 0 : passFilterEl.value) || "hide";
-        const enhanced = items.map((train) => normalizeTrain(train)).map((train) => enhanceTrain(train, indexes.byCode));
-        const parsed = enhanced.filter((train) => filterByStationSetting(train, allowedCats, passSetting));
-        const stationIdx = selectedCode ? (_a2 = indexes.byCode.get(selectedCode)) == null ? void 0 : _a2.index : null;
-        const heading = document.getElementById("trainsHeading");
-        if (heading) {
-          if (selectedCode) {
-            const station = indexes.byCode.get(selectedCode);
-            heading.textContent = `\u5217\u8ECA\u4E00\u89A7\uFF08\u99C5\u3067\u7D5E\u308A\u8FBC\u307F: ${(station == null ? void 0 : station.name) || selectedCode}\uFF09`;
-          } else {
-            heading.textContent = "\u5217\u8ECA\u4E00\u89A7\uFF08\u7D5E\u308A\u8FBC\u307F\u7121\u3057\uFF09";
+      function init2() {
+        return __async(this, null, function* () {
+          migrateLegacySettings();
+          initDebugPanel();
+          debugLog("init started");
+          const fixedStationName = getFixedStationName();
+          if (fixedStationName && !selectedCode) {
+            selectedCode = yield resolveStation(fixedStationName);
+            debugLog(`resolved ${fixedStationName} -> ${selectedCode}`);
           }
-        }
-        const hidePassed = (list, direction) => {
-          if (stationIdx == null) return list;
-          return list.filter((train) => {
-            if (typeof train.posIndex !== "number") return true;
-            return direction === 0 ? train.posIndex >= stationIdx : train.posIndex <= stationIdx;
-          });
-        };
-        const destIndexForTrain = (train) => {
+          if (stationFilter && selectedCode) {
+            stationFilter.value = selectedCode;
+          }
+          bindControls();
           try {
-            const dest = train == null ? void 0 : train.dest;
-            if (!dest) return null;
-            let code = null;
-            if (typeof dest === "object") {
-              if (dest.code != null) {
-                code = String(dest.code);
-              } else {
-                const name = String(dest.text || dest.name || "").trim();
-                if (name) {
-                  for (const [, record] of indexes.byCode.entries()) {
-                    if (String((record == null ? void 0 : record.name) || "").trim() === name) {
-                      return typeof record.index === "number" ? record.index : null;
-                    }
-                  }
-                }
-              }
-            } else if (typeof dest === "string") {
-              const name = String(dest).trim();
-              if (name) {
-                for (const [, record] of indexes.byCode.entries()) {
-                  if (String((record == null ? void 0 : record.name) || "").trim() === name) {
-                    return typeof record.index === "number" ? record.index : null;
-                  }
-                }
-              }
-            }
-            if (code) {
-              const record = indexes.byCode.get(code);
-              return record && typeof record.index === "number" ? record.index : null;
-            }
+            alarmSystem.initAlarmControls();
           } catch (e) {
           }
-          return null;
-        };
-        const hideTerminatesBeforeSelected = (list, direction) => {
-          if (stationIdx == null) return list;
-          return list.filter((train) => {
-            const destIndex = destIndexForTrain(train);
-            if (typeof destIndex !== "number") return true;
-            return direction === 0 ? destIndex <= stationIdx : destIndex >= stationIdx;
-          });
-        };
-        let up = hidePassed(parsed.filter((train) => train.direction === 0).sort((a, b) => a.posIndex - b.posIndex), 0);
-        let down = hidePassed(parsed.filter((train) => train.direction === 1).sort((a, b) => b.posIndex - a.posIndex), 1);
-        up = hideTerminatesBeforeSelected(up, 0);
-        down = hideTerminatesBeforeSelected(down, 1);
-        try {
-          alarmSystem == null ? void 0 : alarmSystem.setLastShown({ up, down }, selectedCode, indexes);
-        } catch (e) {
-        }
-        try {
-          if (passSetting === "show" && selectedCode) {
-            const addExtrasForPass = (list, direction) => {
-              var _a3;
-              try {
-                if (!((_a3 = alarmSystem == null ? void 0 : alarmSystem.hasPassAlarmForDirection) == null ? void 0 : _a3.call(alarmSystem, direction))) return list;
-                const selected = String(selectedCode);
-                const base = parsed.filter((train) => train.direction === direction);
-                const extras = base.filter((train) => !train.stopped && (direction === 0 ? String(train.nextCode || "") === selected : String(train.atCode || "") === selected));
-                if (!extras.length) return list;
-                const keyOf = (train) => `${train.no || "?"}:${train.pos || ""}`;
-                const seen = new Set(list.map(keyOf));
-                for (const train of extras) {
-                  const key = keyOf(train);
-                  if (!seen.has(key)) {
-                    list.push(train);
-                    seen.add(key);
-                  }
-                }
-                return list;
-              } catch (e) {
-                return list;
-              }
-            };
-            up = addExtrasForPass(up, 0);
-            down = addExtrasForPass(down, 1);
+          if (!audioUnlocked && unlockOverlay) {
+            unlockOverlay.classList.remove("is-hidden");
+            unlockOverlay.removeAttribute("aria-hidden");
+            if (unlockHint) unlockHint.textContent = "\u30AF\u30EA\u30C3\u30AF\u307E\u305F\u306F\u30BF\u30C3\u30D7\u3067\u8A31\u53EF";
           }
-        } catch (e) {
-        }
-        try {
-          alarmSystem == null ? void 0 : alarmSystem.renderAlarmOptions(indexes, selectedCode, allowedCats, dirParam);
-        } catch (error) {
-          dbg("alarm render failed", error);
-        }
-        try {
-          const shown = dirParam === "up" ? up : dirParam === "down" ? down : up.concat(down);
-          alarmSystem == null ? void 0 : alarmSystem.handleApproachAlarms(indexes, shown, selectedCode, stationIdx, allowedCats, dirParam);
-        } catch (error) {
-          dbg("alarm check failed", error);
-        }
-        upContainer.parentElement.style.display = "";
-        downContainer.parentElement.style.display = "";
-        const renderOptions = {
-          getDelayThreshold,
-          getCarsThreshold,
-          getDestText,
-          getNickname,
-          configuredTypeTextClass,
-          trainCategoryFromDisplayType,
-          typeTextClass
-        };
-        if (dirParam === "up") {
-          renderTrainList(upContainer, up, indexes, renderOptions);
-          downContainer.parentElement.style.display = "none";
-          trainsContainer == null ? void 0 : trainsContainer.classList.add("single");
-        } else if (dirParam === "down") {
-          renderTrainList(downContainer, down, indexes, renderOptions);
-          upContainer.parentElement.style.display = "none";
-          trainsContainer == null ? void 0 : trainsContainer.classList.add("single");
-        } else {
-          renderTrainList(upContainer, up, indexes, renderOptions);
-          renderTrainList(downContainer, down, indexes, renderOptions);
-          trainsContainer == null ? void 0 : trainsContainer.classList.remove("single");
-        }
-      }
-      function filterByStationSetting(train, allowed, passSetting) {
-        if (!allowed) return true;
-        const category = trainCategoryFromDisplayType(train.displayType);
-        const stopsHere = category !== -1 && allowed.has(category) || category === -1;
-        if (passSetting === "show") return true;
-        return stopsHere;
-      }
-      function enhanceTrain(train, byCode) {
-        const { atCode, nextCode, stopped } = parsePos(train.pos);
-        const at = byCode.get(atCode);
-        const next = nextCode ? byCode.get(nextCode) : null;
-        let posIndex = at ? at.index : 0;
-        if (!stopped && at && next) {
-          posIndex = (at.index + next.index) / 2;
-        }
-        const stationLookup = { area, line, dbg, warn };
-        const atName = (at == null ? void 0 : at.name) || getStationNameByPriority(atCode, { byCode }, __spreadProps(__spreadValues({}, stationLookup), { neighborCode: nextCode })) || atCode || "";
-        const nextName = (next == null ? void 0 : next.name) || (nextCode ? getStationNameByPriority(nextCode, { byCode }, __spreadProps(__spreadValues({}, stationLookup), { neighborCode: atCode })) || nextCode : "") || "";
-        return __spreadProps(__spreadValues({}, train), {
-          atCode,
-          nextCode,
-          stopped,
-          posIndex,
-          atName,
-          nextName
+          bindAudioUnlockOnce();
+          startAutoRefresh();
+          debugLog("init done");
         });
       }
-      function parsePos(pos) {
-        const [left, right] = String(pos || "").split("_");
-        if (right === "####" || !right) {
-          return { atCode: left, nextCode: null, stopped: true };
-        }
-        return { atCode: left, nextCode: right, stopped: false };
-      }
-      function getDestText(train, indexes, tag) {
-        const dest = train && train.dest;
-        if (dest == null) return "";
-        if (typeof dest === "string") return dest;
-        if (typeof dest === "object") {
-          const code = dest.code != null ? String(dest.code) : "";
-          const text = dest.text || dest.name || "";
-          if (text && String(text).trim()) return String(text);
-          if (code) {
-            return getStationNameByPriority(code, indexes, { area, line, dbg, warn, tag }) || code;
-          }
-          return "";
-        }
-        return String(dest);
-      }
-      function initDebugPanel() {
-        const panel = document.createElement("div");
-        panel.id = "tidDebugPanel";
-        panel.style.cssText = `
-    position: fixed; bottom: 10px; right: 10px; width: 400px; max-height: 500px;
-    overflow-y: auto; background: rgba(0,0,0,0.9); color: #0f0;
-    font-family: monospace; font-size: 11px; padding: 10px;
-    border: 2px solid #0f0; z-index: 9999; border-radius: 5px;
-  `;
-        const title = document.createElement("div");
-        title.textContent = "TID Debug Panel";
-        title.style.cssText = "font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #ff0;";
-        panel.appendChild(title);
-        const logContainer = document.createElement("div");
-        logContainer.id = "tidDebugLog";
-        panel.appendChild(logContainer);
-        document.body.appendChild(panel);
-        const originalDbg = window.dbg || dbg;
-        window.dbg = function(...args) {
-          originalDbg.apply(this, args);
-          try {
-            const logEl = document.getElementById("tidDebugLog");
-            if (!logEl) return;
-            const entry = document.createElement("div");
-            entry.style.cssText = "margin: 3px 0; padding: 3px; border-bottom: 1px solid #333;";
-            const timestamp = (/* @__PURE__ */ new Date()).toLocaleTimeString("ja-JP");
-            entry.textContent = `[${timestamp}] ${JSON.stringify(args)}`;
-            const message = args.join(" ");
-            if (message.includes("ALARM_TRIGGER")) entry.style.color = "#0f0";
-            else if (message.includes("ALARM_SKIP") || message.includes("ALARM_NO")) entry.style.color = "#f80";
-            else if (message.includes("ALARM_QUEUED")) entry.style.color = "#0ff";
-            else if (message.includes("ALARM_PREFS")) entry.style.color = "#ff0";
-            logEl.appendChild(entry);
-            if (logEl.children.length > 100) logEl.removeChild(logEl.firstChild);
-            logEl.scrollTop = logEl.scrollHeight;
-          } catch (e) {
-          }
-        };
-      }
-      if (TID_DEBUG) {
-        window.tidTestAlarm = function(trainNo, direction, targetCode) {
-          console.log("[TID][TEST] Simulating alarm", trainNo, direction, targetCode);
-          const dirNum = direction === "up" ? 0 : 1;
-          const key = `${trainNo}:${dirNum}:${targetCode}`;
-          const msg = `\u30C6\u30B9\u30C8: ${trainNo}\u53F7\u3001${direction}\u3001${targetCode}\u99C5\u63A5\u8FD1`;
-          const meta = {
-            area,
-            line,
-            dir: direction,
-            direction: dirNum,
-            trainNo,
-            atCode: targetCode,
-            nextCode: "",
-            targetCode,
-            stopped: true,
-            displayType: "\u5FEB\u901F",
-            nickname: "\u30C6\u30B9\u30C8\u5217\u8ECA",
-            delay: 0,
-            dest: "\u30C6\u30B9\u30C8\u884C\u304D",
-            triggerReason: "manual-test"
-          };
-          alarmSystem == null ? void 0 : alarmSystem.notifyOnce(direction, key, msg, () => {
-          }, meta);
-        };
-        console.log("[TID][DEBUG] Test function: tidTestAlarm(trainNo, direction, targetCode)");
-      }
+      init2();
     }
   });
 
