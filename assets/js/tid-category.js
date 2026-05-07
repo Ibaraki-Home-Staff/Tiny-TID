@@ -1,5 +1,3 @@
-import { U_TOKEN_TYPE_MAP } from './tid-rules.js';
-
 export const CATEGORY = Object.freeze({
   LOCAL: 0,
   RAPID_SPECIAL: 1,
@@ -15,17 +13,17 @@ export const CATEGORY = Object.freeze({
 });
 
 const CATEGORY_MATCHERS = [
-  { pattern: /新快速/, category: CATEGORY.RAPID_SPECIAL },
-  { pattern: /区間快速/, category: CATEGORY.RAPID_SECTION },
-  { pattern: /直通快速/, category: CATEGORY.RAPID_DIRECT },
-  { pattern: /快速/, category: CATEGORY.RAPID },
-  { pattern: /特急/, category: CATEGORY.LIMITED_EXPRESS },
-  { pattern: /急行/, category: CATEGORY.EXPRESS },
-  { pattern: /寝台/, category: CATEGORY.SLEEPER },
-  { pattern: /\bSL\b/, category: CATEGORY.SL },
-  { pattern: /観光/, category: CATEGORY.SIGHTSEEING },
-  { pattern: /瑞風/, category: CATEGORY.TWILIGHT },
-  { pattern: /普通/, category: CATEGORY.LOCAL }
+  { pattern: /新快速/,     category: CATEGORY.RAPID_SPECIAL },
+  { pattern: /区間快速/,   category: CATEGORY.RAPID_SECTION },
+  { pattern: /直通快速/,   category: CATEGORY.RAPID_DIRECT },
+  { pattern: /快速/,       category: CATEGORY.RAPID },
+  { pattern: /特急/,       category: CATEGORY.LIMITED_EXPRESS },
+  { pattern: /急行/,       category: CATEGORY.EXPRESS },
+  { pattern: /寝台/,       category: CATEGORY.SLEEPER },
+  { pattern: /\bSL\b/,     category: CATEGORY.SL },
+  { pattern: /観光/,       category: CATEGORY.SIGHTSEEING },
+  { pattern: /瑞風/,       category: CATEGORY.TWILIGHT },
+  { pattern: /普通/,       category: CATEGORY.LOCAL }
 ];
 
 const CATEGORY_LABELS = Object.freeze({
@@ -57,7 +55,6 @@ const CATEGORY_COLOR_CLASS = Object.freeze({
 
 export function trainCategoryFromDisplayType(displayType){
   const label = String(displayType || '').trim();
-
   for(const { pattern, category } of CATEGORY_MATCHERS){
     if(pattern.test(label)) return category;
   }
@@ -74,57 +71,6 @@ export function typeTextClass(category){
 
 export function getNickname(train){
   return String(train?.nickname || '').trim();
-}
-
-export function normalizeTrain(train){
-  if(!train || typeof train !== 'object') return train;
-
-  const normalized = { ...train };
-  const displayType = String(normalized.displayType || '').trim();
-
-  normalizeAShinkaisoku(displayType, normalized);
-  normalizeUreshito(displayType, normalized);
-
-  return normalized;
-}
-
-function normalizeAShinkaisoku(displayType, train){
-  let match = displayType.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
-  if(match){
-    train.displayType = '新快速';
-    appendNicknameSuffix(train, `Aシート${match[1]}`, /Aシート/i);
-    return;
-  }
-
-  match = displayType.match(/^A→新快/i);
-  if(match){
-    train.displayType = '新快速';
-    appendNicknameSuffix(train, 'Aシート×', /Aシート/i);
-    return;
-  }
-}
-
-function normalizeUreshito(displayType, train){
-  const match = displayType.match(/^う[\s　]*([^\s○◯〇×]+)[\s　]*([○◯〇×])$/);
-  if(!match) return;
-
-  const [, token, mark] = match;
-  const resolvedType = resolveUTokenType(token);
-  if(!resolvedType) return;
-
-  train.displayType = resolvedType;
-  appendNicknameSuffix(train, `うれしート${mark}`, /うれしート/i);
-}
-
-function resolveUTokenType(token){
-  if(token === '快速' || token === '普通') return token;
-  return U_TOKEN_TYPE_MAP?.[token];
-}
-
-function appendNicknameSuffix(train, suffix, alreadyHasPattern){
-  const nickname = getNickname(train);
-  if(alreadyHasPattern.test(nickname)) return;
-  train.nickname = nickname ? `${nickname} ${suffix}` : suffix;
 }
 
 export function stationAllowedCategories(stationData){

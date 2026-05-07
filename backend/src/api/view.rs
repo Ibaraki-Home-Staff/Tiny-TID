@@ -174,9 +174,9 @@ pub async fn handle_view(
         }
     }
 
-    // Filter and sort by direction
+    // Filter and sort by direction (return all trains, frontend handles pass filtering)
     let (up_trains, down_trains) =
-        filter_and_sort(&enhanced, &station_indexes, &selected_code, "hide");
+        filter_and_sort(&enhanced, &station_indexes, &selected_code, "show");
 
     // Fetch traffic info
     let traffic_info = match client.fetch_traffic_info(&params.area).await {
