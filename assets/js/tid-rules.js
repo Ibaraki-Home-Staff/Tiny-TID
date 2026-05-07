@@ -7,6 +7,7 @@ export const U_TOKEN_TYPE_MAP = {
   '直快': '直通快速',
   '区快': '区間快速',
   'み快': 'みやこ路快速',
+  '新快': '新快速',
   // Add more pairs here as needed
 };
 

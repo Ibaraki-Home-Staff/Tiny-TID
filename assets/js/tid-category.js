@@ -89,11 +89,19 @@ export function normalizeTrain(train){
 }
 
 function normalizeAShinkaisoku(displayType, train){
-  const match = displayType.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
-  if(!match) return;
+  let match = displayType.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
+  if(match){
+    train.displayType = '新快速';
+    appendNicknameSuffix(train, `Aシート${match[1]}`, /Aシート/i);
+    return;
+  }
 
-  train.displayType = '新快速';
-  appendNicknameSuffix(train, `Aシート${match[1]}`, /Aシート/i);
+  match = displayType.match(/^A→新快/i);
+  if(match){
+    train.displayType = '新快速';
+    appendNicknameSuffix(train, 'Aシート×', /Aシート/i);
+    return;
+  }
 }
 
 function normalizeUreshito(displayType, train){

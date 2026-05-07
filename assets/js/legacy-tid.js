@@ -145,7 +145,8 @@
       U_TOKEN_TYPE_MAP = {
         "\u76F4\u5FEB": "\u76F4\u901A\u5FEB\u901F",
         "\u533A\u5FEB": "\u533A\u9593\u5FEB\u901F",
-        "\u307F\u5FEB": "\u307F\u3084\u3053\u8DEF\u5FEB\u901F"
+        "\u307F\u5FEB": "\u307F\u3084\u3053\u8DEF\u5FEB\u901F",
+        "\u65B0\u5FEB": "\u65B0\u5FEB\u901F"
         // Add more pairs here as needed
       };
     }
@@ -177,10 +178,18 @@
     return normalized;
   }
   function normalizeAShinkaisoku(displayType, train) {
-    const match = displayType.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
-    if (!match) return;
-    train.displayType = "\u65B0\u5FEB\u901F";
-    appendNicknameSuffix(train, `A\u30B7\u30FC\u30C8${match[1]}`, /Aシート/i);
+    let match = displayType.match(/^A[\s　]*新快[\s　]*([○◯〇×])/i);
+    if (match) {
+      train.displayType = "\u65B0\u5FEB\u901F";
+      appendNicknameSuffix(train, `A\u30B7\u30FC\u30C8${match[1]}`, /Aシート/i);
+      return;
+    }
+    match = displayType.match(/^A→新快/i);
+    if (match) {
+      train.displayType = "\u65B0\u5FEB\u901F";
+      appendNicknameSuffix(train, "A\u30B7\u30FC\u30C8\xD7", /Aシート/i);
+      return;
+    }
   }
   function normalizeUreshito(displayType, train) {
     const match = displayType.match(/^う[\s　]*([^\s○◯〇×]+)[\s　]*([○◯〇×])$/);
