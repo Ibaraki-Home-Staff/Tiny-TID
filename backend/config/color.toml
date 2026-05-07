@@ -1,0 +1,62 @@
+[[type_colors]]
+type = "臨時"
+class = "type-text-red"
+
+[[type_colors]]
+type = "特急"
+class = "type-text-red"
+
+[[type_colors]]
+type = "急行"
+class = "type-text-red"
+
+[[type_colors]]
+type = "寝台"
+class = "type-text-red"
+
+[[type_colors]]
+type = "SL"
+class = "type-text-red"
+
+[[type_colors]]
+type = "観光"
+class = "type-text-red"
+
+[[type_colors]]
+type = "新快速"
+class = "type-text-blue"
+
+[[type_colors]]
+type = "直通快速"
+class = "type-text-bluegray"
+
+[[type_colors]]
+type = "快速"
+class = "type-text-orange"
+
+[[type_colors]]
+type = "丹波路快"
+class = "type-text-orange"
+
+[[type_colors]]
+type = "関空紀州"
+class = "type-text-orange"
+
+[[type_colors]]
+type = "紀州路快"
+class = "type-text-orange"
+
+[[type_colors]]
+type = "区間快速"
+class = "type-text-green"
+
+[[type_colors]]
+type = "普通"
+
+[[type_colors]]
+type = "瑞風"
+class = "type-text-emerald"
+
+[[type_colors]]
+type = "大和路快"
+class = "type-text-green"
