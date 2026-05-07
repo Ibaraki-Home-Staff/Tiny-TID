@@ -2,6 +2,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 
+use crate::paths::PROJECT_ROOT;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Category {
@@ -101,23 +103,17 @@ static CATEGORY_COLOR_CLASS: Lazy<HashMap<Category, &str>> = Lazy::new(|| {
 /// Load type color overrides from config TOML.
 /// Returns a map from type label to CSS class.
 pub fn load_type_colors_from_config() -> HashMap<String, String> {
-    // Try reading config/color.toml relative to working directory
-    let path = std::path::Path::new("config/color.toml");
+    let path = PROJECT_ROOT.join("backend/config/color.toml");
     if !path.exists() {
-        // Fallback: try relative to executable
-        let exe_path = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
-        if let Some(dir) = exe_path {
-            let alt = dir.join("config/color.toml");
-            if alt.exists() {
-                return parse_color_config(&alt);
-            }
+        // Fallback: try config/color.toml relative to project root
+        let alt = PROJECT_ROOT.join("config/color.toml");
+        if alt.exists() {
+            return parse_color_config(&alt);
         }
-        tracing::warn!("color.toml not found, using built-in defaults");
+        tracing::warn!("color.toml not found at {}, using built-in defaults", path.display());
         return HashMap::new();
     }
-    parse_color_config(path)
+    parse_color_config(&path)
 }
 
 fn parse_color_config(path: &std::path::Path) -> HashMap<String, String> {

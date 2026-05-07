@@ -1,9 +1,8 @@
 mod api;
 mod cache;
 mod models;
+mod paths;
 mod processing;
-
-use std::path::PathBuf;
 
 use axum::{
     body::Body,
@@ -13,6 +12,7 @@ use axum::{
     routing::get,
     Router,
 };
+use paths::PROJECT_ROOT;
 use reqwest::Client;
 
 #[tokio::main]
@@ -23,6 +23,8 @@ async fn main() {
                 .unwrap_or_else(|_| "tiny_tid=info".into()),
         )
         .init();
+
+    tracing::info!("Project root: {}", PROJECT_ROOT.display());
 
     let app = Router::new()
         .route("/api/view", get(api::view::handle_view))
@@ -41,16 +43,16 @@ async fn serve_static(req: Request<Body>) -> Result<Response, std::convert::Infa
     let path = req.uri().path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
-    let file_path = PathBuf::from(".").join(path);
+    let file_path = PROJECT_ROOT.join(path);
 
     // Prevent directory traversal
     let Ok(canonical) = file_path.canonicalize() else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
-    let Ok(root) = PathBuf::from(".").canonicalize() else {
+    let Ok(root_canonical) = PROJECT_ROOT.canonicalize() else {
         return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
     };
-    if !canonical.starts_with(&root) {
+    if !canonical.starts_with(&root_canonical) {
         return Ok(StatusCode::FORBIDDEN.into_response());
     }
 
@@ -64,8 +66,7 @@ async fn serve_static(req: Request<Body>) -> Result<Response, std::convert::Infa
                 .unwrap()
         }
         Err(_) => {
-            // Try index.html fallback for SPA-like routing
-            let index = PathBuf::from(".").join("index.html");
+            let index = PROJECT_ROOT.join("index.html");
             if let Ok(contents) = tokio::fs::read(&index).await {
                 Response::builder()
                     .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
