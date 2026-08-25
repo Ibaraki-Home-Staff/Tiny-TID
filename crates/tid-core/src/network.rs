@@ -10,7 +10,7 @@ use crate::model::{StationsDoc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-pub const SNAPSHOT_VERSION: u32 = 2;
+pub const SNAPSHOT_VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct NetworkSnapshot {
@@ -105,7 +105,109 @@ pub fn build_snapshot(built_at: &str, st_docs: &[(String, StationsDoc)]) -> Netw
             snap.orders.insert(line_id.clone(), order);
         }
     }
+
+    prune_links(&mut snap);
+    implicit_unions(&mut snap);
     snap
+}
+
+fn prune_links(snap: &mut NetworkSnapshot) {
+    for m in snap.lines.values_mut() {
+        for st in m.values_mut() {
+            st.transfers.retain(|t| !t.line.starts_with("http"));
+        }
+    }
+    let keys: Vec<(String, String)> = snap
+        .lines
+        .iter()
+        .flat_map(|(l, m)| m.keys().map(move |c| (l.clone(), c.clone())))
+        .collect();
+    let exists = |line: &str, code: &str| keys.contains(&(line.to_string(), code.to_string()));
+    for m in snap.lines.values_mut() {
+        for st in m.values_mut() {
+            st.transfers.retain(|t| exists(&t.line, &t.code));
+        }
+    }
+}
+
+fn norm_name(v: &str) -> String {
+    v.trim().chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+fn implicit_unions(snap: &mut NetworkSnapshot) {
+    // Line pairs that already share an explicit link (for Rule B).
+    let mut direct: BTreeSet<[String; 2]> = BTreeSet::new();
+    for (line_id, m) in &snap.lines {
+        for st in m.values() {
+            for t in &st.transfers {
+                if snap.lines.contains_key(&t.line) {
+                    let mut pair = [line_id.clone(), t.line.clone()];
+                    pair.sort();
+                    direct.insert(pair);
+                }
+            }
+        }
+    }
+
+    // code -> [(line, normalized name)]
+    let mut by_code: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for (line_id, m) in &snap.lines {
+        for (code, st) in m {
+            let n = norm_name(&st.name);
+            if !n.is_empty() {
+                by_code.entry(code.clone()).or_default().push((line_id.clone(), n));
+            }
+        }
+    }
+
+    // Rule A: same code + same normalized name.
+    for (code, entries) in &by_code {
+        if entries.len() < 2 { continue; }
+        for i in 0..entries.len() {
+            for j in i + 1..entries.len() {
+                let (la, na) = (&entries[i].0, &entries[i].1);
+                let (lb, nb) = (&entries[j].0, &entries[j].1);
+                if la == lb || na != nb { continue; }
+                add_edge(snap, la, code, TransferEdge { line: lb.clone(), code: code.clone(), kind: -1 });
+                add_edge(snap, lb, code, TransferEdge { line: la.clone(), code: code.clone(), kind: -1 });
+            }
+        }
+    }
+
+    // Rule B: same normalized name, different codes, on directly-linked lines.
+    let mut by_name: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for (line_id, m) in &snap.lines {
+        for (code, st) in m {
+            let n = norm_name(&st.name);
+            if !n.is_empty() {
+                by_name.entry(n).or_default().push((line_id.clone(), code.clone()));
+            }
+        }
+    }
+    for (_name, entries) in &by_name {
+        if entries.len() < 2 { continue; }
+        for i in 0..entries.len() {
+            for j in i + 1..entries.len() {
+                let (la, ca) = (&entries[i].0, &entries[i].1);
+                let (lb, cb) = (&entries[j].0, &entries[j].1);
+                if la == lb || ca == cb { continue; } // same code handled by Rule A
+                let mut pair = [la.clone(), lb.clone()];
+                pair.sort();
+                if direct.contains(&pair) {
+                    add_edge(snap, la, ca, TransferEdge { line: lb.clone(), code: cb.clone(), kind: -2 });
+                    add_edge(snap, lb, cb, TransferEdge { line: la.clone(), code: ca.clone(), kind: -2 });
+                }
+            }
+        }
+    }
+}
+
+fn add_edge(snap: &mut NetworkSnapshot, line: &str, code: &str, t: TransferEdge) {
+    if let Some(st) = snap.lines.get_mut(line).and_then(|m| m.get_mut(code)) {
+        if !st.transfers.iter().any(|e| e.line == t.line && e.code == t.code) {
+            st.transfers.push(t);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
