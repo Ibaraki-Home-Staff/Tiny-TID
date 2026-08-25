@@ -7,8 +7,12 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+coarsetime = "0.1"
+http = "1"
+sha2 = "0.11"
 tid-core = { path = "../tid-core" }
-worker = { version = "0.4", features = ["d1"] }
+worker = { version = "0.8", features = ["d1"] }
+wasm-bindgen = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 web-push-native = "0.5"
