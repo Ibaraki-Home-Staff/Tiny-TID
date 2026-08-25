@@ -36,10 +36,9 @@ function urlB64ToUint8Array(base64String){
   return outputArray;
 }
 
-async function subscribePush(reg){
+export async function subscribePush(reg, info = {}){
   try{
     if(!reg || !('pushManager' in reg)) return null;
-    // Read config from meta tags
     const metaKey = document.querySelector('meta[name="push:publicKey"]');
     const metaEndpoint = document.querySelector('meta[name="push:subscribeUrl"]');
     const pubKey = metaKey && metaKey.getAttribute('content');
@@ -49,25 +48,22 @@ async function subscribePush(reg){
     if(!sub){
       sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(pubKey) });
     }
-    // send to app server
-    try{
-      await fetch(subscribeUrl, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(sub) });
-    }catch{}
+    // Worker contract: { subscription, station, prefs_json }
+    await fetch(subscribeUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub.toJSON ? sub.toJSON() : sub,
+        station: info.stationCode || '',
+        prefs_json: info.prefsJson || '{}',
+      }),
+    });
     return sub;
   }catch(err){ console.warn('[PWA] push subscribe failed', err); return null; }
 }
 
 (async function init(){
-  const reg = await registerServiceWorker();
-  if(!reg) return;
-  // Avoid prompting on page load. Respect user's in-app toggle instead.
-  try{
-    const bg = (localStorage.getItem('tid:bgnotify') === '1');
-    if(!bg) return;
-  }catch{}
-  // If already granted, proceed to subscribe silently. Otherwise do nothing here;
-  // the UI toggle in TID page handles prompting.
-  if('Notification' in window && Notification.permission === 'granted'){
-    try{ await subscribePush(reg); }catch{}
-  }
+  // Service worker registration only; push subscription is driven by app.js
+  // after it knows the station code and alarm preferences.
+  await registerServiceWorker();
 })();

@@ -68,8 +68,8 @@
     }
     return outputArray;
   }
-  function subscribePush(reg) {
-    return __async(this, null, function* () {
+  function subscribePush(_0) {
+    return __async(this, arguments, function* (reg, info = {}) {
       try {
         if (!reg || !("pushManager" in reg)) return null;
         const metaKey = document.querySelector('meta[name="push:publicKey"]');
@@ -81,10 +81,15 @@
         if (!sub) {
           sub = yield reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(pubKey) });
         }
-        try {
-          yield fetch(subscribeUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sub) });
-        } catch (e) {
-        }
+        yield fetch(subscribeUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            subscription: sub.toJSON ? sub.toJSON() : sub,
+            station: info.stationCode || "",
+            prefs_json: info.prefsJson || "{}"
+          })
+        });
         return sub;
       } catch (err) {
         console.warn("[PWA] push subscribe failed", err);
@@ -94,19 +99,7 @@
   }
   (function init() {
     return __async(this, null, function* () {
-      const reg = yield registerServiceWorker();
-      if (!reg) return;
-      try {
-        const bg = localStorage.getItem("tid:bgnotify") === "1";
-        if (!bg) return;
-      } catch (e) {
-      }
-      if ("Notification" in window && Notification.permission === "granted") {
-        try {
-          yield subscribePush(reg);
-        } catch (e) {
-        }
-      }
+      yield registerServiceWorker();
     });
   })();
 
@@ -303,7 +296,6 @@
   var audioEl = null;
   var audioUnlocked = false;
   var pendingQueue = [];
-  var lastShown = [];
   function initAlarm({ scope, areaId, lineId }) {
     lineScope = scope;
     area = areaId;
@@ -484,7 +476,7 @@
     const idxOf = new Map(stations.map((s) => [s.code, s.index]));
     const pos = order.indexOf(stationCode);
     for (const t of trains) {
-      if (!lastShown.some((x) => x.no === t.no && x.posIndex === t.posIndex)) continue;
+      let stopFired = false;
       const dirKey = t.direction === 0 ? "up" : "down";
       const cfg = getLineConfigSafe();
       const stCfg = ((_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[stationCode]) == null ? void 0 : _b[dirKey]) || {};
@@ -519,15 +511,16 @@
       }
       if ((boundary || range) && prefs.has(`cat:${t.category}`)) {
         fire(t, target, stationCode, dirKey, range ? "range" : "segment");
+        stopFired = true;
         continue;
       }
-      if (!boundary && !(range && prefs.has(`cat:${t.category}`)) && prefs.has("pass")) {
+      if (!stopFired && prefs.has("pass")) {
         const passTarget = ((_c = stCfg.targets) == null ? void 0 : _c.pass) ? String(stCfg.targets.pass) : ahead[0];
-        const atPass = passTarget && (stoppedAt || movingOn || t.atUnit === passTarget);
-        if (atPass && t.willStopHere === false) fire(t, passTarget || target, stationCode, dirKey, "pass");
+        if (passTarget && (stoppedAt || movingOn) && t.willStopHere === false) {
+          fire(t, passTarget, stationCode, dirKey, "pass");
+        }
       }
     }
-    lastShown = trains.slice();
   }
   function fire(t, target, stationCode, dirKey, reason) {
     var _a;
@@ -543,7 +536,7 @@
     showAlarmModal(__spreadProps(__spreadValues({}, t), { reason }));
     try {
       if (getSetting("bg.notify", null) === "1" && document.hidden && "Notification" in window && Notification.permission === "granted") {
-        new Notification("\u5217\u8ECA\u63A5\u8FD1", { body: `${no}\u3001${t.destText || ""}\u63A5\u8FD1`, tag: approachKey(no, stationCode, t.direction) });
+        new Notification("\u5217\u8ECA\u63A5\u8FD1", { body: `${no}\u3001${t.destText || ""}\u63A5\u8FD1`, tag: approachKey(no, stationCode, t.direction), renotify: true, icon: "/assets/img/placeholder.svg" });
       }
     } catch (e) {
     }
@@ -574,6 +567,229 @@
   var getLineConfigRef = null;
   function bindLineConfig(fn) {
     getLineConfigRef = fn;
+  }
+  var CAT_LABELS = { 0: "\u666E\u901A", 1: "\u65B0\u5FEB\u901F", 2: "\u5FEB\u901F", 3: "\u533A\u9593\u5FEB\u901F", 4: "\u76F4\u901A\u5FEB\u901F", 5: "\u7279\u6025", 6: "\u6025\u884C", 7: "\u5BDD\u53F0", 8: "SL", 9: "\u89B3\u5149\u5217\u8ECA", 10: "\u745E\u98A8" };
+  var controlsBound = false;
+  function readDisable(dir, stCode) {
+    var _a, _b, _c;
+    try {
+      const cfg = getLineConfigSafe();
+      const v = (_c = (_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[stCode]) == null ? void 0 : _b[dir]) == null ? void 0 : _c.disabled;
+      return v === void 0 ? false : !!v;
+    } catch (e) {
+      return false;
+    }
+  }
+  function saveDisable(dir, stCode, v) {
+    try {
+      setSetting(`lines.${lineScope}.alarms.${stCode}.${dir}.disabled`, !!v);
+    } catch (e) {
+    }
+  }
+  function readPrefs(dir, stCode) {
+    var _a, _b, _c;
+    try {
+      const cfg = getLineConfigSafe();
+      const arr = (_c = (_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[stCode]) == null ? void 0 : _b[dir]) == null ? void 0 : _c.prefs;
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (e) {
+      return /* @__PURE__ */ new Set();
+    }
+  }
+  function savePrefs(dir, stCode, values) {
+    try {
+      setSetting(`lines.${lineScope}.alarms.${stCode}.${dir}.prefs`, Array.from(values || []));
+    } catch (e) {
+    }
+  }
+  function readTargets(dir, stCode) {
+    var _a, _b, _c;
+    try {
+      const cfg = getLineConfigSafe();
+      const obj = (_c = (_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[stCode]) == null ? void 0 : _b[dir]) == null ? void 0 : _c.targets;
+      return obj && typeof obj === "object" ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function saveTarget(dir, stCode, catKey, code) {
+    try {
+      const obj = readTargets(dir, stCode);
+      obj[catKey] = String(code || "");
+      setSetting(`lines.${lineScope}.alarms.${stCode}.${dir}.targets`, obj);
+    } catch (e) {
+    }
+  }
+  function setDisabledForDir(dir, disabled) {
+    const sel = dir === "up" ? "[data-alarm-up]" : "[data-alarm-down]";
+    document.querySelectorAll(sel).forEach((b) => {
+      b.disabled = !!disabled;
+      const p = b.parentElement;
+      if (p && p.style) p.style.opacity = disabled ? "0.5" : "";
+    });
+    const fs = document.getElementById(dir === "up" ? "alarmUpBox" : "alarmDownBox");
+    if (fs) fs.querySelectorAll("select").forEach((s2) => {
+      s2.disabled = !!disabled || s2.options.length === 0 || s2.value === "";
+    });
+  }
+  function bindAlarmControls(stationCode) {
+    var _a, _b;
+    const upDis = document.getElementById("alarmUpDisable");
+    const dnDis = document.getElementById("alarmDownDisable");
+    if (upDis) {
+      upDis.checked = readDisable("up", stationCode);
+      setDisabledForDir("up", upDis.checked);
+      upDis.onchange = () => {
+        saveDisable("up", stationCode, upDis.checked);
+        setDisabledForDir("up", upDis.checked);
+      };
+    }
+    if (dnDis) {
+      dnDis.checked = readDisable("down", stationCode);
+      setDisabledForDir("down", dnDis.checked);
+      dnDis.onchange = () => {
+        saveDisable("down", stationCode, dnDis.checked);
+        setDisabledForDir("down", dnDis.checked);
+      };
+    }
+    if (!controlsBound) {
+      (_a = document.getElementById("alarmUpBox")) == null ? void 0 : _a.addEventListener("change", () => {
+        const vals = new Set(Array.from(document.querySelectorAll("[data-alarm-up]")).filter((b) => b.checked).map((b) => b.value));
+        savePrefs("up", stationCode, vals);
+      });
+      (_b = document.getElementById("alarmDownBox")) == null ? void 0 : _b.addEventListener("change", () => {
+        const vals = new Set(Array.from(document.querySelectorAll("[data-alarm-down]")).filter((b) => b.checked).map((b) => b.value));
+        savePrefs("down", stationCode, vals);
+      });
+      controlsBound = true;
+    }
+  }
+  function renderAlarmOptions({ stations, stationCode, allowedCats, dirParam }) {
+    const upBox = document.getElementById("alarmUpOptions");
+    const dnBox = document.getElementById("alarmDownOptions");
+    const row = document.getElementById("alarmRow");
+    const upFs = document.getElementById("alarmUpBox");
+    const dnFs = document.getElementById("alarmDownBox");
+    if (!upBox || !dnBox || !row) return;
+    if (!stationCode) {
+      row.style.display = "none";
+      upBox.innerHTML = "";
+      dnBox.innerHTML = "";
+      return;
+    }
+    row.style.display = "flex";
+    if (dirParam === "up") {
+      if (upFs) upFs.style.display = "";
+      if (dnFs) dnFs.style.display = "none";
+    } else if (dirParam === "down") {
+      if (upFs) upFs.style.display = "none";
+      if (dnFs) dnFs.style.display = "";
+    } else {
+      if (upFs) upFs.style.display = "";
+      if (dnFs) dnFs.style.display = "";
+    }
+    bindAlarmControls(stationCode);
+    const upDisable = document.getElementById("alarmUpDisable");
+    const dnDisable = document.getElementById("alarmDownDisable");
+    if (upDisable) upDisable.checked = readDisable("up", stationCode);
+    if (dnDisable) dnDisable.checked = readDisable("down", stationCode);
+    const cats = (Array.isArray(allowedCats) ? allowedCats : Object.keys(CAT_LABELS).map(Number)).slice().sort((x, y) => x - y);
+    const order = stations.map((s) => s.code);
+    const pos = order.indexOf(stationCode);
+    const ahead = (dir) => {
+      const out = [];
+      if (pos < 0) return out;
+      const step = dir === "up" ? 1 : -1;
+      for (let k = 1; k <= 3; k += 1) {
+        const i = pos + step * k;
+        if (i >= 0 && i < order.length) out.push(order[i]);
+      }
+      return out;
+    };
+    const nameOf = (code) => {
+      var _a;
+      return ((_a = stations.find((s) => s.code === code)) == null ? void 0 : _a.name) || code;
+    };
+    const build = (container, attr, dir) => {
+      container.innerHTML = "";
+      const saved = readPrefs(dir, stationCode);
+      const targets = readTargets(dir, stationCode);
+      cats.forEach((cat) => {
+        const catKey = `cat:${cat}`;
+        const wrap = document.createElement("label");
+        Object.assign(wrap.style, {
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          padding: "0.9rem 1.1rem",
+          margin: "0.35rem 0",
+          border: "1px solid #e0e0e0",
+          borderRadius: "0.5rem",
+          fontSize: "1.15rem",
+          minHeight: "52px",
+          cursor: "pointer"
+        });
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.setAttribute(attr, "");
+        input.value = catKey;
+        input.checked = saved.has(catKey);
+        input.style.transform = "scale(1.35)";
+        input.style.transformOrigin = "left center";
+        wrap.appendChild(input);
+        const text = document.createElement("span");
+        text.textContent = CAT_LABELS[cat] || `\u7A2E\u5225${cat}`;
+        wrap.appendChild(text);
+        const sel = document.createElement("select");
+        Object.assign(sel.style, { marginLeft: "auto", fontSize: "1rem", padding: ".4rem .6rem", minWidth: "11rem" });
+        const aheadList = ahead(dir);
+        if (aheadList.length) {
+          aheadList.forEach((code) => {
+            const o = document.createElement("option");
+            o.value = code;
+            o.textContent = nameOf(code);
+            sel.appendChild(o);
+          });
+          sel.value = targets[catKey] && aheadList.includes(targets[catKey]) ? targets[catKey] : aheadList[0];
+        } else {
+          const o = document.createElement("option");
+          o.value = "";
+          o.textContent = "\u5019\u88DC\u306A\u3057";
+          sel.appendChild(o);
+          sel.disabled = true;
+        }
+        sel.addEventListener("change", () => saveTarget(dir, stationCode, catKey, sel.value));
+        wrap.appendChild(sel);
+        container.appendChild(wrap);
+      });
+      const passWrap = document.createElement("label");
+      Object.assign(passWrap.style, {
+        display: "flex",
+        alignItems: "center",
+        gap: "0.75rem",
+        padding: "0.9rem 1.1rem",
+        margin: "0.35rem 0",
+        border: "1px solid #e0e0e0",
+        borderRadius: "0.5rem",
+        fontSize: "1.15rem",
+        minHeight: "52px",
+        cursor: "pointer"
+      });
+      const pass = document.createElement("input");
+      pass.type = "checkbox";
+      pass.setAttribute(attr, "");
+      pass.value = "pass";
+      pass.checked = saved.has("pass");
+      pass.style.transform = "scale(1.35)";
+      pass.style.transformOrigin = "left center";
+      passWrap.appendChild(pass);
+      const pt = document.createElement("span");
+      pt.textContent = "\u901A\u904E\u5217\u8ECA\u30A2\u30E9\u30FC\u30E0\uFF08\u505C\u8ECA\u3057\u306A\u3044\u5217\u8ECA\u304C\u6765\u305F\u3068\u304D\uFF09";
+      passWrap.appendChild(pt);
+      container.appendChild(passWrap);
+    };
+    build(upBox, "data-alarm-up", "up");
+    build(dnBox, "data-alarm-down", "down");
   }
 
   // components.js
@@ -912,6 +1128,39 @@
     fill(upEl, resp.up, resp.up.length ? `\u4E0A\u308A\uFF08${resp.up.length}\u672C\uFF09` : "\u4E0A\u308A");
     fill(downEl, resp.down, resp.down.length ? `\u4E0B\u308A\uFF08${resp.down.length}\u672C\uFF09` : "\u4E0B\u308A");
   }
+  function buildPushPrefs() {
+    const dir = (d) => {
+      var _a, _b;
+      const cfg = getLineConfig(lineScope2);
+      const st = ((_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[currentCode]) == null ? void 0 : _b[d]) || {};
+      if (st.disabled) return { cats: [], pass: false, carsMin: 0, carsFilter: false };
+      const cats = (Array.isArray(st.prefs) ? st.prefs : []).map((v) => typeof v === "string" && v.startsWith("cat:") ? Number(v.slice(4)) : NaN).filter((n) => Number.isFinite(n));
+      return {
+        cats,
+        pass: Array.isArray(st.prefs) && st.prefs.includes("pass"),
+        carsMin: Number(getSetting("cars.threshold", 9)) || 0,
+        carsFilter: !!getSetting("cars.filterEnabled", false)
+      };
+    };
+    return JSON.stringify({ up: dir("up"), down: dir("down") });
+  }
+  var pushSynced = false;
+  function syncPushSubscription() {
+    return __async(this, null, function* () {
+      try {
+        if (!("Notification" in window) || Notification.permission !== "granted") return;
+        if (getSetting("bg.notify", null) !== "1") return;
+        if (pushSynced && Notification.permission === "granted") {
+        }
+        const reg = yield navigator.serviceWorker.getRegistration();
+        if (!reg) return;
+        yield subscribePush(reg, { stationCode: currentCode, prefsJson: buildPushPrefs() });
+        pushSynced = true;
+      } catch (err) {
+        console.warn("push subscribe failed", err);
+      }
+    });
+  }
   function formatJST(iso) {
     try {
       const d = new Date(iso);
@@ -952,6 +1201,17 @@
         updatedAtEl.textContent = formatJST(resp.update || resp.server_time);
         renderTraffic(resp.traffic);
         renderTrains(resp);
+        renderAlarmOptions({
+          stations: resp.stations,
+          stationCode: currentCode,
+          allowedCats: resp.stationAllowedCats,
+          dirParam: "both"
+        });
+        try {
+          localStorage.setItem("tid:lastStationCode", currentCode);
+        } catch (e) {
+        }
+        void syncPushSubscription();
         evaluateAndNotify({
           stations: resp.stations,
           trains: [...resp.up, ...resp.down],
@@ -966,6 +1226,7 @@
     });
   }
   function initControls() {
+    var _a;
     const delayInput = document.getElementById("delayThreshold");
     if (delayInput) {
       delayInput.value = String(Number(getSetting("delay.threshold", 4)) || 4);
@@ -991,6 +1252,10 @@
       carsFilter.addEventListener("change", () => setSetting("cars.filterEnabled", carsFilter.checked));
     }
     passFilter == null ? void 0 : passFilter.addEventListener("change", () => void refresh(true));
+    (_a = document.getElementById("bgNotifyEnable")) == null ? void 0 : _a.addEventListener("change", () => {
+      pushSynced = false;
+      setTimeout(() => void syncPushSubscription(), 500);
+    });
   }
   function startPolling() {
     void refresh();

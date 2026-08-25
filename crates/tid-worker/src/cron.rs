@@ -87,23 +87,40 @@ pub async fn run(env: &Env, origin: &str) -> Result<usize> {
                 if !fresh {
                     continue;
                 }
-                if matches!(
-                    util::push_send(&vapid, &sub.endpoint, &sub.p256dh, &sub.auth, &ev.message).await,
-                    Ok(true)
-                ) {
-                    sent += 1;
-                    let stmt = db.prepare(
-                        "UPDATE subscriptions SET last_notified_key=?1, last_notified_at=?2 WHERE id=?3",
-                    );
-                    use wasm_bindgen::JsValue;
-                    let bound = stmt.bind(&[
-                        JsValue::from_str(&ev.key),
-                        JsValue::from(now as f64),
-                        JsValue::from_str(&sub.id),
-                    ]);
-                    if let Ok(s) = bound {
-                        let _ = s.run().await;
+                let payload = serde_json::json!({
+                    "title": "列車接近",
+                    "body": ev.message,
+                    "tag": ev.tag,
+                    "url": "/"
+                })
+                .to_string();
+                match util::push_send(&vapid, &sub.endpoint, &sub.p256dh, &sub.auth, &payload).await {
+                    Ok(true) => {
+                        sent += 1;
+                        use wasm_bindgen::JsValue;
+                        let stmt = db.prepare(
+                            "UPDATE subscriptions SET last_notified_key=?1, last_notified_at=?2 WHERE id=?3",
+                        );
+                        let bound = stmt.bind(&[
+                            JsValue::from_str(&ev.key),
+                            JsValue::from(now as f64),
+                            JsValue::from_str(&sub.id),
+                        ]);
+                        if let Ok(s) = bound {
+                            let _ = s.run().await;
+                        }
                     }
+                    Ok(false) => {
+                        // endpoint gone (404/410) — drop the subscription
+                        use wasm_bindgen::JsValue;
+                        if let Ok(stmt) = db
+                            .prepare("DELETE FROM subscriptions WHERE id=?1")
+                            .bind(&[JsValue::from_str(&sub.id)])
+                        {
+                            let _ = stmt.run().await;
+                        }
+                    }
+                    Err(_) => {}
                 }
             }
         }

@@ -64,6 +64,8 @@ pub struct ViewResponse {
     pub server_time: String,
     pub update: String,
     pub station: StationRef,
+    /// stop categories allowed at the station (null = unknown)
+    pub station_allowed_cats: Option<Vec<i8>>,
     /// merged normalized order for client-side alarm math / filter UI
     pub stations: Vec<StationIdx>,
     pub up: Vec<TrainVm>,

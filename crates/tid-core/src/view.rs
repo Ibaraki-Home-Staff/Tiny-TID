@@ -191,6 +191,7 @@ pub fn build_view(
                 .unwrap_or_default(),
             name: selected_node.map(|n| n.name).unwrap_or_default(),
         },
+        station_allowed_cats: allowed_cats.clone(),
         stations: merged
             .order
             .iter()

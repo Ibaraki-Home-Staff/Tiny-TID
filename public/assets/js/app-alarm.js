@@ -12,8 +12,6 @@ let line = 'kyoto';
 let audioEl = null;
 let audioUnlocked = false;
 let pendingQueue = [];
-let playing = false;
-let lastShown = [];
 
 export function initAlarm({ scope, areaId, lineId }) {
   lineScope = scope; area = areaId; line = lineId;
@@ -153,7 +151,7 @@ export function evaluateAndNotify({ stations, trains, stationCode }) {
   const pos = order.indexOf(stationCode);
 
   for (const t of trains) {
-    if (!lastShown.some((x) => x.no === t.no && x.posIndex === t.posIndex)) continue;
+    let stopFired = false;
     const dirKey = t.direction === 0 ? 'up' : 'down';
     const cfg = getLineConfigSafe();
     const stCfg = cfg?.alarms?.[stationCode]?.[dirKey] || {};
@@ -194,15 +192,16 @@ export function evaluateAndNotify({ stations, trains, stationCode }) {
 
     if ((boundary || range) && prefs.has(`cat:${t.category}`)) {
       fire(t, target, stationCode, dirKey, range ? 'range' : 'segment');
+      stopFired = true;
       continue;
     }
-    if (!boundary && !(range && prefs.has(`cat:${t.category}`)) && prefs.has('pass')) {
+    if (!stopFired && prefs.has('pass')) {
       const passTarget = stCfg.targets?.pass ? String(stCfg.targets.pass) : ahead[0];
-      const atPass = passTarget && (stoppedAt || movingOn || (t.atUnit === passTarget));
-      if (atPass && t.willStopHere === false) fire(t, passTarget || target, stationCode, dirKey, 'pass');
+      if (passTarget && (stoppedAt || movingOn) && t.willStopHere === false) {
+        fire(t, passTarget, stationCode, dirKey, 'pass');
+      }
     }
   }
-  lastShown = trains.slice();
 }
 
 function fire(t, target, stationCode, dirKey, reason) {
@@ -219,7 +218,7 @@ function fire(t, target, stationCode, dirKey, reason) {
   try {
     if (getSetting('bg.notify', null) === '1' && document.hidden && 'Notification' in window
         && Notification.permission === 'granted') {
-      new Notification('列車接近', { body: `${no}、${t.destText || ''}接近`, tag: approachKey(no, stationCode, t.direction) });
+      new Notification('列車接近', { body: `${no}、${t.destText || ''}接近`, tag: approachKey(no, stationCode, t.direction), renotify: true, icon: '/assets/img/placeholder.svg' });
     }
   } catch {}
 }
@@ -247,3 +246,180 @@ function readTarget(dirKey, st, cat) {
 
 let getLineConfigRef = null;
 export function bindLineConfig(fn) { getLineConfigRef = fn; }
+
+// ---------------------------------------------------------------------------
+// Alarm preference UI (port of ver1 renderAlarmOptions / initAlarmControls)
+// ---------------------------------------------------------------------------
+
+const CAT_LABELS = { 0:'普通',1:'新快速',2:'快速',3:'区間快速',4:'直通快速',5:'特急',6:'急行',7:'寝台',8:'SL',9:'観光列車',10:'瑞風' };
+let controlsBound = false;
+
+function readDisable(dir, stCode) {
+  try {
+    const cfg = getLineConfigSafe();
+    const v = cfg?.alarms?.[stCode]?.[dir]?.disabled;
+    return v === undefined ? false : !!v;
+  } catch { return false; }
+}
+function saveDisable(dir, stCode, v) {
+  try { setSetting(`lines.${lineScope}.alarms.${stCode}.${dir}.disabled`, !!v); } catch {}
+}
+function readPrefs(dir, stCode) {
+  try {
+    const cfg = getLineConfigSafe();
+    const arr = cfg?.alarms?.[stCode]?.[dir]?.prefs;
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch { return new Set(); }
+}
+function savePrefs(dir, stCode, values) {
+  try { setSetting(`lines.${lineScope}.alarms.${stCode}.${dir}.prefs`, Array.from(values || [])); } catch {}
+}
+function readTargets(dir, stCode) {
+  try {
+    const cfg = getLineConfigSafe();
+    const obj = cfg?.alarms?.[stCode]?.[dir]?.targets;
+    return (obj && typeof obj === 'object') ? obj : {};
+  } catch { return {}; }
+}
+function saveTarget(dir, stCode, catKey, code) {
+  try {
+    const obj = readTargets(dir, stCode);
+    obj[catKey] = String(code || '');
+    setSetting(`lines.${lineScope}.alarms.${stCode}.${dir}.targets`, obj);
+  } catch {}
+}
+
+function setDisabledForDir(dir, disabled) {
+  const sel = dir === 'up' ? '[data-alarm-up]' : '[data-alarm-down]';
+  document.querySelectorAll(sel).forEach((b) => {
+    b.disabled = !!disabled;
+    const p = b.parentElement;
+    if (p && p.style) p.style.opacity = disabled ? '0.5' : '';
+  });
+  const fs = document.getElementById(dir === 'up' ? 'alarmUpBox' : 'alarmDownBox');
+  if (fs) fs.querySelectorAll('select').forEach((s2) => { s2.disabled = !!disabled || s2.options.length === 0 || s2.value === ''; });
+}
+
+export function bindAlarmControls(stationCode) {
+  const upDis = document.getElementById('alarmUpDisable');
+  const dnDis = document.getElementById('alarmDownDisable');
+  if (upDis) {
+    upDis.checked = readDisable('up', stationCode);
+    setDisabledForDir('up', upDis.checked);
+    upDis.onchange = () => { saveDisable('up', stationCode, upDis.checked); setDisabledForDir('up', upDis.checked); };
+  }
+  if (dnDis) {
+    dnDis.checked = readDisable('down', stationCode);
+    setDisabledForDir('down', dnDis.checked);
+    dnDis.onchange = () => { saveDisable('down', stationCode, dnDis.checked); setDisabledForDir('down', dnDis.checked); };
+  }
+  if (!controlsBound) {
+    document.getElementById('alarmUpBox')?.addEventListener('change', () => {
+      const vals = new Set(Array.from(document.querySelectorAll('[data-alarm-up]')).filter((b) => b.checked).map((b) => b.value));
+      savePrefs('up', stationCode, vals);
+    });
+    document.getElementById('alarmDownBox')?.addEventListener('change', () => {
+      const vals = new Set(Array.from(document.querySelectorAll('[data-alarm-down]')).filter((b) => b.checked).map((b) => b.value));
+      savePrefs('down', stationCode, vals);
+    });
+    controlsBound = true;
+  }
+}
+
+export function renderAlarmOptions({ stations, stationCode, allowedCats, dirParam }) {
+  const upBox = document.getElementById('alarmUpOptions');
+  const dnBox = document.getElementById('alarmDownOptions');
+  const row = document.getElementById('alarmRow');
+  const upFs = document.getElementById('alarmUpBox');
+  const dnFs = document.getElementById('alarmDownBox');
+  if (!upBox || !dnBox || !row) return;
+  if (!stationCode) { row.style.display = 'none'; upBox.innerHTML = ''; dnBox.innerHTML = ''; return; }
+  row.style.display = 'flex';
+  if (dirParam === 'up') { if (upFs) upFs.style.display = ''; if (dnFs) dnFs.style.display = 'none'; }
+  else if (dirParam === 'down') { if (upFs) upFs.style.display = 'none'; if (dnFs) dnFs.style.display = ''; }
+  else { if (upFs) upFs.style.display = ''; if (dnFs) dnFs.style.display = ''; }
+
+  bindAlarmControls(stationCode);
+  const upDisable = document.getElementById('alarmUpDisable');
+  const dnDisable = document.getElementById('alarmDownDisable');
+  if (upDisable) upDisable.checked = readDisable('up', stationCode);
+  if (dnDisable) dnDisable.checked = readDisable('down', stationCode);
+
+  const cats = (Array.isArray(allowedCats) ? allowedCats : Object.keys(CAT_LABELS).map(Number))
+    .slice().sort((x, y) => x - y);
+  const order = stations.map((s) => s.code);
+  const pos = order.indexOf(stationCode);
+  const ahead = (dir) => {
+    const out = [];
+    if (pos < 0) return out;
+    const step = dir === 'up' ? 1 : -1;
+    for (let k = 1; k <= 3; k += 1) {
+      const i = pos + step * k;
+      if (i >= 0 && i < order.length) out.push(order[i]);
+    }
+    return out;
+  };
+  const nameOf = (code) => stations.find((s) => s.code === code)?.name || code;
+
+  const build = (container, attr, dir) => {
+    container.innerHTML = '';
+    const saved = readPrefs(dir, stationCode);
+    const targets = readTargets(dir, stationCode);
+    cats.forEach((cat) => {
+      const catKey = `cat:${cat}`;
+      const wrap = document.createElement('label');
+      Object.assign(wrap.style, {
+        display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1.1rem',
+        margin: '0.35rem 0', border: '1px solid #e0e0e0', borderRadius: '0.5rem',
+        fontSize: '1.15rem', minHeight: '52px', cursor: 'pointer',
+      });
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.setAttribute(attr, ''); input.value = catKey;
+      input.checked = saved.has(catKey);
+      input.style.transform = 'scale(1.35)'; input.style.transformOrigin = 'left center';
+      wrap.appendChild(input);
+      const text = document.createElement('span'); text.textContent = CAT_LABELS[cat] || `種別${cat}`;
+      wrap.appendChild(text);
+      const sel = document.createElement('select');
+      Object.assign(sel.style, { marginLeft: 'auto', fontSize: '1rem', padding: '.4rem .6rem', minWidth: '11rem' });
+      const aheadList = ahead(dir);
+      if (aheadList.length) {
+        aheadList.forEach((code) => {
+          const o = document.createElement('option'); o.value = code; o.textContent = nameOf(code);
+          sel.appendChild(o);
+        });
+        sel.value = targets[catKey] && aheadList.includes(targets[catKey]) ? targets[catKey] : aheadList[0];
+      } else {
+        const o = document.createElement('option'); o.value = ''; o.textContent = '候補なし';
+        sel.appendChild(o); sel.disabled = true;
+      }
+      sel.addEventListener('change', () => saveTarget(dir, stationCode, catKey, sel.value));
+      wrap.appendChild(sel);
+      container.appendChild(wrap);
+    });
+    // pass checkbox
+    const passWrap = document.createElement('label');
+    Object.assign(passWrap.style, {
+      display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1.1rem',
+      margin: '0.35rem 0', border: '1px solid #e0e0e0', borderRadius: '0.5rem',
+      fontSize: '1.15rem', minHeight: '52px', cursor: 'pointer',
+    });
+    const pass = document.createElement('input');
+    pass.type = 'checkbox'; pass.setAttribute(attr, ''); pass.value = 'pass';
+    pass.checked = saved.has('pass');
+    pass.style.transform = 'scale(1.35)'; pass.style.transformOrigin = 'left center';
+    passWrap.appendChild(pass);
+    const pt = document.createElement('span'); pt.textContent = '通過列車アラーム（停車しない列車が来たとき）';
+    passWrap.appendChild(pt);
+    container.appendChild(passWrap);
+  };
+  build(upBox, 'data-alarm-up', 'up');
+  build(dnBox, 'data-alarm-down', 'down');
+}
+
+// Debug helper (ver1 parity): simulate an approach alarm from the console.
+export function testAlarm(trainNo, direction, targetCode) {
+  fire({ no: trainNo || 'テスト', direction: direction === 'up' ? 0 : 1, displayType: '快速',
+         nickname: 'テスト列車', destText: 'テスト行き', delayMinutes: 0 },
+       targetCode || '', 'debug', direction === 'up' ? 'up' : 'down', 'manual-test');
+}

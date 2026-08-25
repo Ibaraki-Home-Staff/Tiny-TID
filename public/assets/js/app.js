@@ -1,7 +1,8 @@
 // Tiny-TID display-only client for the Cloudflare Worker backend.
 import { loadComponents } from './components.js';
 import { migrateLegacySettings, getSetting, setSetting, getLineConfig } from './tid-settings.js';
-import { initAlarm, requestUnlock, evaluateAndNotify, bindLineConfig } from './app-alarm.js';
+import { initAlarm, requestUnlock, evaluateAndNotify, bindLineConfig, renderAlarmOptions, bindAlarmControls } from './app-alarm.js';
+import { subscribePush } from './pwa.js';
 import { initBackgroundControls } from './tid-background.js';
 
 loadComponents();
@@ -125,6 +126,43 @@ function renderTrains(resp) {
   fill(downEl, resp.down, resp.down.length ? `下り（${resp.down.length}本）` : '下り');
 }
 
+// ---------------------------------------------------------------------------
+// Push subscription sync (background approach notifications)
+// ---------------------------------------------------------------------------
+
+function buildPushPrefs() {
+  const dir = (d) => {
+    const cfg = getLineConfig(lineScope);
+    const st = cfg?.alarms?.[currentCode]?.[d] || {};
+    if (st.disabled) return { cats: [], pass: false, carsMin: 0, carsFilter: false };
+    const cats = (Array.isArray(st.prefs) ? st.prefs : [])
+      .map((v) => (typeof v === 'string' && v.startsWith('cat:') ? Number(v.slice(4)) : NaN))
+      .filter((n) => Number.isFinite(n));
+    return {
+      cats,
+      pass: Array.isArray(st.prefs) && st.prefs.includes('pass'),
+      carsMin: Number(getSetting('cars.threshold', 9)) || 0,
+      carsFilter: !!getSetting('cars.filterEnabled', false),
+    };
+  };
+  return JSON.stringify({ up: dir('up'), down: dir('down') });
+}
+
+let pushSynced = false;
+async function syncPushSubscription() {
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (getSetting('bg.notify', null) !== '1') return;
+    if (pushSynced && Notification.permission === 'granted') {
+      // re-post on station/prefs change is handled by page reload; keep light
+    }
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
+    await subscribePush(reg, { stationCode: currentCode, prefsJson: buildPushPrefs() });
+    pushSynced = true;
+  } catch (err) { console.warn('push subscribe failed', err); }
+}
+
 function formatJST(iso) {
   try {
     const d = new Date(iso);
@@ -154,6 +192,14 @@ async function refresh(immediate = false) {
     updatedAtEl.textContent = formatJST(resp.update || resp.server_time);
     renderTraffic(resp.traffic);
     renderTrains(resp);
+    renderAlarmOptions({
+      stations: resp.stations,
+      stationCode: currentCode,
+      allowedCats: resp.stationAllowedCats,
+      dirParam: 'both',
+    });
+    try { localStorage.setItem('tid:lastStationCode', currentCode); } catch {}
+    void syncPushSubscription();
     evaluateAndNotify({
       stations: resp.stations,
       trains: [...resp.up, ...resp.down],
@@ -193,6 +239,10 @@ function initControls() {
     carsFilter.addEventListener('change', () => setSetting('cars.filterEnabled', carsFilter.checked));
   }
   passFilter?.addEventListener('change', () => void refresh(true));
+  document.getElementById('bgNotifyEnable')?.addEventListener('change', () => {
+    pushSynced = false;
+    setTimeout(() => void syncPushSubscription(), 500);
+  });
 }
 
 function startPolling() {
