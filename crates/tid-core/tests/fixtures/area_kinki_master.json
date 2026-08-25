@@ -1,0 +1,669 @@
+{
+    "lines": {
+        "ako": {
+            "name": "赤穂線",
+            "range": "相生〜播州赤穂",
+            "st": "/api/v3/ako_st.json",
+            "pos": "/api/v3/ako.json",
+            "index": 4,
+            "dest": {
+                "upper": "相生",
+                "lower": "播州赤穂"
+            }
+        },
+        "bantan": {
+            "name": "播但線",
+            "range": "姫路～和田山",
+            "st": "/api/v3/bantan_st.json",
+            "pos": "/api/v3/bantan.json",
+            "index": 16,
+            "dest": {
+                "upper": "姫路",
+                "lower": "和田山"
+            }
+        },
+        "fukuchiyama": {
+            "name": "JR宝塚線・福知山線",
+            "range": "新三田～福知山",
+            "st": "/api/v3/fukuchiyama_st.json",
+            "pos": "/api/v3/fukuchiyama.json",
+            "index": 13,
+            "dest": {
+                "upper": "新三田",
+                "lower": "福知山"
+            }
+        },
+        "gakkentoshi": {
+            "name": "学研都市線",
+            "range": "木津〜京橋",
+            "st": "/api/v3/gakkentoshi_st.json",
+            "pos": "/api/v3/gakkentoshi.json",
+            "relatelines": [
+                "/api/v3/gakkentoshiyamatoji.json"
+            ],
+            "index": 15,
+            "dest": {
+                "upper": "木津",
+                "lower": "京橋"
+            }
+        },
+        "hanwahagoromo": {
+            "name": "阪和線・羽衣線",
+            "range": "天王寺〜和歌山・鳳〜東羽衣",
+            "st": "/api/v3/hanwahagoromo_st.json",
+            "pos": "/api/v3/hanwahagoromo.json",
+            "relatelines": [
+                "/api/v3/hanwahagoromoosakaloop.json"
+            ],
+            "index": 21,
+            "dest": {
+                "upper": "天王寺",
+                "lower": "和歌山"
+            }
+        },
+        "hokurikubiwako": {
+            "name": "北陸線・琵琶湖線",
+            "range": "近江塩津〜長浜・長浜〜京都",
+            "st": "/api/v3/hokurikubiwako_st.json",
+            "pos": "/api/v3/hokurikubiwako.json",
+            "index": 1,
+            "dest": {
+                "upper": "長浜・近江塩津",
+                "lower": "京都"
+            }
+        },
+        "kansai": {
+            "name": "関西線",
+            "range": "加茂～亀山",
+            "st": "/api/v3/kansai_st.json",
+            "pos": "/api/v3/kansai.json",
+            "index": 26,
+            "dest": {
+                "upper": "加茂",
+                "lower": "亀山"
+            }
+        },
+        "kansaiairport": {
+            "name": "関西空港線",
+            "range": "日根野〜関西空港",
+            "st": "/api/v3/kansaiairport_st.json",
+            "pos": "/api/v3/kansaiairport.json",
+            "index": 22,
+            "dest": {
+                "upper": "日根野",
+                "lower": "関西空港"
+            }
+        },
+        "kinokuni": {
+            "name": "きのくに線",
+            "range": "和歌山～新宮",
+            "st": "/api/v3/kinokuni_st.json",
+            "pos": "/api/v3/kinokuni.json",
+            "index": 27,
+            "dest": {
+                "upper": "和歌山",
+                "lower": "新宮"
+            }
+        },
+        "kobesanyo": {
+            "name": "JR神戸線・山陽線",
+            "range": "大阪〜姫路・姫路〜上郡",
+            "st": "/api/v3/kobesanyo_st.json",
+            "pos": "/api/v3/kobesanyo.json",
+            "index": 3,
+            "dest": {
+                "upper": "大阪",
+                "lower": "姫路・上郡"
+            }
+        },
+        "kosei": {
+            "name": "湖西線",
+            "range": "近江塩津〜京都",
+            "st": "/api/v3/kosei_st.json",
+            "pos": "/api/v3/kosei.json",
+            "relatelines": [
+                "/api/v3/koseihokurikubiwako.json"
+            ],
+            "index": 5,
+            "dest": {
+                "upper": "近江塩津",
+                "lower": "京都"
+            }
+        },
+        "kusatsu": {
+            "name": "草津線",
+            "range": "草津～柘植",
+            "st": "/api/v3/kusatsu_st.json",
+            "pos": "/api/v3/kusatsu.json",
+            "index": 6,
+            "dest": {
+                "upper": "草津",
+                "lower": "柘植"
+            }
+        },
+        "kyoto": {
+            "name": "JR京都線",
+            "range": "京都〜大阪",
+            "st": "/api/v3/kyoto_st.json",
+            "pos": "/api/v3/kyoto.json",
+            "index": 2,
+            "dest": {
+                "upper": "京都",
+                "lower": "大阪"
+            }
+        },
+        "maizuru": {
+            "name": "舞鶴線",
+            "range": "綾部～東舞鶴",
+            "st": "/api/v3/maizuru_st.json",
+            "pos": "/api/v3/maizuru.json",
+            "index": 17,
+            "dest": {
+                "upper": "綾部",
+                "lower": "東舞鶴"
+            }
+        },
+        "manyomahoroba": {
+            "name": "万葉まほろば線",
+            "range": "奈良〜高田",
+            "st": "/api/v3/manyomahoroba_st.json",
+            "pos": "/api/v3/manyomahoroba.json",
+            "index": 25,
+            "dest": {
+                "upper": "奈良",
+                "lower": "高田"
+            }
+        },
+        "nara": {
+            "name": "奈良線",
+            "range": "京都〜木津",
+            "st": "/api/v3/nara_st.json",
+            "pos": "/api/v3/nara.json",
+            "index": 7,
+            "dest": {
+                "upper": "京都",
+                "lower": "木津"
+            }
+        },
+        "osakahigashi": {
+            "name": "おおさか東線",
+            "range": "大阪〜久宝寺",
+            "st": "/api/v3/osakahigashi_st.json",
+            "pos": "/api/v3/osakahigashi.json",
+            "relatelines": [
+                "/api/v3/osakahigashigakkentoshi.json",
+                "/api/v3/osakahigashiyamatoji.json",
+                "/api/v3/osakahigashikyoto.json"
+            ],
+            "index": 11,
+            "dest": {
+                "upper": "大阪",
+                "lower": "久宝寺"
+            }
+        },
+        "osakaloop": {
+            "name": "大阪環状線",
+            "range": "大阪〜天王寺〜大阪",
+            "st": "/api/v3/osakaloop_st.json",
+            "pos": "/api/v3/osakaloop.json",
+            "index": 18,
+            "dest": {
+                "upper": "大阪",
+                "lower": "天王寺"
+            }
+        },
+        "sagano": {
+            "name": "嵯峨野線",
+            "range": "京都～園部",
+            "st": "/api/v3/sagano_st.json",
+            "pos": "/api/v3/sagano.json",
+            "index": 8,
+            "dest": {
+                "upper": "京都",
+                "lower": "園部"
+            }
+        },
+        "sanin1": {
+            "name": "山陰線",
+            "range": "園部～福知山",
+            "st": "/api/v3/sanin1_st.json",
+            "pos": "/api/v3/sanin1.json",
+            "index": 9,
+            "dest": {
+                "upper": "園部",
+                "lower": "福知山"
+            }
+        },
+        "sanin2": {
+            "name": "山陰線",
+            "range": "福知山～居組",
+            "st": "/api/v3/sanin2_st.json",
+            "pos": "/api/v3/sanin2.json",
+            "index": 10,
+            "dest": {
+                "upper": "福知山",
+                "lower": "浜坂"
+            }
+        },
+        "takarazuka": {
+            "name": "JR宝塚線",
+            "range": "大阪〜新三田",
+            "st": "/api/v3/takarazuka_st.json",
+            "pos": "/api/v3/takarazuka.json",
+            "relatelines": [
+                "/api/v3/takarazukakobe.json"
+            ],
+            "index": 12,
+            "dest": {
+                "upper": "大阪",
+                "lower": "新三田"
+            }
+        },
+        "tozai": {
+            "name": "JR東西線",
+            "range": "京橋〜尼崎",
+            "st": "/api/v3/tozai_st.json",
+            "pos": "/api/v3/tozai.json",
+            "relatelines": [
+                "/api/v3/tozaikobe.json"
+            ],
+            "index": 14,
+            "dest": {
+                "upper": "京橋",
+                "lower": "尼崎"
+            }
+        },
+        "wakayama1": {
+            "name": "和歌山線",
+            "range": "五条～和歌山",
+            "st": "/api/v3/wakayama1_st.json",
+            "pos": "/api/v3/wakayama1.json",
+            "index": 24,
+            "dest": {
+                "upper": "五条",
+                "lower": "和歌山"
+            }
+        },
+        "wakayama2": {
+            "name": "和歌山線",
+            "range": "王寺〜五条",
+            "st": "/api/v3/wakayama2_st.json",
+            "pos": "/api/v3/wakayama2.json",
+            "index": 23,
+            "dest": {
+                "upper": "王寺",
+                "lower": "五条"
+            }
+        },
+        "yamatoji": {
+            "name": "大和路線",
+            "range": "JR難波〜加茂",
+            "st": "/api/v3/yamatoji_st.json",
+            "pos": "/api/v3/yamatoji.json",
+            "relatelines": [
+                "/api/v3/yamatojiosakahigashi.json"
+            ],
+            "index": 20,
+            "dest": {
+                "upper": "JR難波",
+                "lower": "加茂"
+            }
+        },
+        "yumesaki": {
+            "name": "JRゆめ咲線",
+            "range": "西九条〜桜島",
+            "st": "/api/v3/yumesaki_st.json",
+            "pos": "/api/v3/yumesaki.json",
+            "index": 19,
+            "dest": {
+                "upper": "西九条",
+                "lower": "桜島"
+            }
+        }
+    },
+    "trafficInfo": {
+        "url": "/api/v3/area_kinki_trafficinfo.json"
+    },
+    "delayText": [
+        {
+            "from": 61,
+            "display": 61
+        },
+        {
+            "to": 0,
+            "display": 0
+        }
+    ],
+    "noUpdateAlert": {
+        "currentTime": "/api/v3/currenttime.txt",
+        "thresholdMinutes": 1
+    },
+    "trainmonitorinfoLines": {
+        "ako": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "bantan": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "fukuchiyama": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "gakkentoshi": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "hanwahagoromo": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "hokurikubiwako": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "kansai": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "kansaiairport": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "kinokuni": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "kobesanyo": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "kosei": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "kusatsu": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "kyoto": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "maizuru": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "manyomahoroba": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "nara": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "osakahigashi": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "osakaloop": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "sagano": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "sanin1": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "sanin2": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "takarazuka": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "tozai": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "wakayama1": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "wakayama2": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 0
+        },
+        "yamatoji": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        },
+        "yumesaki": {
+            "info": "/api/v3/trainmonitorinfo.json",
+            "currentTime": "/api/v3/currenttime_trainmonitorinfo.txt",
+            "thresholdSeconds": 60
+        }
+    },
+    "longTimeStoppingInfo": {
+        "ako": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "bantan": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "fukuchiyama": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "gakkentoshi": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "hanwahagoromo": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "hokurikubiwako": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kansai": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kansaiairport": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kinokuni": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kobesanyo": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kosei": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kusatsu": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "kyoto": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "maizuru": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "manyomahoroba": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "nara": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "osakahigashi": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "osakaloop": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "sagano": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "sanin1": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "sanin2": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "takarazuka": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "tozai": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "wakayama1": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "wakayama2": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "yamatoji": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        },
+        "yumesaki": {
+            "currentTime": "/api/v3/currenttime.txt",
+            "thresholdMinutes": {
+                "inside": 30,
+                "between": 30
+            }
+        }
+    }
+}
