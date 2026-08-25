@@ -1,0 +1,12 @@
+/* Modern CSS reset (trimmed) */
+*,*::before,*::after{box-sizing:border-box}
+*{margin:0;padding:0}
+html:focus-within{scroll-behavior:smooth}
+html,body{height:100%}
+img,svg,video,canvas,audio,iframe{max-width:100%;display:block}
+img{height:auto}
+input,button,textarea,select{font:inherit}
+button{background:none;border:0;cursor:pointer}
+/* Better focus */
+:focus{outline:2px solid Highlight;outline-offset:2px}
+

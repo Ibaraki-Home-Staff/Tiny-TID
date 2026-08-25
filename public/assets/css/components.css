@@ -1,0 +1,61 @@
+.btn{display:inline-block; padding:.6rem 1rem; background:var(--color-primary); color:white; border-radius:var(--radius); box-shadow:var(--shadow); text-decoration:none; transition:filter .2s ease, transform .05s ease}
+.btn:hover{filter:brightness(1.05)}
+.btn:active{transform:translateY(1px)}
+
+.component-error{padding:.75rem 1rem; margin:.5rem 0; background:#d32f2f; color:white; border-radius:8px}
+
+.radio-group{display:flex; gap:1rem; align-items:center}
+.radio-group label{display:inline-flex; align-items:center; gap:.35rem}
+
+.trains-grid{display:grid; grid-template-columns: 1fr 1fr; gap:1rem}
+.trains-grid.single{grid-template-columns: 1fr}
+@media (max-width: 900px){ .trains-grid{grid-template-columns: 1fr} }
+.train-list h3{margin:.25rem 0 .5rem 0}
+.train-items{display:block}
+
+/* Table layout for trains */
+.train-table{width:100%; border-collapse:collapse; table-layout:auto}
+.train-table thead th{position:sticky; top:0; background:var(--color-surface); text-align:left; padding:.5rem; border-bottom:1px solid #3b3f46}
+.train-table tbody td{padding:.5rem .6rem; border-bottom:1px solid #2a2d32; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.train-table tbody td:nth-child(6){white-space:normal;}
+.train-table col:nth-child(1){width:12%}
+.train-table col:nth-child(2){width:12%}
+.train-table col:nth-child(3){width:14%}
+.train-table col:nth-child(4){width:8%}
+.train-table col:nth-child(5){width:22%}
+.train-table col:nth-child(7){width:10%}
+.updated-at{color:var(--color-muted); font-size:.9rem; margin:.2rem 0 .6rem}
+.settings{border:1px solid #2a2d32; border-radius:8px; background:var(--color-surface); margin:.5rem 0 1rem}
+.settings-summary{cursor:pointer; list-style:none; padding:.6rem .8rem; font-weight:600}
+.settings[open] > .settings-summary{border-bottom:1px solid #2a2d32}
+.visually-hidden{position:absolute !important; clip:rect(1px,1px,1px,1px); padding:0 !important; border:0 !important; height:1px !important; width:1px !important; overflow:hidden}
+
+/* Type badges */
+.type-badge{display:inline-block; padding:.15rem .5rem; border-radius:.5rem; font-weight:700; line-height:1.2; border:1px solid rgba(0,0,0,.2)}
+.type-red{background:#c62828; color:#fff; border-color:#8e1c1c}
+.type-blue{background:#1565c0; color:#fff; border-color:#0d4280}
+.type-bluegray{background:#546e7a; color:#fff; border-color:#37474f}
+.type-orange{background:#ef6c00; color:#fff; border-color:#b35300}
+.type-green{background:#2e7d32; color:#fff; border-color:#1b5e20}
+.type-emerald{background:#009b77; color:#fff; border-color:#007a60}
+.type-white{background:#fff; color:#111; border-color:#c7c7c7}
+
+/* Type text colors (no background) */
+.type-text-red{ color:#c62828; font-weight:700; }
+.type-text-blue{ color:#1565c0; font-weight:700; }
+.type-text-bluegray{ color:#546e7a; font-weight:700; }
+.type-text-orange{ color:#ef6c00; font-weight:700; }
+.type-text-green{ color:#2e7d32; font-weight:700; }
+.type-text-emerald{ color:#009b77; font-weight:700; }
+
+/* Traffic info sections */
+.traffic-info{ margin:.75rem 0 1.25rem; display:grid; gap:.75rem; }
+.traffic-section{ border:1px solid #2a2d32; border-radius:10px; background:var(--color-surface); overflow:hidden; }
+.traffic-section__header{ font-weight:700; padding:.55rem .8rem; letter-spacing:.2px; }
+.traffic-section__header--line{ color:#f59e0b; background:rgba(245,158,11,.18); background:color-mix(in oklab, #f59e0b 18%, transparent); border-bottom:1px solid #3b3f46; }
+.traffic-section__header--express{ color:#ef4444; background:rgba(239,68,68,.18); background:color-mix(in oklab, #ef4444 18%, transparent); border-bottom:1px solid #3b3f46; }
+.traffic-list{ list-style:none; padding:.5rem .75rem .7rem; margin:0; display:grid; gap:.5rem; }
+.traffic-item{ padding:.6rem .7rem; border-radius:8px; border:1px solid #2f3339; box-shadow:0 1px 0 rgba(0,0,0,.12) inset; }
+.traffic-item--line{ border-left:6px solid #f59e0b; background:rgba(245,158,11,.12); background:color-mix(in oklab, #f59e0b 12%, transparent); }
+.traffic-item--express{ border-left:6px solid #ef4444; background:rgba(239,68,68,.12); background:color-mix(in oklab, #ef4444 12%, transparent); }
+.traffic-item a{ color:inherit; text-decoration:underline; font-weight:600; }
