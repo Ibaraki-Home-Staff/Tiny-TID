@@ -9,20 +9,18 @@ fn merged_order_anchors_ibaraki() {
     let snap = support::scope_snapshot();
     let scope: Vec<String> = support::SCOPE.iter().map(|s| s.to_string()).collect();
 
-    let code = snap
-        .nodes
-        .iter()
-        .find(|(_, n)| n.name == "茨木")
-        .expect("茨木 in snapshot")
-        .0
-        .clone();
+    let code = "0410"; // 茨木 on the kyoto line listing
+    assert_eq!(
+        snap.lines.get("kyoto").and_then(|m| m.get(code)).map(|s| s.name.clone()),
+        Some("茨木".to_string())
+    );
 
     let merged = merge_scope(&snap, &scope, "kyoto", "茨木");
 
     // Negative-index stations legitimately precede the anchor in `order`;
     // the anchor itself must sit exactly at index 0.
     assert!(merged.order.iter().any(|c| c == &code));
-    let node = merged.by_code.get(code.as_str()).unwrap();
+    let node = merged.by_code.get(code).unwrap();
     assert_eq!(node.name, "茨木");
     assert_eq!(node.index, 0.0);
 

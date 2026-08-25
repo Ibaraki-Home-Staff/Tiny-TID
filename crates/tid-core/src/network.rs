@@ -1,47 +1,35 @@
-//! All-area station network snapshot + selected-station hop normalization.
+//! Station network snapshot v2 + scope hop normalization.
 //!
-//! Snapshot build: daily job fetches every area master + every `{line}_st.json`,
-//! then [`build_snapshot`] produces a serializable graph:
-//! - per-line ordered station lists (`orders`)
-//! - unified nodes keyed by station code (`nodes`) with names, stop categories,
-//!   member lines and explicit transfer links
-//! - undirected edge set (`edges`): consecutive chain edges per line (skipping
-//!   branch-rejoin repeats), transfer[] edges, and `design.upside/downside`
-//!   continuation / branch edges (types 98 endpoint-continuation, 2 branch).
-//!
-//! [`merge_scope`] is the 1:1 port of buildMergedIndexesForLines/buildGraphMetrics:
-//! BFS hop metrics from the selected station over the scope subgraph, signed by
-//! the primary line's immediate neighbours (negativeHop/positiveHop).
+//! Identity: `(line_id, code)` — numeric codes are reused across areas
+//! (`0410` = 茨木 in kinki, 広野 elsewhere), so nodes are per-line and
+//! connectivity comes only from explicit metadata:
+//! - `info.transfer[]{link,linkCode}`
+//! - `design.upside/downside[]{linkLine,linkStationCode}`
 
-use crate::model::{Design, MasterDoc, StationsDoc};
+use crate::model::{StationsDoc};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::LazyLock;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-pub const SNAPSHOT_VERSION: u32 = 1;
+pub const SNAPSHOT_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct NetworkSnapshot {
     pub version: u32,
     pub built_at: String,
-    /// line id -> ordered station codes (as listed in `{line}_st.json`)
+    /// line id -> ordered codes
     pub orders: BTreeMap<String, Vec<String>>,
-    /// station code -> node
-    pub nodes: BTreeMap<String, NetNode>,
-    /// canonicalized undirected edges `[a, b]` with `a <= b`
-    pub edges: BTreeSet<[String; 2]>,
+    /// line id -> { code -> station }
+    pub lines: BTreeMap<String, BTreeMap<CodeKey, LineStation>>,
 }
 
+/// JSON object keys are station codes; serde maps need String keys.
+pub type CodeKey = String;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct NetNode {
+pub struct LineStation {
     pub name: String,
-    /// stopTrains category codes from `_st.json`
     #[serde(rename = "st", default)]
     pub stop_trains: Option<Vec<i64>>,
-    /// lines this station belongs to
-    #[serde(default)]
-    pub lines: BTreeSet<String>,
-    /// explicit transfer links to other lines (`transfer[]`)
     #[serde(default)]
     pub transfers: Vec<TransferEdge>,
 }
@@ -50,106 +38,65 @@ pub struct NetNode {
 pub struct TransferEdge {
     pub line: String,
     pub code: String,
-    /// `transfer[].type` value (0 = JR line)
+    /// 0=transfer(JR), other=design branch/continuation provenance
     pub kind: i64,
 }
 
-/// Input bundle for a full-network build (all areas). Pure: fetching happens in the worker.
-pub struct NetworkInputs<'a> {
-    /// (area id, parsed master) for every area
-    pub masters: &'a [(String, MasterDoc)],
-    /// (line id, parsed stations doc) for every line of every area
-    pub st_docs: &'a [(String, StationsDoc)],
-}
-
-/// Build the whole-network snapshot.
-pub fn build_snapshot(built_at: &str, inputs: &NetworkInputs<'_>) -> NetworkSnapshot {
+/// Pure builder; fetching happens in the worker.
+pub fn build_snapshot(built_at: &str, st_docs: &[(String, StationsDoc)]) -> NetworkSnapshot {
     let mut snap = NetworkSnapshot {
         version: SNAPSHOT_VERSION,
         built_at: built_at.to_string(),
         ..Default::default()
     };
 
-    // Pass 1: nodes + per-line orders + chain edges.
-    for (line_id, doc) in inputs.st_docs {
-        let mut order: Vec<String> = Vec::with_capacity(doc.stations.len());
-        let mut previous: Option<String> = None;
+    for (line_id, doc) in st_docs {
+        let mut order: Vec<String> = Vec::new();
         let mut seen_in_line: BTreeSet<String> = BTreeSet::new();
+        let mut previous: Option<String> = None;
+        let map = snap.lines.entry(line_id.clone()).or_default();
 
         for item in &doc.stations {
             let info = &item.info;
-            if info.code.trim().is_empty() {
-                continue;
-            }
+            if info.code.trim().is_empty() { continue; }
             let code = info.code.trim().to_string();
-            let name = if info.name.trim().is_empty() {
-                code.clone()
-            } else {
-                info.name.trim().to_string()
-            };
+            let name = if info.name.trim().is_empty() { code.clone() } else { info.name.trim().to_string() };
             order.push(code.clone());
 
-            match snap.nodes.get_mut(&code) {
-                Some(existing) => {
-                    // Port of merge rules: fill only missing name/stopTrains.
-                    if existing.name.is_empty() {
-                        existing.name = name;
-                    }
-                    if existing
-                        .stop_trains
-                        .as_ref()
-                        .map(|v| v.is_empty())
-                        .unwrap_or(true)
-                    {
-                        if let Some(st) = info.stop_trains.as_ref() {
-                            if !st.is_empty() {
-                                existing.stop_trains = Some(st.clone());
-                            }
-                        }
-                    }
-                    existing.lines.insert(line_id.clone());
+            let mut transfers: Vec<TransferEdge> = Vec::new();
+            if let Some(list) = &info.transfer {
+                for t in list {
+                    let (Some(l), Some(c)) = (t.link.as_deref(), t.link_code.as_deref()) else { continue };
+                    let (l, c) = (l.trim(), c.trim());
+                    if l.is_empty() || c.is_empty() { continue; }
+                    transfers.push(TransferEdge { line: l.to_string(), code: c.to_string(), kind: t.r#type });
                 }
-                None => {
-                    let transfers = info
-                        .transfer
-                        .as_ref()
-                        .map(|list| {
-                            list.iter()
-                                .filter_map(|t| {
-                                    let link = t.link.as_deref()?.trim();
-                                    let link_code = t.link_code.as_deref()?.trim();
-                                    if link.is_empty() || link_code.is_empty() {
-                                        return None;
-                                    }
-                                    Some(TransferEdge {
-                                        line: link.to_string(),
-                                        code: link_code.to_string(),
-                                        kind: t.r#type,
-                                    })
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    let mut lines = BTreeSet::new();
-                    lines.insert(line_id.clone());
-                    snap.nodes.insert(
-                        code.clone(),
-                        NetNode {
-                            name,
-                            stop_trains: info.stop_trains.clone(),
-                            lines,
-                            transfers,
-                        },
-                    );
+            }
+            for side in item.design.upside.iter().chain(item.design.downside.iter()) {
+                for d in side.iter() {
+                    let (Some(ll), Some(lc)) =
+                        (d.link_line.as_deref().map(str::trim), d.link_station_code.as_deref().map(str::trim))
+                    else { continue };
+                    if ll.is_empty() || lc.is_empty() || lc == code || ll == line_id.as_str() { continue; }
+                    transfers.push(TransferEdge { line: ll.to_string(), code: lc.to_string(), kind: d.r#type });
                 }
             }
 
-            // Chain edge within the line sequence. A repeated code means the
-            // listing left and re-entered (branch rejoin): do not bridge it.
-            if seen_in_line.insert(code.clone()) {
-                if let Some(prev) = &previous {
-                    add_edge(&mut snap.edges, prev, &code);
+            let entry = map
+                .entry(code.clone())
+                .or_insert_with(|| LineStation { name: name.clone(), stop_trains: info.stop_trains.clone(), transfers });
+            if entry.name.is_empty() { entry.name = name; }
+            let empty_st = entry.stop_trains.as_ref().map(|v| v.is_empty()).unwrap_or(true);
+            if empty_st {
+                if let Some(st) = info.stop_trains.as_ref() {
+                    if !st.is_empty() { entry.stop_trains = Some(st.clone()); }
                 }
+            }
+
+            // Chain edges are derived from `orders` at merge time; branch
+            // rejoins (repeated code within one line listing) are not chained.
+            if seen_in_line.insert(code.clone()) {
+                let _ = &previous;
             }
             previous = Some(code);
         }
@@ -158,374 +105,355 @@ pub fn build_snapshot(built_at: &str, inputs: &NetworkInputs<'_>) -> NetworkSnap
             snap.orders.insert(line_id.clone(), order);
         }
     }
-
-    // Pass 2: design upside/downside continuation / branch edges.
-    for (line_id, doc) in inputs.st_docs {
-        for item in &doc.stations {
-            let code = item.info.code.trim().to_string();
-            if code.is_empty() || !snap.nodes.contains_key(&code) {
-                continue;
-            }
-            collect_design_edges(&item.design, &code, &mut snap.edges, &snap.nodes);
-        }
-    }
-
-    let _ = &inputs.masters; // masters validated upstream (line ids ⊆ fetched docs)
     snap
 }
 
-fn collect_design_edges(
-    design: &Design,
-    self_code: &str,
-    edges: &mut BTreeSet<[String; 2]>,
-    nodes: &BTreeMap<String, NetNode>,
-) {
-    let side_lists = design.upside.iter().chain(design.downside.iter());
-    for side_list in side_lists {
-        for item in side_list.iter() {
-            let Some(link_code) = item.link_station_code.as_deref().map(str::trim) else {
-                continue;
-            };
-            let Some(link_line) = item.link_line.as_deref().map(str::trim) else {
-                continue;
-            };
-            if link_code.is_empty() || link_line.is_empty() || link_code == self_code {
-                continue;
-            }
-            // Only add when the target is (or will be) a known node.
-            if !nodes.contains_key(link_code) {
-                continue;
-            }
-            add_edge(edges, self_code, link_code);
-        }
-    }
-}
-
-fn add_edge(edges: &mut BTreeSet<[String; 2]>, a: &str, b: &str) {
-    if a == b {
-        return;
-    }
-    if a < b {
-        edges.insert([a.to_string(), b.to_string()]);
-    } else {
-        edges.insert([b.to_string(), a.to_string()]);
-    }
-}
-
-impl NetworkSnapshot {
-    /// Name lookup: snapshot node -> embedded global fallback table -> None.
-    pub fn station_name(&self, code: &str) -> Option<String> {
-        if let Some(node) = self.nodes.get(code) {
-            if !node.name.is_empty() {
-                return Some(node.name.clone());
-            }
-        }
-        global_name(code)
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Global fallback names (extracted from sample/westjr const.STATIONS)
-// ---------------------------------------------------------------------------
-
-static GLOBAL_NAMES: LazyLock<BTreeMap<String, String>> = LazyLock::new(|| {
-    serde_json::from_str::<BTreeMap<String, BTreeMap<String, String>>>(crate::STATION_NAMES_JSON)
-        .unwrap_or_default()
-        .into_iter()
-        .flat_map(|(_line, stations)| stations)
-        .collect()
-});
-
-pub fn global_name(code: &str) -> Option<String> {
-    GLOBAL_NAMES.get(code).cloned()
-}
-
-// ---------------------------------------------------------------------------
-// Scope merge + hop normalization (port of buildMergedIndexesForLines)
+// Scope merge v2
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default)]
-pub struct IdxNode {
+pub struct Unit {
+    /// representative code (primary-line occurrence when present)
     pub code: String,
     pub name: String,
     pub stop_trains: Option<Vec<i64>>,
-    /// normalized index: 0 at selected, sign*distance otherwise, 9999 unreachable
     pub index: f64,
     pub distance: f64,
-    /// -1 / 0 / +1 normalized sign
     pub side: i32,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct MergedIndex {
-    pub by_code: BTreeMap<String, IdxNode>,
+    pub by_code: BTreeMap<String, Unit>,
     pub order: Vec<String>,
+    /// (line,code) -> rep code
+    pub unit_of: HashMap<(String, String), String>,
 }
 
-/// Restrict the network to `scope_lines`, normalize indices around `selected`.
-/// `selected` may be a station code or a whitespace-normalized station name.
+impl MergedIndex {
+    /// First unit whose any member uses `code` (line-agnostic lookup).
+    pub fn unit_by_any_code(&self, code: &str) -> Option<&Unit> {
+        let mut best: Option<(&String, &Unit)> = None;
+        for ((_, c), rep) in &self.unit_of {
+            if c == code {
+                if let Some(u) = self.by_code.get(rep) {
+                    // Prefer the shortest rep (= least-suffixed) for stability.
+                    if best.map(|(br, _)| rep.len() <= br.len()).unwrap_or(true) {
+                        best = Some((rep, u));
+                    }
+                }
+            }
+        }
+        best.map(|(_, u)| u)
+    }
+
+    pub fn unit(&self, line: &str, code: &str) -> Option<&Unit> {
+        let rep = self.unit_of.get(&(line.to_string(), code.to_string()))?;
+        self.by_code.get(rep)
+    }
+}
+
+fn norm(v: &str) -> String {
+    v.trim().chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+struct Dsu(Vec<usize>);
+impl Dsu {
+    fn new(n: usize) -> Self { Self((0..n).collect()) }
+    fn find(&mut self, mut x: usize) -> usize {
+        while self.0[x] != x { self.0[x] = self.0[self.0[x]]; x = self.0[x]; }
+        x
+    }
+    fn union(&mut self, a: usize, b: usize) {
+        let ra = self.find(a); let rb = self.find(b);
+        if ra != rb { self.0[ra] = rb; }
+    }
+}
+
+struct Build {
+    rep: String,
+    /// [name_on_primary_line, first_name_seen]
+    names: [String; 2],
+    stops: Option<Vec<i64>>,
+    members: Vec<(String, String)>,
+}
+
 pub fn merge_scope(
     snapshot: &NetworkSnapshot,
     scope_lines: &[String],
     primary_line: &str,
     selected: &str,
 ) -> MergedIndex {
-    let scope_set: BTreeSet<&str> = scope_lines.iter().map(|s| s.as_str()).collect();
-
-    // Scope nodes + per-line orders.
-    let mut nodes: BTreeMap<String, IdxNode> = BTreeMap::new();
+    // -- collect scope nodes ---------------------------------------------------
+    let mut id_of: HashMap<(String, String), usize> = HashMap::new();
+    let mut nodes: Vec<(String, String)> = Vec::new();
     let mut orders_by_line: Vec<(String, Vec<String>)> = Vec::new();
-    for line_id in &scope_set {
-        let Some(order) = snapshot.orders.get(*line_id) else {
-            continue;
-        };
-        let mut line_order: Vec<String> = Vec::new();
+    for line_id in scope_lines {
+        let Some(order) = snapshot.orders.get(line_id.as_str()) else { continue };
+        orders_by_line.push((line_id.clone(), order.clone()));
         for code in order {
-            line_order.push(code.clone());
-            nodes.entry(code.clone()).or_insert_with(|| IdxNode {
-                code: code.clone(),
-                name: snapshot
-                    .nodes
-                    .get(code)
-                    .map(|n| n.name.clone())
-                    .unwrap_or_default(),
-                stop_trains: snapshot.nodes.get(code).and_then(|n| n.stop_trains.clone()),
-                ..Default::default()
-            });
+            let id = nodes.len();
+            id_of.insert((line_id.clone(), code.clone()), id);
+            nodes.push((line_id.clone(), code.clone()));
         }
-        orders_by_line.push((line_id.to_string(), line_order));
     }
     orders_by_line.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Subgraph edges: chain edges within scope ∪ any snapshot edge whose both
-    // ends are scope nodes (transfers, branches, continuations).
-    let node_set: BTreeSet<&str> = nodes.keys().map(|s| s.as_str()).collect();
-    let mut sub_edges: BTreeSet<[String; 2]> = BTreeSet::new();
-    for (_, order) in &orders_by_line {
-        let mut prev: Option<&String> = None;
-        let mut seen: BTreeSet<&str> = BTreeSet::new();
-        for code in order {
-            let first_visit = seen.insert(code.as_str());
-            if first_visit {
-                if let Some(p) = prev {
-                    add_edge(&mut sub_edges, p, code);
+    // -- union explicit cross-line links ---------------------------------------
+    let mut dsu = Dsu::new(nodes.len());
+    for (i, (l, c)) in nodes.iter().enumerate() {
+        if let Some(st) = snapshot.lines.get(l).and_then(|m| m.get(c)) {
+            for t in &st.transfers {
+                if let Some(&j) = id_of.get(&(t.line.clone(), t.code.clone())) { dsu.union(i, j); }
+            }
+        }
+    }
+
+    // -- components ------------------------------------------------------------
+    let mut comps: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for i in 0..nodes.len() { comps.entry(dsu.find(i)).or_default().push(i); }
+
+    let primary_order: Option<&Vec<String>> =
+        orders_by_line.iter().find(|(id, _)| id == primary_line).map(|(_, o)| o);
+
+    // Pass 1: representative + metadata per component.
+    struct Pre { best: Option<(String, String)>, names: [String; 2], stops: Option<Vec<i64>>, members: Vec<(String, String)> }
+    let mut pres: Vec<Pre> = Vec::new();
+    let mut comp_roots: Vec<usize> = Vec::new();
+    for (_root, members) in &comps {
+        comp_roots.push(*_root);
+        let mut best: Option<(String, String)> = None;
+        let mut best_primary = false;
+        for &mi in members {
+            let (l, c) = (&nodes[mi].0, &nodes[mi].1);
+            let on_primary = l == primary_line
+                && primary_order.map(|o| o.contains(c)).unwrap_or(false);
+            let take = match (&best, best_primary) {
+                (None, _) => true,
+                (_, true) => false,
+                (Some((bl, bc)), false) => on_primary
+                    || (l.as_str(), c.as_str()) < (bl.as_str(), bc.as_str()),
+            };
+            if take { best = Some((l.clone(), c.clone())); best_primary = on_primary; }
+        }
+        let mut name_primary = String::new();
+        let mut name_any = String::new();
+        let mut stops: Option<Vec<i64>> = None;
+        let mut members_out: Vec<(String, String)> = Vec::new();
+        for &mi in members {
+            let pair = (nodes[mi].0.clone(), nodes[mi].1.clone());
+            if let Some(st) = snapshot.lines.get(&pair.0).and_then(|m| m.get(&pair.1)) {
+                if !st.name.is_empty() {
+                    if pair.0 == *primary_line && name_primary.is_empty() { name_primary = st.name.clone(); }
+                    if name_any.is_empty() { name_any = st.name.clone(); }
+                }
+                if let Some(v) = &st.stop_trains {
+                    let cur = stops.get_or_insert_with(Vec::new);
+                    for x in v { if !cur.contains(x) { cur.push(*x); } }
                 }
             }
-            prev = Some(code);
+            members_out.push(pair);
         }
-    }
-    for e in &snapshot.edges {
-        if node_set.contains(e[0].as_str()) && node_set.contains(e[1].as_str()) {
-            sub_edges.insert(e.clone());
-        }
+        pres.push(Pre { best, names: [name_primary, name_any], stops, members: members_out });
     }
 
-    // Locate selected station (exact code, then normalized-name match).
-    let wanted = normalize_name(selected);
-    let probe_order: Vec<String> = orders_by_line
-        .first()
-        .map(|(_, o)| o.clone())
-        .unwrap_or_else(|| nodes.keys().cloned().collect());
-
-    let find_by_order = |order: &[String]| -> Option<String> {
-        for code in order {
-            if let Some(n) = nodes.get(code) {
-                if normalize_name(&n.name) == wanted {
-                    return Some(code.clone());
-                }
+    // Pass 2: unique representatives.
+    let mut used: BTreeSet<String> = BTreeSet::new();
+    let mut reps: Vec<String> = Vec::with_capacity(pres.len());
+    for pre in &pres {
+        let mut rep = pre.best.as_ref().map(|(_, c)| c.clone()).unwrap_or_else(|| "?".to_string());
+        if used.contains(&rep) {
+            let mut i = 1usize;
+            loop {
+                let cand = format!("{rep}~{i}");
+                if used.insert(cand.clone()) { rep = cand; break; }
+                i += 1;
             }
-        }
-        None
-    };
-
-    let selected_code = if nodes.contains_key(selected) {
-        Some(selected.to_string())
-    } else {
-        find_by_order(&probe_order)
-            .or_else(|| {
-            let ks: Vec<String> = nodes.keys().cloned().collect();
-            find_by_order(&ks)
-        })
-            .or_else(|| {
-                nodes
-                    .iter()
-                    .find(|(_, n)| normalize_name(&n.name) == wanted)
-                    .map(|(c, _)| c.clone())
-            })
-    };
-
-    let Some(selected_code) = selected_code else {
-        // Port of the not-found fallback: deterministic sorted-by-code order.
-        let mut codes: Vec<String> = nodes.keys().cloned().collect();
-        codes.sort();
-        let by_code = codes
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                (
-                    c.clone(),
-                    IdxNode {
-                        code: c.clone(),
-                        name: nodes[c].name.clone(),
-                        stop_trains: nodes[c].stop_trains.clone(),
-                        index: i as f64,
-                        distance: i as f64,
-                        side: 0,
-                    },
-                )
-            })
-            .collect();
-        return MergedIndex { by_code, order: codes };
-    };
-
-    // Primary order selection: requested line first, then any containing it.
-    let mut primary_order: Option<Vec<String>> = orders_by_line
-        .iter()
-        .find(|(id, _)| id == primary_line)
-        .map(|(_, o)| o.clone());
-    let mut selected_idx = primary_order
-        .as_ref()
-        .and_then(|o| o.iter().position(|c| *c == selected_code));
-    if selected_idx.is_none() {
-        for (_, order) in &orders_by_line {
-            if let Some(i) = order.iter().position(|c| *c == selected_code) {
-                primary_order = Some(order.clone());
-                selected_idx = Some(i);
-                break;
-            }
-        }
-    }
-    let primary_order = primary_order.unwrap_or(probe_order);
-    let selected_idx = selected_idx.unwrap_or(usize::MAX);
-
-    let negative_hop: String = if selected_idx != usize::MAX && selected_idx > 0 {
-        primary_order[selected_idx - 1].clone()
-    } else {
-        String::new()
-    };
-    let positive_hop: String =
-        if selected_idx != usize::MAX && selected_idx + 1 < primary_order.len() {
-            primary_order[selected_idx + 1].clone()
         } else {
-            String::new()
-        };
-
-    // BFS metrics (port of buildGraphMetrics).
-    #[derive(Clone)]
-    struct Metric {
-        distance: f64,
-        sign: i32,
-        first_hop: String,
+            used.insert(rep.clone());
+        }
+        reps.push(rep);
     }
-    let mut metrics: BTreeMap<String, Metric> = BTreeMap::new();
-    metrics.insert(
-        selected_code.clone(),
-        Metric {
-            distance: 0.0,
-            sign: 0,
-            first_hop: selected_code.clone(),
-        },
-    );
-    let mut queue: Vec<String> = vec![selected_code.clone()];
+    let mut root_rep: HashMap<usize, String> = HashMap::new();
+    for (root, rep) in comp_roots.iter().zip(reps.iter()) {
+        root_rep.insert(*root, rep.clone());
+    }
+
+    let mut builds: Vec<Build> = pres.into_iter().zip(reps.into_iter()).map(|(mut pre, rep)| {
+        pre.names[0] = pre.names[0].clone();
+        Build { rep, names: pre.names, stops: pre.stops, members: pre.members }
+    }).collect();
+
+    let mut unit_idx: HashMap<String, usize> = HashMap::new();
+    for (ui, b) in builds.iter().enumerate() { unit_idx.entry(b.rep.clone()).or_insert(ui); }
+    let mut unit_of: HashMap<(String, String), String> = HashMap::new();
+    for (root, members) in &comps {
+        if let Some(rep) = root_rep.get(root) {
+            for &mi in members { unit_of.insert(nodes[mi].clone(), rep.clone()); }
+        }
+    }
+
+    // -- adjacency between units ------------------------------------------------
+    let mut adj: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+    {
+        let mut link = |a: &(String, String), b: &(String, String)| {
+            let ra = unit_of.get(a); let rb = unit_of.get(b);
+            if let (Some(ra), Some(rb)) = (ra, rb) {
+                let ua = unit_idx.get(ra).copied(); let ub = unit_idx.get(rb).copied();
+                if let (Some(ua), Some(ub)) = (ua, ub) {
+                    if ua != ub {
+                        adj.entry(ua).or_default().insert(ub);
+                        adj.entry(ub).or_default().insert(ua);
+                    }
+                }
+            }
+        };
+        for (lid, order) in &orders_by_line {
+            let mut prev: Option<&String> = None;
+            let mut seen: BTreeSet<String> = BTreeSet::new();
+            for code in order {
+                if seen.insert(code.clone()) {
+                    if let Some(p) = prev { link(&(lid.clone(), p.clone()), &(lid.clone(), code.clone())); }
+                }
+                prev = Some(code);
+            }
+        }
+        for (l, c) in &nodes {
+            if let Some(st) = snapshot.lines.get(l).and_then(|m| m.get(c)) {
+                for t in &st.transfers { link(&(l.clone(), c.clone()), &(t.line.clone(), t.code.clone())); }
+            }
+        }
+    }
+
+    // -- anchor ------------------------------------------------------------------
+    let wanted = norm(selected);
+    let mut anchor_ui: Option<usize> = None;
+    'outer: for (ui, b) in builds.iter().enumerate() {
+        if b.rep == selected { anchor_ui = Some(ui); break; }
+        if !wanted.is_empty() && b.names.iter().any(|n| norm(n) == wanted) {
+            anchor_ui = Some(ui); break;
+        }
+        for (ml, mc) in &b.members {
+            if mc == selected { anchor_ui = Some(ui); break 'outer; }
+            if !wanted.is_empty() {
+                if let Some(st) = snapshot.lines.get(ml).and_then(|m| m.get(mc)) {
+                    if norm(&st.name) == wanted { anchor_ui = Some(ui); break 'outer; }
+                }
+            }
+        }
+    }
+
+    // -- fallback when not found: deterministic sorted order ----------------------
+    let Some(anchor_ui) = anchor_ui else {
+        let mut reps: Vec<String> = builds.iter().map(|b| b.rep.clone()).collect();
+        reps.sort();
+        let mut by_code = BTreeMap::new();
+        let mut order = Vec::new();
+        for (i, rep) in reps.iter().enumerate() {
+            let ui = unit_idx[rep];
+            let b = &builds[ui];
+            by_code.insert(rep.clone(), Unit {
+                code: rep.clone(),
+                name: if b.names[0].is_empty() { b.names[1].clone() } else { b.names[0].clone() },
+                stop_trains: b.stops.clone(),
+                index: i as f64,
+                distance: i as f64,
+                side: 0,
+            });
+            order.push(rep.clone());
+        }
+        return MergedIndex { by_code, order, unit_of };
+    };
+
+    // -- BFS hop metrics -----------------------------------------------------------
+    #[derive(Clone)]
+    struct Metric { distance: f64, sign: i32, first_hop: usize }
+    let mut metrics: HashMap<usize, Metric> = HashMap::new();
+    metrics.insert(anchor_ui, Metric { distance: 0.0, sign: 0, first_hop: anchor_ui });
+
+    let anchor_rep = builds[anchor_ui].rep.clone();
+    let pos_in_primary = primary_order.and_then(|o| {
+        o.iter().position(|c| {
+            unit_of.get(&(primary_line.to_string(), c.clone()))
+                .map(|r| r == &anchor_rep).unwrap_or(false)
+        })
+    });
+    let neighbor_code = |off: usize| -> String {
+        match (pos_in_primary, primary_order) {
+            (Some(p), Some(o)) => p.checked_sub(off).or_else(|| Some(p + off))
+                .filter(|_| off == 1 || false)
+                .and_then(|q| o.get(q))
+                .cloned()
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    };
+    let _ = neighbor_code;
+    let mut neg_code = String::new(); let mut pos_code = String::new();
+    if let (Some(p), Some(o)) = (pos_in_primary, primary_order) {
+        if p > 0 { neg_code = o[p - 1].clone(); }
+        if p + 1 < o.len() { pos_code = o[p + 1].clone(); }
+    }
+    let res_unit = |code: &String| -> Option<usize> {
+        unit_of.get(&(primary_line.to_string(), code.clone()))
+            .and_then(|r| unit_idx.get(r)).copied()
+    };
+    let neg_unit = res_unit(&neg_code);
+    let pos_unit = res_unit(&pos_code);
+
+    let mut queue = vec![anchor_ui];
     let mut qi = 0;
     while qi < queue.len() {
-        let cur_code = queue[qi].clone();
-        qi += 1;
-        let cur = metrics[&cur_code].clone();
-        for neighbor in neighbors_of(&sub_edges, &cur_code) {
-            if metrics.contains_key(neighbor) {
-                continue;
-            }
-            let first_hop = if cur_code == selected_code {
-                neighbor.to_string()
-            } else {
-                cur.first_hop.clone()
-            };
-            let sign = if first_hop == negative_hop {
-                -1
-            } else if first_hop == positive_hop {
-                1
-            } else if cur.sign != 0 {
-                cur.sign
-            } else {
-                0
-            };
-            metrics.insert(
-                neighbor.to_string(),
-                Metric {
-                    distance: cur.distance + 1.0,
-                    sign,
-                    first_hop,
-                },
-            );
-            queue.push(neighbor.to_string());
+        let cur = queue[qi]; qi += 1;
+        let cm = metrics[&cur].clone();
+        for &nb in adj.get(&cur).into_iter().flatten() {
+            if metrics.contains_key(&nb) { continue; }
+            let first_hop = if cur == anchor_ui { nb } else { cm.first_hop };
+            let sign = if Some(first_hop) == neg_unit { -1 }
+                else if Some(first_hop) == pos_unit { 1 }
+                else if cm.sign != 0 { cm.sign }
+                else { 0 };
+            metrics.insert(nb, Metric { distance: cm.distance + 1.0, sign, first_hop });
+            queue.push(nb);
         }
     }
 
-    // Index assignment + sort comparator (index, distance, name, code).
-    let mut with_index: Vec<IdxNode> = Vec::with_capacity(nodes.len());
-    for (code, base) in &nodes {
-        let metric = metrics.get(code);
-        let has_metric = metric.map(|m| m.distance.is_finite()).unwrap_or(false);
-        let distance = metric.map(|m| m.distance).unwrap_or(f64::MAX);
-        let raw_sign = metric.map(|m| m.sign).unwrap_or(0);
-        let normalized_sign = if *code == selected_code {
-            0
-        } else if raw_sign != 0 {
-            raw_sign
-        } else {
-            1
-        };
-        let index = if *code == selected_code {
-            0.0
-        } else if has_metric {
-            normalized_sign as f64 * distance
-        } else {
-            9999.0
-        };
-        with_index.push(IdxNode {
-            code: code.clone(),
-            name: base.name.clone(),
-            stop_trains: base.stop_trains.clone(),
+    // -- index assignment + sort ----------------------------------------------------
+    let mut units: Vec<Unit> = Vec::with_capacity(builds.len());
+    for (ui, b) in builds.iter().enumerate() {
+        let is_anchor = ui == anchor_ui;
+        let m = metrics.get(&ui);
+        let has = m.is_some() || is_anchor;
+        let distance = m.map(|x| x.distance).unwrap_or(f64::MAX);
+        let raw_sign = m.map(|x| x.sign).unwrap_or(0);
+        let side = if is_anchor { 0 } else if raw_sign != 0 { raw_sign } else { 1 };
+        let index = if is_anchor { 0.0 } else if has { side as f64 * distance } else { 9999.0 };
+        units.push(Unit {
+            code: b.rep.clone(),
+            name: if b.names[0].is_empty() { b.names[1].clone() } else { b.names[0].clone() },
+            stop_trains: b.stops.clone(),
             index,
             distance,
-            side: normalized_sign,
+            side,
         });
     }
-    with_index.sort_by(|l, r| {
-        l.index
-            .partial_cmp(&r.index)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                l.distance
-                    .partial_cmp(&r.distance)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            // Approximation of localeCompare('ja') for tie-breaking only.
+    units.sort_by(|l, r| {
+        l.index.partial_cmp(&r.index).unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| l.distance.partial_cmp(&r.distance).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| l.name.cmp(&r.name))
             .then_with(|| l.code.cmp(&r.code))
     });
 
-    let order = with_index.iter().map(|n| n.code.clone()).collect();
-    MergedIndex {
-        by_code: with_index.into_iter().map(|n| (n.code.clone(), n)).collect(),
-        order,
-    }
-}
-
-fn neighbors_of<'a>(edges: &'a BTreeSet<[String; 2]>, code: &str) -> Vec<&'a str> {
-    let mut out = Vec::new();
-    for e in edges {
-        if e[0] == code {
-            out.push(e[1].as_str());
-        } else if e[1] == code {
-            out.push(e[0].as_str());
-        }
+    let mut out = MergedIndex { unit_of, by_code: BTreeMap::new(), order: Vec::new() };
+    for u in units {
+        out.order.push(u.code.clone());
+        out.by_code.insert(u.code.clone(), u);
     }
     out
 }
 
-/// Port of normalizeStationName: trim + remove all whitespace.
+/// normalizeStationName port: trim + remove all whitespace.
 pub fn normalize_name(value: &str) -> String {
-    value.trim().chars().filter(|c| !c.is_whitespace()).collect()
+    norm(value)
 }

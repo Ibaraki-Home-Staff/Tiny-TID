@@ -108,15 +108,18 @@ pub async fn get_traffic_doc(origin: &str, path: &str, kv: Option<&KvStore>) -> 
     None
 }
 
-/// Fetch every scope line's train payload in one sweep.
-pub async fn fetch_all_trains(env: &Env, origin: &str) -> Vec<tid_core::model::TrainPosDoc> {
+/// Fetch every scope line's train payload in one sweep (tagged with line id).
+pub async fn fetch_all_trains(
+    env: &Env,
+    origin: &str,
+) -> Vec<(String, tid_core::model::TrainPosDoc)> {
     let kv = env.kv("SNAPSHOTS").ok();
     let scope = crate::util::scope_lines(env);
     let mut out = Vec::with_capacity(scope.len());
     for line in &scope {
         let path = format!("{line}.json");
         if let Some(doc) = crate::upstream::get_trains_doc(origin, &path, kv.as_ref()).await {
-            out.push(doc);
+            out.push((line.clone(), doc));
         }
     }
     out

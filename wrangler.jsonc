@@ -1,0 +1,41 @@
+// wrangler configuration for Tiny-TID (Rust worker + static assets).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tiny-tid",
+  "compatibility_date": "2026-08-01",
+  "main": "crates/tid-worker/build/worker/shim.mjs",
+
+  "build": {
+    "command": "cd crates/tid-worker && worker-build --release",
+    "watch_dir": ["crates/tid-worker/src", "public"]
+  },
+
+  // Static site: index.html, assets/, service-worker.js, manifest
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  // Fill IDs after `npx wrangler d1 create tiny-tid` / `kv namespace create SNAPSHOTS`
+  "d1_databases": [
+    { "binding": "DB", "database_name": "tiny-tid", "database_id": "REPLACE_WITH_D1_ID" }
+  ],
+  "kv_namespaces": [
+    { "binding": "SNAPSHOTS", "id": "snapshots_local_dev" }
+  ],
+
+  // daily network rebuild (03:00 JST) + minutely push evaluation
+  "triggers": { "crons": ["0 18 * * *", "* * * * *"] },
+
+  "vars": {
+    "UPSTREAM_ORIGIN": "https://www.train-guide.westjr.co.jp",
+    "FIXED_STATION": "茨木",
+    "FIXED_LINE": "kyoto",
+    "FIXED_AREA": "kinki",
+    "LINE_SCOPE": "kyoto,kobesanyo,hokurikubiwako,ako,kosei,takarazuka"
+  }
+
+  // Secrets (never in this file):
+  //   npx wrangler secret put VAPID_PRIVATE_KEY   # base64url private key
+  //   npx wrangler secret put VAPID_SUBJECT       # e.g. mailto:you@example.com
+}

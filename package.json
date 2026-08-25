@@ -1,0 +1,14 @@
+{
+  "name": "tiny-tid",
+  "version": "6.0.0",
+  "private": true,
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "wrangler": "^4.0.0"
+  },
+  "scripts": {
+    "build:legacy": "pwsh ./build-legacy.ps1",
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy"
+  }
+}

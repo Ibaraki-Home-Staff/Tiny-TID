@@ -1,8 +1,8 @@
 //! Shared fixture loaders for integration tests.
 #![allow(dead_code)]
 
-use tid_core::model::{MasterDoc, StationsDoc, TrainPosDoc};
-use tid_core::network::{build_snapshot, NetworkInputs};
+use tid_core::model::{StationsDoc, TrainPosDoc};
+use tid_core::network::build_snapshot;
 
 pub const SCOPE: [&str; 6] = [
     "kyoto",
@@ -49,18 +49,23 @@ pub fn train_docs() -> Vec<TrainPosDoc> {
 /// Mini network snapshot covering only the six scope lines.
 pub fn scope_snapshot() -> tid_core::network::NetworkSnapshot {
     let docs = st_docs();
-    let master: MasterDoc =
-        serde_json::from_str(include_str!("../fixtures/area_kinki_master.json")).unwrap();
-    let masters: Vec<(String, MasterDoc)> = vec![("kinki".to_string(), master)];
-    build_snapshot(
-        "2026-08-25T00:00:00Z",
-        &NetworkInputs {
-            masters: &masters,
-            st_docs: &docs,
-        },
-    )
+    build_snapshot("2026-08-25T00:00:00Z", &docs)
 }
 
 pub fn parse_color_text(text: &str) -> std::collections::BTreeMap<String, String> {
     tid_core::category::parse_color_map(text)
+}
+
+/// Same as [`train_docs`] but paired with the source line id.
+pub fn train_docs_tagged() -> Vec<(String, TrainPosDoc)> {
+    SCOPE
+        .iter()
+        .zip(TRAINS_JSON)
+        .map(|(l, j)| {
+            (
+                l.to_string(),
+                serde_json::from_str::<TrainPosDoc>(j).expect("trains parse"),
+            )
+        })
+        .collect()
 }

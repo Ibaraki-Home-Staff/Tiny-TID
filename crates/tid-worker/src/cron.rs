@@ -31,8 +31,7 @@ async fn load_subs(db: &D1Database) -> Result<Vec<SubRow>> {
 
 pub async fn run(env: &Env, origin: &str) -> Result<usize> {
     let db = env.d1("DB")?;
-    let kv = env.kv("SNAPSHOTS")?;
-    let Some(snapshot) = crate::network_job::load_network(&kv).await else {
+    let Some(snapshot) = crate::network_job::load_network(&db).await else {
         return Ok(0);
     };
     let vapid = util::vapid_from_env(env)?;

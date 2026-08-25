@@ -8,13 +8,13 @@ use tid_core::view::{build_view, MergedScopeSource, PassSetting, ViewInput};
 use tid_core::vmtypes::TrainVm;
 
 fn view_input<'a>(
-    payloads: &'a [tid_core::model::TrainPosDoc],
+    payload_pairs: &'a [(String, tid_core::model::TrainPosDoc)],
     cmap: &'a std::collections::BTreeMap<String, String>,
 ) -> ViewInput<'a> {
     ViewInput {
         station: "茨木",
         pass: PassSetting::Hide,
-        trains_payloads: payloads,
+        trains_payloads: payload_pairs,
         server_time: "2026-08-25T03:00:00+09:00".to_string(),
         color_map: cmap,
     }
@@ -24,7 +24,7 @@ fn view_input<'a>(
 fn view_pipeline_produces_sorted_direction_lists() {
     let snap = support::scope_snapshot();
     let scope: Vec<String> = support::SCOPE.iter().map(|s| s.to_string()).collect();
-    let payloads = support::train_docs();
+    let pairs = support::train_docs_tagged();
     let cmap = support::parse_color_text(include_str!("../../../assets/color.txt"));
 
     let source = MergedScopeSource {
@@ -32,7 +32,7 @@ fn view_pipeline_produces_sorted_direction_lists() {
         lines: &scope,
         primary_line: "kyoto",
     };
-    let resp = build_view(&source, &view_input(&payloads, &cmap));
+    let resp = build_view(&source, &view_input(&pairs, &cmap));
 
     assert_eq!(resp.station.name, "茨木");
     assert!(!resp.update.is_empty());
@@ -94,7 +94,10 @@ fn alarm_fires_on_synthetic_geometry() {
     // Down train just arriving at the down-side neighbour: atCode == target.
     let vm = TrainVm {
         no: "999T".to_string(),
+        line_id: "kyoto".to_string(),
         direction: 1,
+        at_unit: target.clone(),
+        next_unit: String::new(),
         display_type: "快速".to_string(),
         nickname: String::new(),
         cars: Some(8),

@@ -21,6 +21,9 @@ pub struct StationIdx {
 #[serde(rename_all = "camelCase")]
 pub struct TrainVm {
     pub no: String,
+    /// source line id (payload origin)
+    #[serde(rename = "line")]
+    pub line_id: String,
     pub direction: i64,
     pub display_type: String,
     pub nickname: String,
@@ -28,6 +31,9 @@ pub struct TrainVm {
     pub delay_minutes: i64,
     pub at_code: String,
     pub next_code: Option<String>,
+    /// representative unit codes for alarm geometry
+    pub at_unit: String,
+    pub next_unit: String,
     pub stopped: bool,
     pub pos_index: f64,
     pub pos_label: String,

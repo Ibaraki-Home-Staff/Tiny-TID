@@ -22,7 +22,7 @@ use crate::network::NetworkSnapshot;
 pub struct ViewInput<'a> {
     pub station: &'a str,
     pub pass: PassSetting,
-    pub trains_payloads: &'a [TrainPosDoc],
+    pub trains_payloads: &'a [(String, TrainPosDoc)],
     pub server_time: String,
     pub color_map: &'a BTreeMap<String, String>,
 }
@@ -45,6 +45,7 @@ impl PassSetting {
 #[derive(Debug, Clone)]
 struct Enhanced {
     raw: TrainsItem,
+    line_id: String,
     display_type: String,
     nickname: String,
     at_code: String,
@@ -94,21 +95,21 @@ pub fn build_view(
     // mergeTrainPayloads port (same-format ISO strings compare lexicographically).
     let mut update = String::new();
     let mut seen = std::collections::HashSet::new();
-    let mut flat: Vec<&TrainsItem> = Vec::new();
-    for payload in input.trains_payloads {
+    let mut flat: Vec<(&String, &TrainsItem)> = Vec::new();
+    for (line_id, payload) in input.trains_payloads {
         if payload.update > update {
             update = payload.update.clone();
         }
         for t in &payload.trains {
             if seen.insert(format!("{}|{}|{}", t.no, t.pos, t.direction)) {
-                flat.push(t);
+                flat.push((line_id, t));
             }
         }
     }
 
     let mut list: Vec<Enhanced> = flat
         .iter()
-        .map(|t| enhance(t, &merged, input.color_map))
+        .map(|(l, t)| enhance(l, t, &merged, input.color_map))
         .collect();
 
     // filterByStationSetting port.
@@ -134,12 +135,16 @@ pub fn build_view(
 
     // posPart port: stopped→atName / up→nextName → atName / down→atName → nextName
     let to_vm = |e: &Enhanced| -> TrainVm {
-        let at_name = name_of(&merged, &e.at_code);
-        let next_name = e
-            .next_code
-            .as_deref()
-            .map(|c| name_of(&merged, c))
-            .unwrap_or_default();
+        let uname = |code: &str| -> String {
+            merged
+                .unit(&e.line_id, code)
+                .map(|u| u.name.clone())
+                .filter(|n| !n.is_empty())
+                .or_else(|| merged.unit_by_any_code(code).map(|u| u.name.clone()))
+                .unwrap_or_else(|| code.to_string())
+        };
+        let at_name = uname(&e.at_code);
+        let next_name = e.next_code.as_deref().map(|c| uname(c)).unwrap_or_default();
         let pos_label = if e.stopped {
             at_name.clone()
         } else if e.raw.direction == 0 {
@@ -147,8 +152,13 @@ pub fn build_view(
         } else {
             format!("{at_name} → {next_name}")
         };
+        let at_unit = merged.unit_of.get(&(e.line_id.clone(), e.at_code.clone())).cloned().unwrap_or_default();
+        let next_unit = e.next_code.as_ref()
+            .and_then(|c| merged.unit_of.get(&(e.line_id.clone(), c.clone())).cloned())
+            .unwrap_or_default();
         TrainVm {
             no: e.raw.no.trim().to_string(),
+            line_id: e.line_id.clone(),
             direction: e.raw.direction,
             display_type: e.display_type.clone(),
             nickname: e.nickname.clone(),
@@ -156,6 +166,8 @@ pub fn build_view(
             delay_minutes: e.raw.delay_minutes,
             at_code: e.at_code.clone(),
             next_code: e.next_code.clone(),
+            at_unit,
+            next_unit,
             stopped: e.stopped,
             pos_index: e.pos_index,
             pos_label,
@@ -197,17 +209,17 @@ pub fn build_view(
 }
 
 fn enhance(
+    line_id: &str,
     raw: &TrainsItem,
     merged: &MergedIndex,
     color_map: &BTreeMap<String, String>,
 ) -> Enhanced {
     let (at_code, next_code, stopped) = parse_pos(&raw.pos);
 
-    let at_idx = merged.by_code.get(&at_code).map(|n| n.index);
-    let next_idx = next_code
-        .as_deref()
-        .and_then(|c| merged.by_code.get(c))
-        .map(|n| n.index);
+    let at_unit = merged.unit(line_id, &at_code);
+    let next_unit = next_code.as_deref().and_then(|c| merged.unit(line_id, c));
+    let at_idx = at_unit.map(|u| u.index);
+    let next_idx = next_unit.map(|u| u.index);
     let pos_index = match (at_idx, next_idx) {
         (Some(a), Some(n)) if !stopped => (a + n) / 2.0,
         (Some(a), _) => a,
@@ -228,6 +240,7 @@ fn enhance(
 
     Enhanced {
         raw: raw.clone(),
+        line_id: line_id.to_string(),
         display_type,
         nickname,
         at_code,
@@ -273,14 +286,17 @@ fn dest_text(e: &Enhanced, merged: &MergedIndex) -> String {
                 return n.to_string();
             }
             match &o.code {
-                Some(code) => name_of(merged, code),
+                Some(code) => merged
+                    .unit_by_any_code(code)
+                    .map(|u| u.name.clone())
+                    .unwrap_or_else(|| code.clone()),
                 None => String::new(),
             }
         }
     }
 }
 
-/// destIndexForTrain port: dest code -> merged index; else name-scan over merged.
+#[allow(dead_code)]
 fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
     let dest = raw.dest.as_ref()?;
     let code: Option<String> = match dest {
@@ -288,8 +304,12 @@ fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
         Dest::Obj(o) => o.code.clone().filter(|c| !c.is_empty()),
     };
     if let Some(code) = code {
-        if let Some(n) = merged.by_code.get(&code) {
-            return Some(n.index);
+        if let Some(rep) = merged.unit_of.values().find(|r| {
+            merged.by_code.get(*r).map(|u| u.code == code).unwrap_or(false)
+        }) {
+            if let Some(u) = merged.by_code.get(rep) {
+                return Some(u.index);
+            }
         }
     }
     let name = match dest {

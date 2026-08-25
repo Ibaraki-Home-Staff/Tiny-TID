@@ -84,9 +84,9 @@ pub fn parse_prefs_pair(json: &str) -> PrefsPair {
     }
 }
 
-/// RFC3339 UTC timestamp without external crates (coarsetime epoch -> civil).
+/// RFC3339 UTC timestamp (JS Date epoch -> civil).
 pub fn iso_now() -> String {
-    let ms = crate::upstream::now_ms();
+    let ms = js_sys::Date::now() as i64;
     let secs = ms / 1000;
     let days = secs / 86_400;
     let rem = secs % 86_400;

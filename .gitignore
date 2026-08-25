@@ -1,3 +1,13 @@
 .serena
 .cocoindex_code
 nul
+/sample
+
+# Rust / wrangler
+/target
+/build
+/.wrangler
+node_modules/
+
+# secrets
+/.dev.vars

@@ -7,11 +7,19 @@ use tid_core::vmtypes::{TrafficItems, TrainVm, ViewResponse};
 use crate::{network_job, util};
 
 async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
-    let Some(kv) = env.kv("SNAPSHOTS").ok() else {
-        return Response::error("kv missing", 500);
-    };
-    let Some(snapshot) = network_job::load_network(&kv).await else {
-        return Response::error("network snapshot not built yet", 503);
+    let db = env.d1("DB")?;
+    let snapshot = match network_job::load_network(&db).await {
+        Some(s) => s,
+        None => {
+            // Lazy first build (covers fresh deploys before the daily cron).
+            if let Err(e) = network_job::rebuild_network(env, &util::origin(env)).await {
+                return Response::error(format!("snapshot build failed: {e}"), 503);
+            }
+            match network_job::load_network(&db).await {
+                Some(s) => s,
+                None => return Response::error("network snapshot not available", 503),
+            }
+        }
     };
     let scope = util::scope_lines(env);
     let primary = util::primary_line(env);
@@ -124,7 +132,7 @@ pub fn view_trains(
     scope: &[String],
     primary: &str,
     station: &str,
-    payloads: &[tid_core::model::TrainPosDoc],
+    payloads: &[(String, tid_core::model::TrainPosDoc)],
 ) -> Vec<TrainVm> {
     let source = MergedScopeSource {
         snapshot,
