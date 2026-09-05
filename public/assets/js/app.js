@@ -26,7 +26,7 @@ const downEl = document.querySelector('#trainsDown') || document.querySelector('
 const stationFilter = document.getElementById('stationFilter');
 const passFilter = document.getElementById('passFilter');
 
-paramsView.textContent = `エリア: ${area} / 路線: ${lineIds.join(', ')} / 駅: ${stationName}`;
+paramsView.textContent = '読み込み中…';
 
 let currentCode = '';
 let refreshing = false;
@@ -193,6 +193,9 @@ async function refresh(immediate = false) {
       currentCode = resp.station.code;
       renderStations(resp.stations);
     }
+    const areaName = resp.areaName || area;
+    const lineNames = resp.lineNames || {};
+    paramsView.textContent = `エリア: ${areaName} / 路線: ${lineIds.map((id) => lineNames[id] || id).join(', ')} / 駅: ${stationName}`;
     updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
     renderTraffic(resp.traffic);
     renderTrains(resp);

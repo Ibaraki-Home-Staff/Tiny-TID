@@ -1,8 +1,7 @@
 //! Upstream JSON models (JR-West train-guide API v3), tolerant of unknown fields.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
 // ---------------------------------------------------------------------------
 // {line}.json — running positions
 // ---------------------------------------------------------------------------
@@ -216,11 +215,70 @@ pub struct ExpressEntry {
 }
 
 // ---------------------------------------------------------------------------
-// area_{area}_master.json — only the line id set matters for building
+// area_{area}_master.json — line display metadata + direction datum
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct MasterDoc {
     #[serde(default)]
     pub lines: std::collections::BTreeMap<String, Value>,
+}
+
+/// Per-line display + direction datum from the area master:
+/// `name` (JR京都線), `upper`/`lower` (dest termini, dir0 side / dir1 side).
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct LineMeta {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub upper: String,
+    #[serde(default)]
+    pub lower: String,
+}
+
+/// Extract display metadata for every line in a master doc. Tolerant:
+/// lines without name/dest are skipped, unknown fields ignored.
+pub fn parse_line_meta(doc: &MasterDoc) -> std::collections::BTreeMap<String, LineMeta> {
+    let mut out = std::collections::BTreeMap::new();
+    for (id, v) in &doc.lines {
+        let text = |key: &str| {
+            v.get(key)
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_default()
+                .to_string()
+        };
+        let dest = v.get("dest");
+        let side = |key: &str| {
+            dest.and_then(|d| d.get(key))
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_default()
+                .to_string()
+        };
+        let meta = LineMeta {
+            name: text("name"),
+            upper: side("upper"),
+            lower: side("lower"),
+        };
+        if !meta.name.is_empty() || !meta.upper.is_empty() || !meta.lower.is_empty() {
+            out.insert(id.clone(), meta);
+        }
+    }
+    out
+}
+
+/// Area id to WEB UI display name (repo convention from old/index.html).
+/// Unknown ids pass through unchanged.
+pub fn area_name(id: &str) -> &str {
+    match id.trim() {
+        "hokuriku" => "北陸",
+        "kinki" => "近畿",
+        "okayama" => "岡山",
+        "hiroshima" => "広島",
+        "sanin" => "山陰",
+        _ => id,
+    }
 }

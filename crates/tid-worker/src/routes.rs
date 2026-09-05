@@ -41,8 +41,20 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         kv_ref.as_ref(),
     )
     .await;
+    let line_names: std::collections::BTreeMap<String, String> = scope
+        .iter()
+        .map(|l| {
+            let name = snapshot
+                .line_meta
+                .get(l)
+                .map(|m| m.name.clone())
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| l.clone());
+            (l.clone(), name)
+        })
+        .collect();
     let traffic = traffic_doc
-        .map(|doc| tid_core::traffic::build_traffic_items(&doc, &scope))
+        .map(|doc| tid_core::traffic::build_traffic_items(&doc, &scope, &line_names))
         .unwrap_or_default();
 
     let source = MergedScopeSource { snapshot: &snapshot, lines: &scope, primary_line: &primary };
@@ -55,6 +67,8 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
     };
     let mut resp: ViewResponse = build_view(&source, &input);
     resp.traffic = traffic;
+    resp.area_name = tid_core::model::area_name(&area).to_string();
+    resp.line_names = line_names;
 
     let body = serde_json::to_vec(&resp)
         .map_err(|e| Error::RustError(e.to_string().into()))?;

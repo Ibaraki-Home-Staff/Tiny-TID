@@ -1038,7 +1038,7 @@
   var downEl = document.querySelector("#trainsDown") || document.querySelector("#trainsDown .train-items");
   var stationFilter = document.getElementById("stationFilter");
   var passFilter = document.getElementById("passFilter");
-  paramsView.textContent = `\u30A8\u30EA\u30A2: ${area2} / \u8DEF\u7DDA: ${lineIds.join(", ")} / \u99C5: ${stationName}`;
+  paramsView.textContent = "\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026";
   var currentCode = "";
   var refreshing = false;
   function esc(v) {
@@ -1207,6 +1207,9 @@ ${prefsJson}`;
           currentCode = resp.station.code;
           renderStations(resp.stations);
         }
+        const areaName = resp.areaName || area2;
+        const lineNames = resp.lineNames || {};
+        paramsView.textContent = `\u30A8\u30EA\u30A2: ${areaName} / \u8DEF\u7DDA: ${lineIds.map((id) => lineNames[id] || id).join(", ")} / \u99C5: ${stationName}`;
         updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
         renderTraffic(resp.traffic);
         renderTrains(resp);

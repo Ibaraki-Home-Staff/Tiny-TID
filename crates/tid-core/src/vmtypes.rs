@@ -1,6 +1,7 @@
 //! Serialized view-model types shared by /api/view.
 
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -71,4 +72,8 @@ pub struct ViewResponse {
     pub up: Vec<TrainVm>,
     pub down: Vec<TrainVm>,
     pub traffic: TrafficItems,
+    /// WEB UI display name for the area (近畿).
+    pub area_name: String,
+    /// line id -> WEB UI display name (JR京都線), fallback raw id.
+    pub line_names: BTreeMap<String, String>,
 }

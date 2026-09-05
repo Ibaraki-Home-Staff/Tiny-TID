@@ -10,16 +10,84 @@ use crate::model::{StationsDoc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-pub const SNAPSHOT_VERSION: u32 = 4;
+pub const SNAPSHOT_VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct NetworkSnapshot {
     pub version: u32,
     pub built_at: String,
-    /// line id -> ordered codes
+    /// line id -> ordered codes (normalized upper→lower, see below)
     pub orders: BTreeMap<String, Vec<String>>,
     /// line id -> { code -> station }
     pub lines: BTreeMap<String, BTreeMap<CodeKey, LineStation>>,
+    /// line id -> display + direction datum from the area master
+    #[serde(default)]
+    pub line_meta: BTreeMap<String, crate::model::LineMeta>,
+}
+
+/// Store master metadata and normalize every listing to upper→lower order:
+/// the travel rule (dir0 toward listing-start) then holds by construction,
+/// even if upstream ever flips a listing. Unknown/missing ends leave the
+/// order untouched.
+pub fn apply_line_meta(snap: &mut NetworkSnapshot, meta: &BTreeMap<String, crate::model::LineMeta>) {
+    for (line, lm) in meta {
+        if lm.name.is_empty() && lm.upper.is_empty() && lm.lower.is_empty() {
+            continue;
+        }
+        snap.line_meta.insert(line.clone(), lm.clone());
+    }
+    normalize_orders(snap);
+}
+
+fn normalize_orders(snap: &mut NetworkSnapshot) {
+    let mut reversed: Vec<String> = Vec::new();
+    for (line, order) in &snap.orders {
+        let Some(lm) = snap.line_meta.get(line) else {
+            continue;
+        };
+        let names: Vec<String> = order
+            .iter()
+            .map(|c| {
+                snap.lines
+                    .get(line)
+                    .and_then(|m| m.get(c))
+                    .map(|s| norm_name(&s.name))
+                    .unwrap_or_default()
+            })
+            .collect();
+        let (Some(up), Some(lo)) = (find_end(&names, &lm.upper), find_end(&names, &lm.lower)) else {
+            continue;
+        };
+        if up > lo {
+            reversed.push(line.clone());
+        }
+    }
+    for line in reversed {
+        if let Some(order) = snap.orders.get_mut(&line) {
+            order.reverse();
+        }
+    }
+}
+
+/// Locate a terminus name in a listing: exact match first, then the first
+/// matching part of compounds like 姫路・上郡.
+fn find_end(names: &[String], want: &str) -> Option<usize> {
+    let w = norm_name(want);
+    if w.is_empty() {
+        return None;
+    }
+    if let Some(i) = names.iter().position(|n| *n == w) {
+        return Some(i);
+    }
+    for part in w.split(['・', '、', '/', '，']) {
+        if part.is_empty() {
+            continue;
+        }
+        if let Some(i) = names.iter().position(|n| *n == part) {
+            return Some(i);
+        }
+    }
+    None
 }
 
 /// JSON object keys are station codes; serde maps need String keys.

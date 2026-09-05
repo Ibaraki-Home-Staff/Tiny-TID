@@ -70,14 +70,20 @@ fn traffic_items_use_multiline_prefix() {
     let doc: tid_core::model::TrafficDoc =
         serde_json::from_str(include_str!("fixtures/area_kinki_trafficinfo.json")).unwrap();
     let scope: Vec<String> = support::SCOPE.iter().map(|s| s.to_string()).collect();
-    let items = build_traffic_items(&doc, &scope);
+    let names: std::collections::BTreeMap<String, String> = [
+        ("kyoto".to_string(), "JR京都線".to_string()),
+        ("kobesanyo".to_string(), "JR神戸線・山陽線".to_string()),
+    ]
+    .into_iter()
+    .collect();
+    let items = build_traffic_items(&doc, &scope, &names);
     // Fixture has kyoto+kobesanyo entries; both must surface prefixed.
     let texts: Vec<&String> = items.lines.iter().map(|i| &i.text).collect();
     assert!(
-        texts.iter().any(|t| t.starts_with("[kyoto] ")),
+        texts.iter().any(|t| t.starts_with("[JR京都線] ")),
         "{texts:?}"
     );
-    assert!(texts.iter().any(|t| t.starts_with("[kobesanyo] ")));
+    assert!(texts.iter().any(|t| t.starts_with("[JR神戸線・山陽線] ")));
 }
 
 #[test]

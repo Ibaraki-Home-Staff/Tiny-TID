@@ -47,8 +47,12 @@ fn push_deduped(
 }
 
 /// Port of renderTrafficInfo: iterate SCOPE line ids (not doc keys),
-/// prefix `[lineId] ` when the scope has multiple lines, dedupe per section.
-pub fn build_traffic_items(doc: &TrafficDoc, scope_lines: &[String]) -> TrafficItems {
+/// prefix `[display name] ` when the scope has multiple lines, dedupe per section.
+pub fn build_traffic_items(
+    doc: &TrafficDoc,
+    scope_lines: &[String],
+    names: &std::collections::BTreeMap<String, String>,
+) -> TrafficItems {
     let mut out = TrafficItems::default();
     let multi = scope_lines.len() > 1;
 
@@ -73,7 +77,8 @@ pub fn build_traffic_items(doc: &TrafficDoc, scope_lines: &[String]) -> TrafficI
         if body.is_empty() {
             continue;
         }
-        let text = if multi { format!("[{line_id}] {body}") } else { body };
+        let display = names.get(line_id).map(String::as_str).unwrap_or(line_id);
+        let text = if multi { format!("[{display}] {body}") } else { body };
         push_deduped(&mut out.lines, &mut seen_line, text, url);
     }
 
@@ -98,7 +103,8 @@ pub fn build_traffic_items(doc: &TrafficDoc, scope_lines: &[String]) -> TrafficI
         if body.is_empty() {
             continue;
         }
-        let text = if multi { format!("[{line_id}] {body}") } else { body };
+        let display = names.get(line_id).map(String::as_str).unwrap_or(line_id);
+        let text = if multi { format!("[{display}] {body}") } else { body };
         push_deduped(&mut out.express, &mut seen_express, text, url);
     }
 

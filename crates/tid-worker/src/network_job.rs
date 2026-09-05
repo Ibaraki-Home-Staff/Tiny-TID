@@ -36,7 +36,14 @@ pub async fn rebuild_network(env: &Env, origin: &str) -> Result<String> {
     }
 
     let built_at = crate::util::iso_now();
-    let snap = tid_core::network::build_snapshot(&built_at, &st_docs);
+    let mut snap = tid_core::network::build_snapshot(&built_at, &st_docs);
+    {
+        let mut meta = std::collections::BTreeMap::new();
+        for (_, m) in &masters {
+            meta.extend(tid_core::model::parse_line_meta(m));
+        }
+        tid_core::network::apply_line_meta(&mut snap, &meta);
+    }
     *mem_slot().write().unwrap() = Some(Arc::new(snap.clone()));
 
     use wasm_bindgen::JsValue;

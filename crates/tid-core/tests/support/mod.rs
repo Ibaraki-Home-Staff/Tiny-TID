@@ -46,10 +46,19 @@ pub fn train_docs() -> Vec<TrainPosDoc> {
         .collect()
 }
 
+/// Master metadata for the fixture lines (display names + upper/lower).
+pub fn kinki_master_meta() -> std::collections::BTreeMap<String, tid_core::model::LineMeta> {
+    let doc: tid_core::model::MasterDoc =
+        serde_json::from_str(include_str!("../fixtures/area_kinki_master.json")).expect("master parse");
+    tid_core::model::parse_line_meta(&doc)
+}
+
 /// Mini network snapshot covering only the six scope lines.
 pub fn scope_snapshot() -> tid_core::network::NetworkSnapshot {
     let docs = st_docs();
-    build_snapshot("2026-08-25T00:00:00Z", &docs)
+    let mut snap = build_snapshot("2026-08-25T00:00:00Z", &docs);
+    tid_core::network::apply_line_meta(&mut snap, &kinki_master_meta());
+    snap
 }
 
 pub fn parse_color_text(text: &str) -> std::collections::BTreeMap<String, String> {

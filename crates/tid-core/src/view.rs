@@ -234,6 +234,8 @@ pub fn build_view(
         up: up.iter().map(|&e| to_vm(e)).collect(),
         down: down.iter().map(|&e| to_vm(e)).collect(),
         traffic: TrafficItems::default(),
+        area_name: String::new(),
+        line_names: BTreeMap::new(),
     }
 }
 
