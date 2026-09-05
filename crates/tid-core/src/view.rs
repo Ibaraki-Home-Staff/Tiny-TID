@@ -7,7 +7,7 @@ use crate::category::{
 use crate::model::{Dest, TrainPosDoc, TrainsItem};
 use crate::network::{merge_scope, normalize_name, MergedIndex};
 use crate::vmtypes::{StationIdx, StationRef, TrafficItems, TrainVm, ViewResponse};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 
 /// Bundle passed by the worker.
@@ -53,6 +53,12 @@ struct Enhanced {
     stopped: bool,
     pos_index: f64,
     dest_index: Option<f64>,
+    /// Farthest segment endpoint from the anchor (segment countermeasure:
+    /// a straddling midpoint would collapse to the anchor).
+    edge_index: f64,
+    /// Any endpoint at the anchor, or endpoints on opposite sides of it:
+    /// the train is here, keep regardless of destination.
+    touches_anchor: bool,
     category: i8,
     color_class: String,
 }
@@ -127,10 +133,30 @@ pub fn build_view(
     up.sort_by(|a, b| a.pos_index.total_cmp(&b.pos_index));
     down.sort_by(|a, b| b.pos_index.total_cmp(&a.pos_index));
 
-    // hidePassed + hideTerminatesBeforeSelected ports.
+    // hidePassed port + pass-through rule (replaces hideTerminatesBeforeSelected).
     if let Some(idx) = selected_idx {
-        up.retain(|e| e.pos_index >= idx && !terminates_before(e, idx, 0));
-        down.retain(|e| e.pos_index <= idx && !terminates_before(e, idx, 1));
+        // The track graph is only needed for destinations outside the scope
+        // merge; skip building it when every destination resolved in-merge.
+        let need_graph = list.iter().any(|e| e.dest_index.is_none());
+        let graph = need_graph.then(|| build_track_graph(source.snapshot));
+        up.retain(|e| {
+            e.pos_index.is_finite()
+                && e.pos_index >= idx
+                && passes_selected(
+                    e.edge_index,
+                    e.touches_anchor,
+                    locate_dest(&e.raw, &merged, source.snapshot, graph.as_ref()),
+                )
+        });
+        down.retain(|e| {
+            e.pos_index.is_finite()
+                && e.pos_index <= idx
+                && passes_selected(
+                    e.edge_index,
+                    e.touches_anchor,
+                    locate_dest(&e.raw, &merged, source.snapshot, graph.as_ref()),
+                )
+        });
     }
 
     // posPart port: stopped→atName / up→nextName → atName / down→atName → nextName
@@ -141,6 +167,8 @@ pub fn build_view(
                 .map(|u| u.name.clone())
                 .filter(|n| !n.is_empty())
                 .or_else(|| merged.unit_by_any_code(code).map(|u| u.name.clone()))
+                .filter(|n| !n.is_empty())
+                .or_else(|| snapshot_name(source.snapshot, &e.line_id, code))
                 .unwrap_or_else(|| code.to_string())
         };
         let at_name = uname(&e.at_code);
@@ -171,7 +199,7 @@ pub fn build_view(
             stopped: e.stopped,
             pos_index: e.pos_index,
             pos_label,
-            dest_text: dest_text(e, &merged),
+            dest_text: dest_text(e, &merged, source.snapshot),
             category: e.category,
             category_label: crate::category::category_label(e.category),
             color_class: e.color_class.clone(),
@@ -221,11 +249,37 @@ fn enhance(
     let next_unit = next_code.as_deref().and_then(|c| merged.unit(line_id, c));
     let at_idx = at_unit.map(|u| u.index);
     let next_idx = next_unit.map(|u| u.index);
+    // Signed farther endpoint from the anchor (segment countermeasure: a
+    // straddling midpoint would collapse to the anchor). The sign is the
+    // side; magnitude ties only occur on straddles, where `touches_anchor`
+    // decides anyway. Matches the user rule: |p + d| < max(|p|, |d|).
+    let edge_index = match (at_idx, next_idx) {
+        (Some(a), Some(n)) => {
+            if a.abs() >= n.abs() {
+                a
+            } else {
+                n
+            }
+        }
+        (Some(a), None) => a,
+        (None, Some(n)) => n,
+        (None, None) => f64::INFINITY,
+    };
+    let touches_anchor = match (at_idx, next_idx) {
+        (Some(a), Some(n)) => a == 0.0 || n == 0.0 || a.signum() != n.signum(),
+        (Some(a), None) => a == 0.0,
+        (None, Some(n)) => n == 0.0,
+        (None, None) => false,
+    };
+    // Fully unresolvable position (out-of-scope codes in a foreign payload,
+    // live kyoto-payload 4706C-class at 0419/1508): +inf sorts last and can
+    // never equal the anchor index. 0.0 here once masqueraded such trains
+    // as sitting AT the selected station (4705C topped the down list).
     let pos_index = match (at_idx, next_idx) {
         (Some(a), Some(n)) if !stopped => (a + n) / 2.0,
         (Some(a), _) => a,
         (_, Some(n)) => n,
-        _ => 0.0,
+        _ => f64::INFINITY,
     };
 
     let mut nickname = raw.nickname_text();
@@ -249,6 +303,8 @@ fn enhance(
         stopped,
         pos_index,
         dest_index: resolve_dest_index(raw, merged),
+        edge_index,
+        touches_anchor,
         category,
         color_class,
     }
@@ -274,8 +330,40 @@ fn name_of(merged: &MergedIndex, code: &str) -> String {
         .unwrap_or_else(|| code.to_string())
 }
 
+/// Display-only name lookup across the whole snapshot (not just the scope
+/// merge): own line first (pos codes are line-local), then the unique
+/// match across all lines. Ambiguous codes (shared by several lines) yield
+/// nothing — a raw code display beats a wrong name. Labels only, never
+/// geometry.
+fn snapshot_name(snapshot: &NetworkSnapshot, line_id: &str, code: &str) -> Option<String> {
+    if code.trim().is_empty() {
+        return None;
+    }
+    if let Some(st) = snapshot.lines.get(line_id).and_then(|m| m.get(code)) {
+        if !st.name.trim().is_empty() {
+            return Some(st.name.trim().to_string());
+        }
+    }
+    let mut found: Option<String> = None;
+    for (line, m) in &snapshot.lines {
+        if line == line_id {
+            continue;
+        }
+        if let Some(st) = m.get(code) {
+            if st.name.trim().is_empty() {
+                continue;
+            }
+            if found.is_some() {
+                return None; // ambiguous: reused code, refuse to guess
+            }
+            found = Some(st.name.trim().to_string());
+        }
+    }
+    found
+}
+
 /// getDestText port: text/name first, then merged-index name, then code.
-fn dest_text(e: &Enhanced, merged: &MergedIndex) -> String {
+fn dest_text(e: &Enhanced, merged: &MergedIndex, snapshot: &NetworkSnapshot) -> String {
     match &e.raw.dest {
         None => String::new(),
         Some(Dest::Str(s)) => s.trim().to_string(),
@@ -290,6 +378,8 @@ fn dest_text(e: &Enhanced, merged: &MergedIndex) -> String {
                 Some(code) => merged
                     .unit_by_any_code(code)
                     .map(|u| u.name.clone())
+                    .filter(|n| !n.is_empty())
+                    .or_else(|| snapshot_name(snapshot, &e.line_id, code))
                     .unwrap_or_else(|| code.clone()),
                 None => String::new(),
             }
@@ -333,15 +423,152 @@ fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
         .map(|n| n.index)
 }
 
-fn terminates_before(e: &Enhanced, station_idx: f64, direction: i64) -> bool {
-    match e.dest_index {
-        Some(d) => {
-            if direction == 0 {
-                d <= station_idx
-            } else {
-                d >= station_idx
+/// Pass-through rule (user spec): with anchor-relative signed distances, a
+/// train passes the selected station iff its position and destination lie
+/// on opposite sides: |p + d| < max(|p|, |d|). Touching or straddling the
+/// anchor, a destination AT the anchor, or an unresolvable destination keeps
+/// the train. On side-filtered lists this coincides with ver1's keep rule;
+/// it additionally judges out-of-scope destinations via projection instead
+/// of keeping them blindly.
+fn passes_selected(edge_index: f64, touches_anchor: bool, dest_index: Option<f64>) -> bool {
+    let Some(d) = dest_index else {
+        return true;
+    };
+    if touches_anchor || d == 0.0 {
+        return true;
+    }
+    (edge_index + d).abs() < edge_index.abs().max(d.abs())
+}
+
+/// Destination anchor-relative index: merged-frame index when resolvable
+/// there (ver1 parity), else a projection over the full snapshot track
+/// graph (nearest scope attachment extended outward). Unreachable → None.
+fn locate_dest(
+    raw: &TrainsItem,
+    merged: &MergedIndex,
+    snapshot: &NetworkSnapshot,
+    graph: Option<&TrackGraph>,
+) -> Option<f64> {
+    if let Some(i) = resolve_dest_index(raw, merged) {
+        return Some(i);
+    }
+    let g = graph?;
+    let seeds = dest_candidates(raw, snapshot);
+    if seeds.is_empty() {
+        return None;
+    }
+    project_dest(merged, g, &seeds)
+}
+
+/// Snapshot nodes that could be the destination: code matches across all
+/// lines first (codes are line-local, collisions possible), else a name
+/// match. Empty when nothing resembles the destination.
+fn dest_candidates(raw: &TrainsItem, snapshot: &NetworkSnapshot) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut named = String::new();
+    if let Some(Dest::Obj(o)) = raw.dest.as_ref() {
+        if let Some(c) = o.code.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            for (line, m) in &snapshot.lines {
+                if m.contains_key(c) {
+                    out.push((line.clone(), c.to_string()));
+                }
             }
         }
-        None => false,
+        if out.is_empty() {
+            named = o
+                .text
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .or_else(|| o.name.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+                .map(normalize_name)
+                .unwrap_or_default();
+        }
+    } else if let Some(Dest::Str(s)) = raw.dest.as_ref() {
+        named = normalize_name(s);
     }
+    if out.is_empty() && !named.is_empty() {
+        for (line, m) in &snapshot.lines {
+            for (code, st) in m {
+                if normalize_name(&st.name) == named {
+                    out.push((line.clone(), code.clone()));
+                }
+            }
+        }
+    }
+    out
+}
+
+type TrackGraph = HashMap<(String, String), Vec<(String, String)>>;
+
+/// Full-snapshot undirected track graph: line orders plus identity and
+/// neighbour edges. Mirrors the merge adjacency over all lines.
+fn build_track_graph(snapshot: &NetworkSnapshot) -> TrackGraph {
+    let mut g: TrackGraph = HashMap::new();
+    let mut link = |a: (String, String), b: (String, String)| {
+        if a == b {
+            return;
+        }
+        g.entry(a.clone()).or_default().push(b.clone());
+        g.entry(b).or_default().push(a);
+    };
+    for (line, order) in &snapshot.orders {
+        let mut prev: Option<&String> = None;
+        let mut seen = std::collections::BTreeSet::new();
+        for code in order {
+            if seen.insert(code.clone()) {
+                if let Some(p) = prev {
+                    link((line.clone(), p.clone()), (line.clone(), code.clone()));
+                }
+            }
+            prev = Some(code);
+        }
+    }
+    for (line, m) in &snapshot.lines {
+        for (code, st) in m {
+            for t in st.transfers.iter().chain(st.neighbors.iter()) {
+                link((line.clone(), code.clone()), (t.line.clone(), t.code.clone()));
+            }
+        }
+    }
+    g
+}
+
+/// BFS from the destination candidates to the nearest scope-merged unit;
+/// the proxy index extends that unit's signed index outward by the extra
+/// hops. Scope-disconnected (9999) units are dead ends. Nothing reached →
+/// None (keep, ver1-loose parity).
+fn project_dest(
+    merged: &MergedIndex,
+    graph: &TrackGraph,
+    seeds: &[(String, String)],
+) -> Option<f64> {
+    let mut visited: HashSet<(String, String)> = HashSet::new();
+    let mut queue: VecDeque<((String, String), f64)> = VecDeque::new();
+    for s in seeds {
+        if visited.insert(s.clone()) {
+            queue.push_back((s.clone(), 0.0));
+        }
+    }
+    while let Some((node, extra)) = queue.pop_front() {
+        if let Some(rep) = merged.unit_of.get(&node) {
+            if let Some(u) = merged.by_code.get(rep) {
+                if u.index < 9999.0 {
+                    if u.index == 0.0 {
+                        return Some(0.0);
+                    }
+                    return Some(u.index.signum() * (u.index.abs() + extra));
+                }
+            }
+            continue;
+        }
+        if let Some(nbs) = graph.get(&node) {
+            for m in nbs {
+                if visited.insert(m.clone()) {
+                    queue.push_back((m.clone(), extra + 1.0));
+                }
+            }
+        }
+    }
+    None
 }

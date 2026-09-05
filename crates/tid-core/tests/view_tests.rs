@@ -129,3 +129,187 @@ fn alarm_fires_on_synthetic_geometry() {
     assert!(ev.message.contains(&target_name));
     assert!(ev.message.ends_with("に接近"));
 }
+
+#[test]
+fn pass_through_rule_keeps_arriving_trains() {
+    // The port once inverted this predicate (`!` around ver1's keep
+    // condition) and hid every arriving through train while keeping
+    // diverging ones; the user pass-through rule now judges position and
+    // destination on opposite sides. Pin with fixture trains:
+    // 62M dir0 dest 京都 (arrives) stays; 3740M dir0 dest 大阪 (ends at
+    // Osaka) goes; 3441M dir1 dest 姫路 (arrives) stays; kosei 2823M dir1
+    // dest 京都 (ends at Kyoto) goes.
+    let snap = support::scope_snapshot();
+    let scope: Vec<String> = support::SCOPE.iter().map(|s| s.to_string()).collect();
+    let pairs = support::train_docs_tagged();
+    let cmap = support::parse_color_text(include_str!("../../../assets/color.txt"));
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "kyoto",
+    };
+    let input = ViewInput {
+        station: "茨木",
+        pass: PassSetting::Show,
+        trains_payloads: &pairs,
+        server_time: "2026-08-25T03:00:00+09:00".to_string(),
+        color_map: &cmap,
+    };
+    let resp = build_view(&source, &input);
+    let up_nos: Vec<&str> = resp.up.iter().map(|t| t.no.as_str()).collect();
+    let down_nos: Vec<&str> = resp.down.iter().map(|t| t.no.as_str()).collect();
+    assert!(up_nos.contains(&"62M"), "arriving 62M must stay: {up_nos:?}");
+    assert!(!up_nos.contains(&"3740M"), "Osaka-terminating 3740M must go: {up_nos:?}");
+    assert!(down_nos.contains(&"3441M"), "arriving 3441M must stay: {down_nos:?}");
+    assert!(!down_nos.contains(&"2823M"), "Kyoto-terminating 2823M must go: {down_nos:?}");
+}
+
+#[test]
+fn snapshot_name_fallback_labels_foreign_code() {
+    // Codes from lines outside the scope merge (tozai 1508 in a takarazuka
+    // payload, live 4706C case) must resolve via the snapshot instead of
+    // printing raw.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+        support::plain_item("A2", "A-Two"),
+        support::plain_item("A3", "A-Three"),
+    ]);
+    let br = support::stations_doc(vec![support::plain_item("B0", "Bee")]);
+    let snap = tid_core::network::build_snapshot(
+        "t",
+        &[("pa".to_string(), pa), ("br".to_string(), br)],
+    );
+    let scope = vec!["pa".to_string()];
+    let payload = tid_core::model::TrainPosDoc {
+        update: "2026-08-25T03:00:00+09:00".to_string(),
+        trains: vec![tid_core::model::TrainsItem {
+            no: "T1".to_string(),
+            pos: "B0_A2".to_string(),
+            direction: 0,
+            display_type: "普通".to_string(),
+            ..Default::default()
+        }],
+    };
+    let pairs = vec![("pa".to_string(), payload)];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "A1",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+    };
+    let resp = build_view(&source, &input);
+    assert_eq!(resp.up.len(), 1);
+    assert_eq!(resp.up[0].pos_label, "A-Two → Bee");
+}
+
+#[test]
+fn unresolvable_position_drops_from_both_lists() {
+    // Live 4705C: a kyoto payload reporting at 0419 (a code kyoto doesn't
+    // own) resolved to no unit. Such trains cannot be placed, so both lists
+    // drop them (ver1 dropped NaN positions the same way).
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+        support::plain_item("A2", "A-Two"),
+        support::plain_item("A3", "A-Three"),
+    ]);
+    let snap = tid_core::network::build_snapshot("t", &[("pa".to_string(), pa)]);
+    let scope = vec!["pa".to_string()];
+    let mk = |no: &str, dir: i64| tid_core::model::TrainsItem {
+        no: no.to_string(),
+        pos: "ZX_ZY".to_string(),
+        direction: dir,
+        display_type: "普通".to_string(),
+        ..Default::default()
+    };
+    let payload = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![mk("U1", 0), mk("U2", 1)],
+    };
+    let pairs = vec![("pa".to_string(), payload)];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "A1",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+    };
+    let resp = build_view(&source, &input);
+    assert!(resp.up.is_empty());
+    assert!(resp.down.is_empty());
+}
+
+#[test]
+fn diverging_branch_destination_is_excluded() {
+    // User rule: br:B1 hangs off pa:A3 via a design edge. A dir-0 train
+    // stopped at A3 (+2) with dest B1 (proxy +3, same side) never passes
+    // A1 and must go; dest A0 (opposite side) stays; a train stopped AT A1
+    // stays regardless (it is here).
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+        support::plain_item("A2", "A-Two"),
+        support::neighbor_item("A3", "A-Three", &[("br", "B0")]),
+    ]);
+    let br = support::stations_doc(vec![
+        support::plain_item("B0", "Bee-Zero"),
+        support::plain_item("B1", "Bee-One"),
+    ]);
+    let snap = tid_core::network::build_snapshot(
+        "t",
+        &[("pa".to_string(), pa), ("br".to_string(), br)],
+    );
+    let scope = vec!["pa".to_string()];
+    let mk = |no: &str, pos: &str, dest_code: &str| tid_core::model::TrainsItem {
+        no: no.to_string(),
+        pos: pos.to_string(),
+        direction: 0,
+        display_type: "普通".to_string(),
+        dest: Some(tid_core::model::Dest::Obj(tid_core::model::DestInfo {
+            code: Some(dest_code.to_string()),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let payload = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![
+            mk("T-div", "A3", "B1"),
+            mk("T-thru", "A2", "A0"),
+            mk("T-here", "A1", "B1"),
+        ],
+    };
+    let pairs = vec![("pa".to_string(), payload)];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "A1",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+    };
+    let resp = build_view(&source, &input);
+    let up_nos: Vec<&str> = resp.up.iter().map(|t| t.no.as_str()).collect();
+    assert!(!up_nos.contains(&"T-div"), "branch-diverging must go: {up_nos:?}");
+    assert!(up_nos.contains(&"T-thru"), "through train must stay: {up_nos:?}");
+    assert!(up_nos.contains(&"T-here"), "train at anchor must stay: {up_nos:?}");
+}
