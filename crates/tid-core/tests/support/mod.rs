@@ -69,3 +69,49 @@ pub fn train_docs_tagged() -> Vec<(String, TrainPosDoc)> {
         })
         .collect()
 }
+
+/// Plain synthetic station (no links).
+pub fn plain_item(code: &str, name: &str) -> tid_core::model::StationsItem {
+    tid_core::model::StationsItem {
+        info: tid_core::model::StationInfo {
+            code: code.to_string(),
+            name: name.to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Synthetic station with design-neighbour (track adjacency) links.
+pub fn neighbor_item(
+    code: &str,
+    name: &str,
+    design_links: &[(&str, &str)],
+) -> tid_core::model::StationsItem {
+    tid_core::model::StationsItem {
+        info: tid_core::model::StationInfo {
+            code: code.to_string(),
+            name: name.to_string(),
+            ..Default::default()
+        },
+        design: tid_core::model::Design {
+            upside: Some(
+                design_links
+                    .iter()
+                    .map(|(l, c)| tid_core::model::SideItem {
+                        link_line: Some(l.to_string()),
+                        link_station_code: Some(c.to_string()),
+                        ..Default::default()
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        },
+    }
+}
+
+pub fn stations_doc(
+    items: Vec<tid_core::model::StationsItem>,
+) -> tid_core::model::StationsDoc {
+    tid_core::model::StationsDoc { stations: items }
+}

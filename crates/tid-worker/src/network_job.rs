@@ -82,6 +82,11 @@ pub async fn load_network(db: &D1Database) -> Option<Arc<tid_core::network::Netw
         .ok()
         .flatten()?;
     let snap: tid_core::network::NetworkSnapshot = serde_json::from_str(&row.data).ok()?;
+    if snap.version != tid_core::network::SNAPSHOT_VERSION {
+        // Pre-v4 envelopes fused design neighbour links into identity unions
+        // (Tsukamoto-class mega-units). Refuse: the view path rebuilds inline.
+        return None;
+    }
     let arc = Arc::new(snap);
     *mem_slot().write().unwrap() = Some(arc.clone());
     Some(arc)

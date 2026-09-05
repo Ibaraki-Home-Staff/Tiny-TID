@@ -10,7 +10,7 @@ use crate::model::{StationsDoc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-pub const SNAPSHOT_VERSION: u32 = 3;
+pub const SNAPSHOT_VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct NetworkSnapshot {
@@ -30,8 +30,13 @@ pub struct LineStation {
     pub name: String,
     #[serde(rename = "st", default)]
     pub stop_trains: Option<Vec<i64>>,
+    /// Same-station links across lines (identity for union).
     #[serde(default)]
     pub transfers: Vec<TransferEdge>,
+    /// Track-neighbour links from design upside/downside (adjacency only,
+    /// never identity: they point at the next station, not this one).
+    #[serde(default)]
+    pub neighbors: Vec<TransferEdge>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -53,7 +58,6 @@ pub fn build_snapshot(built_at: &str, st_docs: &[(String, StationsDoc)]) -> Netw
     for (line_id, doc) in st_docs {
         let mut order: Vec<String> = Vec::new();
         let mut seen_in_line: BTreeSet<String> = BTreeSet::new();
-        let mut previous: Option<String> = None;
         let map = snap.lines.entry(line_id.clone()).or_default();
 
         for item in &doc.stations {
@@ -72,19 +76,20 @@ pub fn build_snapshot(built_at: &str, st_docs: &[(String, StationsDoc)]) -> Netw
                     transfers.push(TransferEdge { line: l.to_string(), code: c.to_string(), kind: t.r#type });
                 }
             }
+            let mut neighbors: Vec<TransferEdge> = Vec::new();
             for side in item.design.upside.iter().chain(item.design.downside.iter()) {
                 for d in side.iter() {
                     let (Some(ll), Some(lc)) =
                         (d.link_line.as_deref().map(str::trim), d.link_station_code.as_deref().map(str::trim))
                     else { continue };
                     if ll.is_empty() || lc.is_empty() || lc == code || ll == line_id.as_str() { continue; }
-                    transfers.push(TransferEdge { line: ll.to_string(), code: lc.to_string(), kind: d.r#type });
+                    neighbors.push(TransferEdge { line: ll.to_string(), code: lc.to_string(), kind: d.r#type });
                 }
             }
 
             let entry = map
                 .entry(code.clone())
-                .or_insert_with(|| LineStation { name: name.clone(), stop_trains: info.stop_trains.clone(), transfers });
+                .or_insert_with(|| LineStation { name: name.clone(), stop_trains: info.stop_trains.clone(), transfers, neighbors });
             if entry.name.is_empty() { entry.name = name; }
             let empty_st = entry.stop_trains.as_ref().map(|v| v.is_empty()).unwrap_or(true);
             if empty_st {
@@ -95,10 +100,7 @@ pub fn build_snapshot(built_at: &str, st_docs: &[(String, StationsDoc)]) -> Netw
 
             // Chain edges are derived from `orders` at merge time; branch
             // rejoins (repeated code within one line listing) are not chained.
-            if seen_in_line.insert(code.clone()) {
-                let _ = &previous;
-            }
-            previous = Some(code);
+            seen_in_line.insert(code.clone());
         }
 
         if !order.is_empty() {
@@ -115,6 +117,7 @@ fn prune_links(snap: &mut NetworkSnapshot) {
     for m in snap.lines.values_mut() {
         for st in m.values_mut() {
             st.transfers.retain(|t| !t.line.starts_with("http"));
+            st.neighbors.retain(|t| !t.line.starts_with("http"));
         }
     }
     let keys: Vec<(String, String)> = snap
@@ -126,6 +129,7 @@ fn prune_links(snap: &mut NetworkSnapshot) {
     for m in snap.lines.values_mut() {
         for st in m.values_mut() {
             st.transfers.retain(|t| exists(&t.line, &t.code));
+            st.neighbors.retain(|t| exists(&t.line, &t.code));
         }
     }
 }
@@ -223,6 +227,11 @@ pub struct Unit {
     pub index: f64,
     pub distance: f64,
     pub side: i32,
+    /// false when the sign fell back to the +1 default (first hop was
+    /// neither primary neighbour, or the unit is unreachable). Unsigned
+    /// units sort after signed ones at the same index so they can never
+    /// hijack the alarm ahead-window (order[idx+-1]).
+    pub signed: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -424,24 +433,47 @@ pub fn merge_scope(
         for (l, c) in &nodes {
             if let Some(st) = snapshot.lines.get(l).and_then(|m| m.get(c)) {
                 for t in &st.transfers { link(&(l.clone(), c.clone()), &(t.line.clone(), t.code.clone())); }
+                // Neighbour (design) edges are track adjacency, never identity:
+                // linked units stay separate but become BFS-reachable.
+                for t in &st.neighbors { link(&(l.clone(), c.clone()), &(t.line.clone(), t.code.clone())); }
             }
         }
     }
 
     // -- anchor ------------------------------------------------------------------
+    // Ranked match: exact rep code wins immediately; otherwise the best
+    // candidate across all units wins (member code > name on primary line >
+    // name elsewhere). The old first-hit order depended on component layout.
     let wanted = norm(selected);
     let mut anchor_ui: Option<usize> = None;
-    'outer: for (ui, b) in builds.iter().enumerate() {
-        if b.rep == selected { anchor_ui = Some(ui); break; }
-        if !wanted.is_empty() && b.names.iter().any(|n| norm(n) == wanted) {
-            anchor_ui = Some(ui); break;
+    let mut anchor_rank = u8::MAX;
+    for (ui, b) in builds.iter().enumerate() {
+        if b.rep == selected {
+            anchor_ui = Some(ui);
+            break;
         }
-        for (ml, mc) in &b.members {
-            if mc == selected { anchor_ui = Some(ui); break 'outer; }
-            if !wanted.is_empty() {
-                if let Some(st) = snapshot.lines.get(ml).and_then(|m| m.get(mc)) {
-                    if norm(&st.name) == wanted { anchor_ui = Some(ui); break 'outer; }
-                }
+        let mut rank: Option<u8> = None;
+        if b.members.iter().any(|(_, mc)| mc == selected) {
+            rank = Some(1);
+        } else if !wanted.is_empty() {
+            let name_hit = b.names.iter().any(|n| norm(n) == wanted)
+                || b.members.iter().any(|(ml, mc)| {
+                    snapshot
+                        .lines
+                        .get(ml)
+                        .and_then(|m| m.get(mc))
+                        .map(|st| norm_name(&st.name) == wanted)
+                        .unwrap_or(false)
+                });
+            if name_hit {
+                let primary_hit = b.members.iter().any(|(ml, _)| ml.as_str() == primary_line);
+                rank = Some(if primary_hit { 2 } else { 3 });
+            }
+        }
+        if let Some(r) = rank {
+            if r < anchor_rank {
+                anchor_rank = r;
+                anchor_ui = Some(ui);
             }
         }
     }
@@ -462,6 +494,7 @@ pub fn merge_scope(
                 index: i as f64,
                 distance: i as f64,
                 side: 0,
+                signed: false,
             });
             order.push(rep.clone());
         }
@@ -481,17 +514,6 @@ pub fn merge_scope(
                 .map(|r| r == &anchor_rep).unwrap_or(false)
         })
     });
-    let neighbor_code = |off: usize| -> String {
-        match (pos_in_primary, primary_order) {
-            (Some(p), Some(o)) => p.checked_sub(off).or_else(|| Some(p + off))
-                .filter(|_| off == 1 || false)
-                .and_then(|q| o.get(q))
-                .cloned()
-                .unwrap_or_default(),
-            _ => String::new(),
-        }
-    };
-    let _ = neighbor_code;
     let mut neg_code = String::new(); let mut pos_code = String::new();
     if let (Some(p), Some(o)) = (pos_in_primary, primary_order) {
         if p > 0 { neg_code = o[p - 1].clone(); }
@@ -530,6 +552,7 @@ pub fn merge_scope(
         let distance = m.map(|x| x.distance).unwrap_or(f64::MAX);
         let raw_sign = m.map(|x| x.sign).unwrap_or(0);
         let side = if is_anchor { 0 } else if raw_sign != 0 { raw_sign } else { 1 };
+        let signed = is_anchor || raw_sign != 0;
         let index = if is_anchor { 0.0 } else if has { side as f64 * distance } else { 9999.0 };
         units.push(Unit {
             code: b.rep.clone(),
@@ -538,11 +561,13 @@ pub fn merge_scope(
             index,
             distance,
             side,
+            signed,
         });
     }
     units.sort_by(|l, r| {
         l.index.partial_cmp(&r.index).unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| l.distance.partial_cmp(&r.distance).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| r.signed.cmp(&l.signed))
             .then_with(|| l.name.cmp(&r.name))
             .then_with(|| l.code.cmp(&r.code))
     });
