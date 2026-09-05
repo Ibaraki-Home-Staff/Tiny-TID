@@ -1025,10 +1025,12 @@
     var _a, _b;
     return ((_b = (_a = document.querySelector(`meta[name="${n}"]`)) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || "";
   };
-  var area2 = meta("tid:fixedArea");
-  var line2 = meta("tid:fixedLine");
-  var lineIds = meta("tid:fixedLines").split(",").map((s) => s.trim()).filter(Boolean);
-  var stationName = meta("tid:fixedStationName");
+  var query = new URLSearchParams(window.location.search);
+  var fixedMode = meta("tid:fixedStationName") !== "";
+  var area2 = fixedMode ? meta("tid:fixedArea") : (query.get("area") || "").trim() || meta("tid:fixedArea");
+  var line2 = fixedMode ? meta("tid:fixedLine") : (query.get("line") || "").trim();
+  var lineIds = fixedMode ? meta("tid:fixedLines").split(",").map((s) => s.trim()).filter(Boolean) : line2 ? [line2] : [];
+  var stationName = fixedMode ? meta("tid:fixedStationName") : (query.get("station") || "").trim();
   var lineScope2 = [...lineIds].sort().join("+");
   initAlarm({ scope: lineScope2, areaId: area2, lineId: line2 });
   var paramsView = document.getElementById("paramsView");
@@ -1044,9 +1046,26 @@
   function esc(v) {
     return String(v != null ? v : "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   }
-  function renderStations() {
+  function renderStations(stations) {
     if (!stationFilter) return;
-    stationFilter.textContent = `${stationName}\uFF08\u56FA\u5B9A\uFF09`;
+    if (fixedMode) {
+      stationFilter.textContent = `${stationName}\uFF08\u56FA\u5B9A\uFF09`;
+      return;
+    }
+    if (stationFilter.dataset.bound === "1") return;
+    stationFilter.dataset.bound = "1";
+    stationFilter.innerHTML = "";
+    for (const s of stations || []) {
+      const opt = document.createElement("option");
+      opt.value = s.code;
+      opt.textContent = s.name;
+      stationFilter.appendChild(opt);
+    }
+    stationFilter.value = currentCode;
+    stationFilter.addEventListener("change", () => {
+      currentCode = stationFilter.value;
+      void refresh(true);
+    });
   }
   function renderTraffic(items) {
     if (!trafficEl) return;
@@ -1184,20 +1203,34 @@ ${prefsJson}`;
   function refresh(immediate = false) {
     return __async(this, null, function* () {
       if (refreshing) return;
+      if (!fixedMode && (!lineIds.length || !stationName)) {
+        paramsView.innerHTML = '\u99C5\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002<a href="/select.html">\u30A8\u30EA\u30A2\u9078\u629E</a>\u304B\u3089\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002';
+        return;
+      }
       refreshing = true;
       try {
         const pass = (passFilter == null ? void 0 : passFilter.value) || "hide";
         const q = new URLSearchParams({ station: currentCode || stationName, pass });
+        if (!fixedMode) {
+          if (line2) q.set("line", line2);
+          if (area2) q.set("area", area2);
+        }
         const res = yield fetch(`/api/view?${q}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`API ${res.status}`);
         const resp = yield res.json();
         if (!currentCode) {
           currentCode = resp.station.code;
-          renderStations();
+          renderStations(resp.stations);
         }
         const areaName = resp.areaName || area2;
         const lineNames = resp.lineNames || {};
-        paramsView.textContent = `\u30A8\u30EA\u30A2: ${areaName} / \u8DEF\u7DDA: ${lineIds.map((id) => lineNames[id] || id).join(", ")} / \u99C5: ${stationName}`;
+        const viewStation = resp.station && resp.station.name || stationName;
+        paramsView.textContent = `\u30A8\u30EA\u30A2: ${areaName} / \u8DEF\u7DDA: ${lineIds.map((id) => lineNames[id] || id).join(", ")} / \u99C5: ${viewStation}`;
+        if (!fixedMode) {
+          document.title = `Tiny-TID - ${viewStation}\u99C5`;
+          const pageTitle = document.getElementById("pageTitle");
+          if (pageTitle) pageTitle.textContent = `${viewStation}\u99C5 \u5217\u8ECA\u8D70\u884C\u4F4D\u7F6E`;
+        }
         updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
         renderTraffic(resp.traffic);
         renderTrains(resp);

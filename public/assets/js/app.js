@@ -11,10 +11,15 @@ bindLineConfig(getLineConfig);
 initBackgroundControls({ getSetting, setSetting });
 
 const meta = (n) => document.querySelector(`meta[name="${n}"]`)?.getAttribute('content')?.trim() || '';
-const area = meta('tid:fixedArea');
-const line = meta('tid:fixedLine');
-const lineIds = meta('tid:fixedLines').split(',').map((s) => s.trim()).filter(Boolean);
-const stationName = meta('tid:fixedStationName');
+const query = new URLSearchParams(window.location.search);
+// Fixed Ibaraki mode (index.html meta) vs generic mode (view.html query).
+const fixedMode = meta('tid:fixedStationName') !== '';
+const area = fixedMode ? meta('tid:fixedArea') : ((query.get('area') || '').trim() || meta('tid:fixedArea'));
+const line = fixedMode ? meta('tid:fixedLine') : ((query.get('line') || '').trim());
+const lineIds = fixedMode
+  ? meta('tid:fixedLines').split(',').map((s) => s.trim()).filter(Boolean)
+  : (line ? [line] : []);
+const stationName = fixedMode ? meta('tid:fixedStationName') : ((query.get('station') || '').trim());
 const lineScope = [...lineIds].sort().join('+');
 initAlarm({ scope: lineScope, areaId: area, lineId: line });
 
@@ -35,9 +40,26 @@ function esc(v) {
   return String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function renderStations() {
+function renderStations(stations) {
   if (!stationFilter) return;
-  stationFilter.textContent = `${stationName}（固定）`;
+  if (fixedMode) {
+    stationFilter.textContent = `${stationName}（固定）`;
+    return;
+  }
+  if (stationFilter.dataset.bound === '1') return;
+  stationFilter.dataset.bound = '1';
+  stationFilter.innerHTML = '';
+  for (const s of stations || []) {
+    const opt = document.createElement('option');
+    opt.value = s.code;
+    opt.textContent = s.name;
+    stationFilter.appendChild(opt);
+  }
+  stationFilter.value = currentCode;
+  stationFilter.addEventListener('change', () => {
+    currentCode = stationFilter.value;
+    void refresh(true);
+  });
 }
 
 function renderTraffic(items) {
@@ -170,20 +192,34 @@ function formatJST(iso) {
 
 async function refresh(immediate = false) {
   if (refreshing) return;
+  if (!fixedMode && (!lineIds.length || !stationName)) {
+    paramsView.innerHTML = '駅が未指定です。<a href="/select.html">エリア選択</a>から選んでください。';
+    return;
+  }
   refreshing = true;
   try {
     const pass = passFilter?.value || 'hide';
     const q = new URLSearchParams({ station: currentCode || stationName, pass });
+    if (!fixedMode) {
+      if (line) q.set('line', line);
+      if (area) q.set('area', area);
+    }
     const res = await fetch(`/api/view?${q}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`API ${res.status}`);
     const resp = await res.json();
     if (!currentCode) {
       currentCode = resp.station.code;
-      renderStations();
+      renderStations(resp.stations);
     }
     const areaName = resp.areaName || area;
     const lineNames = resp.lineNames || {};
-    paramsView.textContent = `エリア: ${areaName} / 路線: ${lineIds.map((id) => lineNames[id] || id).join(', ')} / 駅: ${stationName}`;
+    const viewStation = (resp.station && resp.station.name) || stationName;
+    paramsView.textContent = `エリア: ${areaName} / 路線: ${lineIds.map((id) => lineNames[id] || id).join(', ')} / 駅: ${viewStation}`;
+    if (!fixedMode) {
+      document.title = `Tiny-TID - ${viewStation}駅`;
+      const pageTitle = document.getElementById('pageTitle');
+      if (pageTitle) pageTitle.textContent = `${viewStation}駅 列車走行位置`;
+    }
     updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
     renderTraffic(resp.traffic);
     renderTrains(resp);

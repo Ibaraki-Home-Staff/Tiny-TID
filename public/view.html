@@ -3,16 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tiny-TID - 茨木駅</title>
-    <meta name="description" content="Tiny-TID 茨木駅専用ビュー (Cloudflare Workers)" />
+    <title>Tiny-TID - 列車走行位置</title>
+    <meta name="description" content="Tiny-TID エリア・路線・駅指定ビュー (Cloudflare Workers)" />
     <base href="/" />
     <link rel="icon" href="/assets/img/placeholder.svg">
     <link rel="manifest" href="/manifest.webmanifest?v=6">
     <meta name="app:version" content="6">
-    <meta name="tid:fixedArea" content="kinki">
-    <meta name="tid:fixedLine" content="kyoto">
-    <meta name="tid:fixedLines" content="kyoto,kobesanyo,hokurikubiwako,ako,kosei,takarazuka">
-    <meta name="tid:fixedStationName" content="茨木">
     <!-- Web Push (public key is safe to embed; per-deploy override) -->
     <meta name="push:publicKey" content="BKUtXe2Lhtz36VWrWF4GS3rsosjTiTEmDJwzAFHbaasy_wZzf4WftHhXQ_yW5czK0qyKAwTS7KSOOJyDDEmaImU">
     <meta name="push:subscribeUrl" content="/api/push/subscriptions">
@@ -40,8 +36,10 @@
           <h2 id="settingsHeading" class="visually-hidden">設定</h2>
           <div style="display:flex; gap:.75rem; align-items:end; flex-wrap:wrap;">
             <div>
-              <span style="display:block; margin-bottom:.35rem; color:var(--color-muted);">駅で絞り込み</span>
-              <div id="stationFilter" style="min-width:260px; padding:.5rem; font-weight:700;">茨木（固定）</div>
+              <label for="stationFilter" style="display:block; margin-bottom:.35rem;">駅で絞り込み</label>
+              <select id="stationFilter" name="station" style="min-width:260px">
+                <option value="">駅を選択してください</option>
+              </select>
             </div>
             <div>
               <label for="passFilter" style="display:block; margin-bottom:.35rem;">通過列車の表示</label>
@@ -75,25 +73,27 @@
             </div>
           </div>
           <div id="alarmRow" style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-top:.75rem;">
-            <fieldset id="alarmUpBox" style="flex:1 1 480px; min-width:420px; border:1px solid var(--color-border,#ddd); border-radius:.5rem; padding:1rem;">
+            <fieldset id="alarmUpBox" style="flex:1 1 480px; min-width:420px; border:1px solid var(--color-border, #ddd); border-radius:.5rem; padding:1rem;">
               <legend>上り: 接近アラーム</legend>
               <div id="alarmUpOptions"></div>
               <label style="display:flex; align-items:center; gap:.75rem; padding:.9rem 1.1rem; margin:.35rem 0; color:var(--color-muted); min-height:52px; font-size:1.05rem; border:1px solid #e0e0e0; border-radius:.5rem;">
-                <input type="checkbox" id="alarmUpDisable">アラーム無効
+                <input type="checkbox" id="alarmUpDisable">
+                アラーム無効
               </label>
             </fieldset>
-            <fieldset id="alarmDownBox" style="flex:1 1 480px; min-width:420px; border:1px solid var(--color-border,#ddd); border-radius:.5rem; padding:1rem;">
+            <fieldset id="alarmDownBox" style="flex:1 1 480px; min-width:420px; border:1px solid var(--color-border, #ddd); border-radius:.5rem; padding:1rem;">
               <legend>下り: 接近アラーム</legend>
               <div id="alarmDownOptions"></div>
               <label style="display:flex; align-items:center; gap:.75rem; padding:.9rem 1.1rem; margin:.35rem 0; color:var(--color-muted); min-height:52px; font-size:1.05rem; border:1px solid #e0e0e0; border-radius:.5rem;">
-                <input type="checkbox" id="alarmDownDisable">アラーム無効
+                <input type="checkbox" id="alarmDownDisable">
+                アラーム無効
               </label>
             </fieldset>
           </div>
         </section>
       </details>
 
-      <h1>茨木駅 列車走行位置</h1>
+      <h1 id="pageTitle">列車走行位置</h1>
       <p id="paramsView">読み込み中…</p>
       <div id="trafficInfo" class="traffic-info" aria-live="polite"></div>
 
@@ -111,8 +111,10 @@
           </section>
         </div>
       </section>
-      <p>
+
+      <p style="display:flex; gap:.5rem; flex-wrap:wrap;">
         <a class="btn" href="/select.html">エリア選択</a>
+        <a class="btn" href="/index.html">茨木駅</a>
       </p>
     </main>
     <script src="/assets/js/runtime-loader.js?v=7" data-page="app"></script>
