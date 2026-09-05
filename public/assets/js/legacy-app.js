@@ -1044,21 +1044,9 @@
   function esc(v) {
     return String(v != null ? v : "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   }
-  function renderStations(stations) {
-    if (!stationFilter || stationFilter.dataset.bound === "1") return;
-    stationFilter.dataset.bound = "1";
-    stationFilter.innerHTML = "";
-    for (const s of stations) {
-      const opt = document.createElement("option");
-      opt.value = s.code;
-      opt.textContent = s.name;
-      stationFilter.appendChild(opt);
-    }
-    stationFilter.value = currentCode;
-    stationFilter.addEventListener("change", () => {
-      currentCode = stationFilter.value;
-      void refresh(true);
-    });
+  function renderStations() {
+    if (!stationFilter) return;
+    stationFilter.textContent = `${stationName}\uFF08\u56FA\u5B9A\uFF09`;
   }
   function renderTraffic(items) {
     if (!trafficEl) return;
@@ -1205,7 +1193,7 @@ ${prefsJson}`;
         const resp = yield res.json();
         if (!currentCode) {
           currentCode = resp.station.code;
-          renderStations(resp.stations);
+          renderStations();
         }
         const areaName = resp.areaName || area2;
         const lineNames = resp.lineNames || {};

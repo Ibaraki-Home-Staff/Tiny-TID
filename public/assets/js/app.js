@@ -35,21 +35,9 @@ function esc(v) {
   return String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function renderStations(stations) {
-  if (!stationFilter || stationFilter.dataset.bound === '1') return;
-  stationFilter.dataset.bound = '1';
-  stationFilter.innerHTML = '';
-  for (const s of stations) {
-    const opt = document.createElement('option');
-    opt.value = s.code;
-    opt.textContent = s.name;
-    stationFilter.appendChild(opt);
-  }
-  stationFilter.value = currentCode;
-  stationFilter.addEventListener('change', () => {
-    currentCode = stationFilter.value;
-    void refresh(true);
-  });
+function renderStations() {
+  if (!stationFilter) return;
+  stationFilter.textContent = `${stationName}（固定）`;
 }
 
 function renderTraffic(items) {
@@ -191,7 +179,7 @@ async function refresh(immediate = false) {
     const resp = await res.json();
     if (!currentCode) {
       currentCode = resp.station.code;
-      renderStations(resp.stations);
+      renderStations();
     }
     const areaName = resp.areaName || area;
     const lineNames = resp.lineNames || {};
