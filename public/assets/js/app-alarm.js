@@ -147,6 +147,7 @@ function hide() {
 
 export function evaluateAndNotify({ stations, trains, stationCode }) {
   const order = stations.map((s) => s.code);
+  const orderSet = new Set(order);
   const idxOf = new Map(stations.map((s) => [s.code, s.index]));
   const pos = order.indexOf(stationCode);
 
@@ -171,7 +172,8 @@ export function evaluateAndNotify({ stations, trains, stationCode }) {
         if (i >= 0 && i < order.length) ahead.push(order[i]);
       }
     }
-    const target = readTarget(dirKey, stationCode, t.category) || ahead[0];
+    const savedTarget = readTarget(dirKey, stationCode, t.category);
+    const target = (savedTarget && orderSet.has(savedTarget)) ? savedTarget : ahead[0];
     if (!target) continue;
 
     const selIdx = idxOf.get(stationCode);
@@ -196,7 +198,8 @@ export function evaluateAndNotify({ stations, trains, stationCode }) {
       continue;
     }
     if (!stopFired && prefs.has('pass')) {
-      const passTarget = stCfg.targets?.pass ? String(stCfg.targets.pass) : ahead[0];
+      const savedPass = stCfg.targets?.pass ? String(stCfg.targets.pass) : '';
+      const passTarget = (savedPass && orderSet.has(savedPass)) ? savedPass : ahead[0];
       if (passTarget && (stoppedAt || movingOn) && t.willStopHere === false) {
         fire(t, passTarget, stationCode, dirKey, 'pass');
       }

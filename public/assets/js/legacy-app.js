@@ -39,7 +39,7 @@
     });
   };
 
-  // pwa.js
+  // public/assets/js/pwa.js
   var isLocalhost = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   var isSecure = () => location.protocol === "https:" || isLocalhost();
   function registerServiceWorker() {
@@ -103,7 +103,7 @@
     });
   })();
 
-  // tid-settings.js
+  // public/assets/js/tid-settings.js
   var SETTINGS_ROOT_KEY = "tid:v1:settings";
   var MIGRATION_DONE_KEY = "tid:v1:migrationDone";
   function isMigrationDone() {
@@ -287,7 +287,7 @@
     }
   }
 
-  // app-alarm.js
+  // public/assets/js/app-alarm.js
   var SUPPRESS_MS = 3 * 60 * 1e3;
   var STORE_KEY = "tid:v1:alarm:approachSuppression";
   var lineScope = "";
@@ -473,6 +473,7 @@
   function evaluateAndNotify({ stations, trains, stationCode }) {
     var _a, _b, _c;
     const order = stations.map((s) => s.code);
+    const orderSet = new Set(order);
     const idxOf = new Map(stations.map((s) => [s.code, s.index]));
     const pos = order.indexOf(stationCode);
     for (const t of trains) {
@@ -495,7 +496,8 @@
           if (i >= 0 && i < order.length) ahead.push(order[i]);
         }
       }
-      const target = readTarget(dirKey, stationCode, t.category) || ahead[0];
+      const savedTarget = readTarget(dirKey, stationCode, t.category);
+      const target = savedTarget && orderSet.has(savedTarget) ? savedTarget : ahead[0];
       if (!target) continue;
       const selIdx = idxOf.get(stationCode);
       const tgtIdx = idxOf.get(target);
@@ -515,7 +517,8 @@
         continue;
       }
       if (!stopFired && prefs.has("pass")) {
-        const passTarget = ((_c = stCfg.targets) == null ? void 0 : _c.pass) ? String(stCfg.targets.pass) : ahead[0];
+        const savedPass = ((_c = stCfg.targets) == null ? void 0 : _c.pass) ? String(stCfg.targets.pass) : "";
+        const passTarget = savedPass && orderSet.has(savedPass) ? savedPass : ahead[0];
         if (passTarget && (stoppedAt || movingOn) && t.willStopHere === false) {
           fire(t, passTarget, stationCode, dirKey, "pass");
         }
@@ -792,7 +795,7 @@
     build(dnBox, "data-alarm-down", "down");
   }
 
-  // components.js
+  // public/assets/js/components.js
   var APP_VERSION_META_SELECTOR = 'meta[name="app:version"]';
   var COMPONENTS = Object.freeze([
     { selector: '[data-include="header"]', path: "/components/header.html" },
@@ -860,7 +863,7 @@
     });
   }
 
-  // tid-background.js
+  // public/assets/js/tid-background.js
   var BG_NOTIFY_KEY = "tid:bgnotify";
   var WAKE_LOCK_KEY = "tid:wakelock";
   function isBgNotifyEnabled(getSetting2) {
@@ -1013,7 +1016,7 @@
     }
   }
 
-  // app.js
+  // public/assets/js/app.js
   loadComponents();
   migrateLegacySettings();
   bindLineConfig(getLineConfig);
@@ -1090,7 +1093,7 @@
   }
   function trainRow(t, delayThreshold, carsThreshold) {
     const tr = document.createElement("tr");
-    const typeCls = t.color_class || "";
+    const typeCls = t.colorClass || "";
     const typeHtml = typeCls ? `<span class="${esc(typeCls)}">${esc(t.displayType)}</span>` : esc(t.displayType);
     const delayHtml = t.delayMinutes > 0 ? t.delayMinutes >= delayThreshold ? `<span class="delay-bad" style="color:var(--color-danger,#c00);font-weight:700;">${t.delayMinutes}\u5206</span>` : `${t.delayMinutes}\u5206` : "";
     let carsText = t.cars != null ? String(t.cars) : "";
@@ -1133,29 +1136,35 @@
       var _a, _b;
       const cfg = getLineConfig(lineScope2);
       const st = ((_b = (_a = cfg == null ? void 0 : cfg.alarms) == null ? void 0 : _a[currentCode]) == null ? void 0 : _b[d]) || {};
-      if (st.disabled) return { cats: [], pass: false, carsMin: 0, carsFilter: false };
+      if (st.disabled) return { cats: [], pass: false, carsMin: 0, carsFilter: false, targets: {} };
       const cats = (Array.isArray(st.prefs) ? st.prefs : []).map((v) => typeof v === "string" && v.startsWith("cat:") ? Number(v.slice(4)) : NaN).filter((n) => Number.isFinite(n));
+      const targets = st.targets && typeof st.targets === "object" ? st.targets : {};
       return {
         cats,
         pass: Array.isArray(st.prefs) && st.prefs.includes("pass"),
         carsMin: Number(getSetting("cars.threshold", 9)) || 0,
-        carsFilter: !!getSetting("cars.filterEnabled", false)
+        carsFilter: !!getSetting("cars.filterEnabled", false),
+        targets
       };
     };
     return JSON.stringify({ up: dir("up"), down: dir("down") });
   }
   var pushSynced = false;
+  var lastSyncKey = "";
   function syncPushSubscription() {
     return __async(this, null, function* () {
       try {
         if (!("Notification" in window) || Notification.permission !== "granted") return;
         if (getSetting("bg.notify", null) !== "1") return;
-        if (pushSynced && Notification.permission === "granted") {
-        }
+        const prefsJson = buildPushPrefs();
+        const syncKey = `${currentCode}
+${prefsJson}`;
+        if (pushSynced && syncKey === lastSyncKey) return;
         const reg = yield navigator.serviceWorker.getRegistration();
         if (!reg) return;
-        yield subscribePush(reg, { stationCode: currentCode, prefsJson: buildPushPrefs() });
+        yield subscribePush(reg, { stationCode: currentCode, prefsJson });
         pushSynced = true;
+        lastSyncKey = syncKey;
       } catch (err) {
         console.warn("push subscribe failed", err);
       }
@@ -1198,7 +1207,7 @@
           currentCode = resp.station.code;
           renderStations(resp.stations);
         }
-        updatedAtEl.textContent = formatJST(resp.update || resp.server_time);
+        updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
         renderTraffic(resp.traffic);
         renderTrains(resp);
         renderAlarmOptions({

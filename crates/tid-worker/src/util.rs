@@ -50,15 +50,26 @@ pub struct StoredPrefs {
     pub cars_min: f64,
     #[serde(default, rename = "carsFilter")]
     pub cars_filter: bool,
+    /// UI-chosen approach targets (`cat:N` -> station code, plus `pass` key).
+    /// Absent in old rows -> empty -> nearest-ahead fallback.
+    #[serde(default)]
+    pub targets: std::collections::HashMap<String, String>,
 }
 
 impl From<StoredPrefs> for tid_core::alarm::Prefs {
-    fn from(s: StoredPrefs) -> Self {
+    fn from(mut s: StoredPrefs) -> Self {
+        let pass_target = s
+            .targets
+            .remove("pass")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
         tid_core::alarm::Prefs {
             cats: s.cats,
             pass: s.pass,
             cars_min: s.cars_min,
             cars_filter_enabled: s.cars_filter,
+            targets: s.targets,
+            pass_target,
         }
     }
 }

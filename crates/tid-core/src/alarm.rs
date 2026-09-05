@@ -8,6 +8,8 @@
 //! (`approach:{area}:{scope}:{station}:{dir}:{trainNo}`), mirroring the client's
 //! 3-minute suppression window.
 
+use std::collections::HashMap;
+
 use crate::network::MergedIndex;
 use crate::vmtypes::TrainVm;
 
@@ -21,6 +23,11 @@ pub struct Prefs {
     /// cars threshold when cars_filter_enabled
     pub cars_min: f64,
     pub cars_filter_enabled: bool,
+    /// UI-chosen approach target per category (`cat:N` -> unit rep code).
+    /// Absent or stale (not in current order) entries fall back to ahead[0].
+    pub targets: HashMap<String, String>,
+    /// UI-chosen pass-train target station (unit rep code).
+    pub pass_target: Option<String>,
 }
 
 impl Prefs {
@@ -121,9 +128,14 @@ pub fn evaluate(
 
         // ---- 1) Stop case -------------------------------------------------
         if prefs.has_cat(cat) {
-            let target_code: Option<&String> = fallback_target;
+            // UI-chosen target first; stale entries fall back to ahead[0].
+            let saved = prefs
+                .targets
+                .get(&format!("cat:{cat}"))
+                .filter(|c| merged.by_code.contains_key(c.as_str()));
+            let target_code: Option<&String> = saved.or(fallback_target);
             if let Some(target) = target_code {
-                let boundary = boundary_match(t, target, merged);
+                let boundary = boundary_match(t, target);
                 let range = segment_match(
                     merged,
                     t.pos_index,
@@ -140,15 +152,12 @@ pub fn evaluate(
 
         // ---- 2) Pass case -------------------------------------------------
         if !*alerted_holder && prefs.pass {
-            let Some(target) = fallback_target else { continue };
-            let stopped_at = t.stopped && t.at_code == *target;
-            let moving_on = !t.stopped
-                && (if t.direction == 0 {
-                    t.next_code.as_deref() == Some(target.as_str())
-                } else {
-                    t.at_code == *target
-                });
-            if !(stopped_at || moving_on) {
+            let saved_pass = prefs
+                .pass_target
+                .as_ref()
+                .filter(|c| merged.by_code.contains_key(c.as_str()));
+            let Some(target) = saved_pass.or(fallback_target) else { continue };
+            if !boundary_match(t, target) {
                 continue;
             }
             // Gate on SELECTED station categories (ver1 modified behavior):
@@ -222,13 +231,34 @@ fn push_event(
     });
 }
 
-fn boundary_match(t: &TrainVm, target: &str, _merged: &MergedIndex) -> bool {
-    let stopped_at_target = t.stopped && t.at_code == target;
+/// Fires when the train is AT the target: stopped there, or moving with the
+/// target directly behind it (selected station ahead).
+///
+/// Travel sense is `direction == 0` toward listing-start, `1` toward
+/// listing-end (fixture-pinned by `direction_points_at_same_line_dest`).
+/// The arms below assume kyoto-style `pos` (`A_B` with A listed before B,
+/// true on five of six scope lines): for dir 0 the listed-first station
+/// (`at`) lies ahead and listed-second (`next`) was just left; for dir 1
+/// the reverse. kosei lists reversed, so there the moving arms may miss —
+/// but range matching (`segment_match`) is endpoint-order independent and
+/// remains the primary trigger, and stopped trains carry a single code.
+///
+/// Comparison is in unit (representative) namespace because `target` comes
+/// from the merged order; raw line-local codes are only a fallback for
+/// trains whose unit resolution failed (empty unit string).
+fn boundary_match(t: &TrainVm, target: &str) -> bool {
+    let at_u = if t.at_unit.is_empty() { t.at_code.as_str() } else { t.at_unit.as_str() };
+    let next_u = if t.next_unit.is_empty() {
+        t.next_code.as_deref().unwrap_or("")
+    } else {
+        t.next_unit.as_str()
+    };
+    let stopped_at_target = t.stopped && at_u == target;
     let moving_on_target = !t.stopped
         && (if t.direction == 0 {
-            t.next_code.as_deref() == Some(target)
+            !next_u.is_empty() && next_u == target
         } else {
-            t.at_code == target
+            at_u == target
         });
     stopped_at_target || moving_on_target
 }

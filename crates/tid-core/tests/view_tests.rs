@@ -119,6 +119,8 @@ fn alarm_fires_on_synthetic_geometry() {
         pass: false,
         cars_min: 0.0,
         cars_filter_enabled: false,
+        targets: Default::default(),
+        pass_target: None,
     };
     let events = evaluate(&merged, &[vm], station_code, "kinki", "scope", &Prefs::default(), &prefs_down);
     assert_eq!(events.len(), 1);

@@ -82,7 +82,7 @@ function renderTraffic(items) {
 
 function trainRow(t, delayThreshold, carsThreshold) {
   const tr = document.createElement('tr');
-  const typeCls = t.color_class || '';
+  const typeCls = t.colorClass || '';
   const typeHtml = typeCls ? `<span class="${esc(typeCls)}">${esc(t.displayType)}</span>` : esc(t.displayType);
   const delayHtml = t.delayMinutes > 0
     ? (t.delayMinutes >= delayThreshold
@@ -134,32 +134,36 @@ function buildPushPrefs() {
   const dir = (d) => {
     const cfg = getLineConfig(lineScope);
     const st = cfg?.alarms?.[currentCode]?.[d] || {};
-    if (st.disabled) return { cats: [], pass: false, carsMin: 0, carsFilter: false };
+    if (st.disabled) return { cats: [], pass: false, carsMin: 0, carsFilter: false, targets: {} };
     const cats = (Array.isArray(st.prefs) ? st.prefs : [])
       .map((v) => (typeof v === 'string' && v.startsWith('cat:') ? Number(v.slice(4)) : NaN))
       .filter((n) => Number.isFinite(n));
+    const targets = (st.targets && typeof st.targets === 'object') ? st.targets : {};
     return {
       cats,
       pass: Array.isArray(st.prefs) && st.prefs.includes('pass'),
       carsMin: Number(getSetting('cars.threshold', 9)) || 0,
       carsFilter: !!getSetting('cars.filterEnabled', false),
+      targets,
     };
   };
   return JSON.stringify({ up: dir('up'), down: dir('down') });
 }
 
 let pushSynced = false;
+let lastSyncKey = '';
 async function syncPushSubscription() {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if (getSetting('bg.notify', null) !== '1') return;
-    if (pushSynced && Notification.permission === 'granted') {
-      // re-post on station/prefs change is handled by page reload; keep light
-    }
+    const prefsJson = buildPushPrefs();
+    const syncKey = `${currentCode}\n${prefsJson}`;
+    if (pushSynced && syncKey === lastSyncKey) return;
     const reg = await navigator.serviceWorker.getRegistration();
     if (!reg) return;
-    await subscribePush(reg, { stationCode: currentCode, prefsJson: buildPushPrefs() });
+    await subscribePush(reg, { stationCode: currentCode, prefsJson });
     pushSynced = true;
+    lastSyncKey = syncKey;
   } catch (err) { console.warn('push subscribe failed', err); }
 }
 
@@ -189,7 +193,7 @@ async function refresh(immediate = false) {
       currentCode = resp.station.code;
       renderStations(resp.stations);
     }
-    updatedAtEl.textContent = formatJST(resp.update || resp.server_time);
+    updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
     renderTraffic(resp.traffic);
     renderTrains(resp);
     renderAlarmOptions({
