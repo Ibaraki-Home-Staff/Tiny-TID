@@ -7,7 +7,7 @@
 
   "build": {
     "command": "cd crates/tid-worker && worker-build --release",
-    "watch_dir": ["crates/tid-worker/src", "public"]
+    "watch_dir": ["crates/tid-worker/src", "crates/tid-core/src", "public"]
   },
 
   // Static site: index.html, assets/, service-worker.js, manifest
@@ -16,7 +16,7 @@
     "binding": "ASSETS"
   },
 
-  // Fill IDs after `npx wrangler d1 create tiny-tid` / `kv namespace create SNAPSHOTS`
+  // Fill IDs after `bunx wrangler d1 create tiny-tid` / `kv namespace create SNAPSHOTS`
   "d1_databases": [
     { "binding": "DB", "database_name": "tiny-tid", "database_id": "REPLACE_WITH_D1_ID" }
   ],
@@ -36,6 +36,6 @@
   }
 
   // Secrets (never in this file):
-  //   npx wrangler secret put VAPID_PRIVATE_KEY   # base64url private key
-  //   npx wrangler secret put VAPID_SUBJECT       # e.g. mailto:you@example.com
+  //   bunx wrangler secret put VAPID_PRIVATE_KEY   # base64url private key
+  //   bunx wrangler secret put VAPID_SUBJECT       # e.g. mailto:you@example.com
 }

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:legacy": "pwsh ./build-legacy.ps1",
-    "dev": "npx wrangler dev",
-    "deploy": "npx wrangler deploy"
+    "dev": "bunx wrangler dev",
+    "deploy": "bunx wrangler deploy"
   }
 }
