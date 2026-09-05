@@ -44,6 +44,7 @@ pub async fn rebuild_network(env: &Env, origin: &str) -> Result<String> {
         }
         tid_core::network::apply_line_meta(&mut snap, &meta);
     }
+    snap.areas = tid_core::model::build_area_index(&masters);
     *mem_slot().write().unwrap() = Some(Arc::new(snap.clone()));
 
     use wasm_bindgen::JsValue;

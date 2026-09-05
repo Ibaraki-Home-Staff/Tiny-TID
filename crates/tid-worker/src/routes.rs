@@ -1,39 +1,53 @@
-//! HTTP routes: /api/view, /api/push/subscriptions, static assets fallback.
+//! HTTP routes: /api/view, /api/areas, /api/stations, /api/push/subscriptions,
+//! static assets fallback.
 use worker::*;
 use tid_core::network::merge_scope;
 use tid_core::view::{build_view, MergedScopeSource, PassSetting, ViewInput};
-use tid_core::vmtypes::{TrafficItems, TrainVm, ViewResponse};
+use tid_core::vmtypes::{StationRef, TrafficItems, TrainVm, ViewResponse};
 
 use crate::{network_job, util};
 
-async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
+/// Snapshot with lazy first build (covers fresh deploys before the daily cron).
+async fn load_or_rebuild(env: &Env) -> Result<std::sync::Arc<tid_core::network::NetworkSnapshot>> {
     let db = env.d1("DB")?;
-    let snapshot = match network_job::load_network(&db).await {
-        Some(s) => s,
+    match network_job::load_network(&db).await {
+        Some(s) => Ok(s),
         None => {
-            // Lazy first build (covers fresh deploys before the daily cron).
-            if let Err(e) = network_job::rebuild_network(env, &util::origin(env)).await {
-                return Response::error(format!("snapshot build failed: {e}"), 503);
-            }
-            match network_job::load_network(&db).await {
-                Some(s) => s,
-                None => return Response::error("network snapshot not available", 503),
-            }
+            network_job::rebuild_network(env, &util::origin(env))
+                .await
+                .map_err(|e| Error::RustError(format!("snapshot build failed: {e}").into()))?;
+            network_job::load_network(&db)
+                .await
+                .ok_or_else(|| Error::RustError("network snapshot not available".into()))
         }
-    };
-    let scope = util::scope_lines(env);
-    let primary = util::primary_line(env);
+    }
+}
+
+async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
+    let snapshot = load_or_rebuild(env).await?;
     let query = url.query();
+    // Generic single-line mode (?line=): the scope narrows to that line.
+    // Unknown ids are rejected; absence keeps the fixed scope.
+    let scope = match util::query_param(query, "line").filter(|s| !s.trim().is_empty()) {
+        Some(l) if snapshot.orders.contains_key(l.as_str()) => vec![l],
+        Some(_) => return Response::error("unknown line", 400),
+        None => util::scope_lines(env),
+    };
+    let primary = if scope.len() == 1 {
+        scope[0].clone()
+    } else {
+        util::primary_line(env)
+    };
     let station = util::query_param(query, "station")
         .unwrap_or_else(|| util::fixed_station(env));
     let pass = PassSetting::parse(&util::query_param(query, "pass").unwrap_or_else(|| "hide".into()));
+    let area = util::query_param(query, "area")
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| env.var("FIXED_AREA").map(|v| v.to_string()).ok())
+        .unwrap_or_else(|| "kinki".to_string());
 
     let origin = util::origin(env);
-    let payloads = crate::upstream::fetch_all_trains(env, &origin).await;
-    let area = env
-        .var("FIXED_AREA")
-        .map(|v| v.to_string())
-        .unwrap_or_else(|_| "kinki".to_string());
+    let payloads = crate::upstream::fetch_trains_for(env, &origin, &scope).await;
     let kv_ref = env.kv("SNAPSHOTS").ok();
     let traffic_doc = crate::upstream::get_traffic_doc(
         &origin,
@@ -78,6 +92,41 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
 }
 
 use std::sync::LazyLock;
+/// Area selector index for select.html: { area_id: { name, lines: [{id, name}] } }.
+async fn handle_areas(env: &Env) -> Result<Response> {
+    let snapshot = load_or_rebuild(env).await?;
+    Response::from_json(&snapshot.areas)
+}
+
+/// Station list of one line in listing order (selector + generic viewer).
+async fn handle_stations(env: &Env, url: &Url) -> Result<Response> {
+    let snapshot = load_or_rebuild(env).await?;
+    let line = util::query_param(url.query(), "line")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if line.is_empty() {
+        return Response::error("missing line", 400);
+    }
+    let (Some(order), Some(stations)) =
+        (snapshot.orders.get(line.as_str()), snapshot.lines.get(line.as_str()))
+    else {
+        return Response::error("unknown line", 400);
+    };
+    let list: Vec<StationRef> = order
+        .iter()
+        .filter_map(|code| {
+            stations.get(code).map(|st| StationRef {
+                code: code.clone(),
+                name: if st.name.trim().is_empty() {
+                    code.clone()
+                } else {
+                    st.name.trim().to_string()
+                },
+            })
+        })
+        .collect();
+    Response::from_json(&serde_json::json!({ "line": line, "stations": list }))
+}
 
 static COLOR_MAP: LazyLock<std::collections::BTreeMap<String, String>> = LazyLock::new(|| {
     tid_core::category::parse_color_map(include_str!("../../../assets/color.txt"))
@@ -171,6 +220,8 @@ pub async fn handle_fetch(req: Request, env: Env) -> Result<Response> {
 
     match (req.method(), path.as_str()) {
         (_, p) if p == "/api/view" => handle_view(&env, &url).await,
+        (_, p) if p == "/api/areas" => handle_areas(&env).await,
+        (_, p) if p == "/api/stations" => handle_stations(&env, &url).await,
         (_, p) if p == "/api/push/subscriptions" => handle_subscribe(req, env).await,
         _ => {
             let assets = env.assets("ASSETS")?;

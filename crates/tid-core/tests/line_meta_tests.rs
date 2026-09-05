@@ -105,3 +105,19 @@ fn unknown_ends_leave_order_untouched() {
     tid_core::network::apply_line_meta(&mut snap, &meta);
     assert_eq!(snap.orders["gl"], vec!["B0".to_string(), "B1".to_string()]);
 }
+
+#[test]
+fn area_index_lists_lines_in_master_order() {
+    let doc: MasterDoc =
+        serde_json::from_str(include_str!("fixtures/area_kinki_master.json")).expect("master parse");
+    let masters = vec![("kinki".to_string(), doc)];
+    let areas = tid_core::model::build_area_index(&masters);
+    let kinki = &areas["kinki"];
+    assert_eq!(kinki.name, "近畿");
+    assert_eq!(kinki.lines.len(), 27);
+    let kyoto = kinki.lines.iter().find(|l| l.id == "kyoto").expect("kyoto entry");
+    assert_eq!(kyoto.name, "JR京都線");
+    // Master `index` order ascending.
+    assert_eq!(kinki.lines.first().unwrap().id, "hokurikubiwako");
+    assert_eq!(kinki.lines.last().unwrap().id, "kinokuni");
+}

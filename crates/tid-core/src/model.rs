@@ -282,3 +282,52 @@ pub fn area_name(id: &str) -> &str {
         _ => id,
     }
 }
+
+
+/// Area selector index entry: display name + lines in master order.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AreaLine {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AreaInfo {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub lines: Vec<AreaLine>,
+}
+
+/// Build the area→lines index from area masters: `[(area_id, master)]`.
+/// Line order follows the master's `index` field (fallback: master order).
+pub fn build_area_index(
+    masters: &[(String, MasterDoc)],
+) -> std::collections::BTreeMap<String, AreaInfo> {
+    let mut out = std::collections::BTreeMap::new();
+    for (area_id, doc) in masters {
+        let mut lines: Vec<(u64, usize, AreaLine)> = Vec::new();
+        for (seq, (id, v)) in doc.lines.iter().enumerate() {
+            let name = v
+                .get("name")
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(id.as_str())
+                .to_string();
+            let order = v.get("index").and_then(|x| x.as_u64()).unwrap_or(u64::MAX);
+            lines.push((order, seq, AreaLine { id: id.clone(), name }));
+        }
+        lines.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        out.insert(
+            area_id.clone(),
+            AreaInfo {
+                name: area_name(area_id).to_string(),
+                lines: lines.into_iter().map(|(_, _, l)| l).collect(),
+            },
+        );
+    }
+    out
+}

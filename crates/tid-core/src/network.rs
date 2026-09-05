@@ -10,7 +10,7 @@ use crate::model::{StationsDoc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-pub const SNAPSHOT_VERSION: u32 = 5;
+pub const SNAPSHOT_VERSION: u32 = 6;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct NetworkSnapshot {
@@ -23,6 +23,9 @@ pub struct NetworkSnapshot {
     /// line id -> display + direction datum from the area master
     #[serde(default)]
     pub line_meta: BTreeMap<String, crate::model::LineMeta>,
+    /// area id -> selector index (display name + lines in master order)
+    #[serde(default)]
+    pub areas: BTreeMap<String, crate::model::AreaInfo>,
 }
 
 /// Store master metadata and normalize every listing to upper→lower order:
