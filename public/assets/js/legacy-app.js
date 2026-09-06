@@ -1289,6 +1289,19 @@ ${prefsJson}`;
   }
   function initControls() {
     var _a;
+    const settingsPanel = document.getElementById("settingsPanel");
+    if (settingsPanel) {
+      const wantOpen = String(getSetting("ui.settingsOpen", "1")) !== "0";
+      settingsPanel.open = wantOpen;
+      if (wantOpen) settingsPanel.setAttribute("open", "");
+      else settingsPanel.removeAttribute("open");
+      settingsPanel.addEventListener("toggle", () => {
+        try {
+          setSetting("ui.settingsOpen", settingsPanel.open ? "1" : "0");
+        } catch (e) {
+        }
+      });
+    }
     const delayInput = document.getElementById("delayThreshold");
     if (delayInput) {
       delayInput.value = String(Number(getSetting("delay.threshold", 4)) || 4);
