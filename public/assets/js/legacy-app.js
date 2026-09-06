@@ -1026,12 +1026,30 @@
     return ((_b = (_a = document.querySelector(`meta[name="${n}"]`)) == null ? void 0 : _a.getAttribute("content")) == null ? void 0 : _b.trim()) || "";
   };
   var query = new URLSearchParams(window.location.search);
+  var storageGet = (k) => {
+    try {
+      return window.localStorage.getItem(k);
+    } catch (e) {
+      return null;
+    }
+  };
+  var storageSet = (k, v) => {
+    try {
+      window.localStorage.setItem(k, v);
+    } catch (e) {
+    }
+  };
   var fixedMode = meta("tid:fixedStationName") !== "";
-  var area2 = fixedMode ? meta("tid:fixedArea") : (query.get("area") || "").trim() || meta("tid:fixedArea");
-  var line2 = fixedMode ? meta("tid:fixedLine") : (query.get("line") || "").trim();
+  var area2 = fixedMode ? meta("tid:fixedArea") : (query.get("area") || "").trim() || storageGet("tid:select:area") || meta("tid:fixedArea");
+  var line2 = fixedMode ? meta("tid:fixedLine") : (query.get("line") || "").trim() || storageGet("tid:select:line") || "";
   var lineIds = fixedMode ? meta("tid:fixedLines").split(",").map((s) => s.trim()).filter(Boolean) : line2 ? [line2] : [];
-  var stationName = fixedMode ? meta("tid:fixedStationName") : (query.get("station") || "").trim();
+  var stationName = fixedMode ? meta("tid:fixedStationName") : (query.get("station") || "").trim() || storageGet("tid:select:station") || "";
   var lineScope2 = [...lineIds].sort().join("+");
+  if (!fixedMode) {
+    if (area2) storageSet("tid:select:area", area2);
+    if (line2) storageSet("tid:select:line", line2);
+    if ((query.get("station") || "").trim()) storageSet("tid:select:station", stationName);
+  }
   initAlarm({ scope: lineScope2, areaId: area2, lineId: line2 });
   var paramsView = document.getElementById("paramsView");
   var updatedAtEl = document.getElementById("updatedAt");
@@ -1069,6 +1087,7 @@
     stationFilter.value = currentCode;
     stationFilter.addEventListener("change", () => {
       currentCode = stationFilter.value;
+      storageSet("tid:select:station", currentCode);
       void refresh(true);
     });
   }
@@ -1254,10 +1273,6 @@ ${prefsJson}`;
           allowedCats: resp.stationAllowedCats,
           dirParam: "both"
         });
-        try {
-          localStorage.setItem("tid:lastStationCode", currentCode);
-        } catch (e) {
-        }
         void syncPushSubscription();
         evaluateAndNotify({
           stations: resp.stations,
@@ -1298,7 +1313,16 @@ ${prefsJson}`;
       carsFilter.checked = !!getSetting("cars.filterEnabled", false);
       carsFilter.addEventListener("change", () => setSetting("cars.filterEnabled", carsFilter.checked));
     }
-    passFilter == null ? void 0 : passFilter.addEventListener("change", () => void refresh(true));
+    if (passFilter) {
+      passFilter.value = getSetting(`lines.${lineScope2}.pass`, passFilter.value || "hide") || "hide";
+      passFilter.addEventListener("change", () => {
+        try {
+          setSetting(`lines.${lineScope2}.pass`, passFilter.value);
+        } catch (e) {
+        }
+        void refresh(true);
+      });
+    }
     (_a = document.getElementById("bgNotifyEnable")) == null ? void 0 : _a.addEventListener("change", () => {
       pushSynced = false;
       setTimeout(() => void syncPushSubscription(), 500);

@@ -12,15 +12,24 @@ initBackgroundControls({ getSetting, setSetting });
 
 const meta = (n) => document.querySelector(`meta[name="${n}"]`)?.getAttribute('content')?.trim() || '';
 const query = new URLSearchParams(window.location.search);
+const storageGet = (k) => { try { return window.localStorage.getItem(k); } catch { return null; } };
+const storageSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch {} };
 // Fixed Ibaraki mode (index.html meta) vs generic mode (view.html query).
+// Generic mode falls back to the selector's stored state when the query omits it.
 const fixedMode = meta('tid:fixedStationName') !== '';
-const area = fixedMode ? meta('tid:fixedArea') : ((query.get('area') || '').trim() || meta('tid:fixedArea'));
-const line = fixedMode ? meta('tid:fixedLine') : ((query.get('line') || '').trim());
+const area = fixedMode ? meta('tid:fixedArea') : ((query.get('area') || '').trim() || storageGet('tid:select:area') || meta('tid:fixedArea'));
+const line = fixedMode ? meta('tid:fixedLine') : ((query.get('line') || '').trim() || storageGet('tid:select:line') || '');
 const lineIds = fixedMode
   ? meta('tid:fixedLines').split(',').map((s) => s.trim()).filter(Boolean)
   : (line ? [line] : []);
-const stationName = fixedMode ? meta('tid:fixedStationName') : ((query.get('station') || '').trim());
+const stationName = fixedMode ? meta('tid:fixedStationName') : ((query.get('station') || '').trim() || storageGet('tid:select:station') || '');
 const lineScope = [...lineIds].sort().join('+');
+if (!fixedMode) {
+  // Keep the selector in sync with explicitly opened views.
+  if (area) storageSet('tid:select:area', area);
+  if (line) storageSet('tid:select:line', line);
+  if ((query.get('station') || '').trim()) storageSet('tid:select:station', stationName);
+}
 initAlarm({ scope: lineScope, areaId: area, lineId: line });
 
 const paramsView = document.getElementById('paramsView');
@@ -63,6 +72,7 @@ function renderStations(stations) {
   stationFilter.value = currentCode;
   stationFilter.addEventListener('change', () => {
     currentCode = stationFilter.value;
+    storageSet('tid:select:station', currentCode);
     void refresh(true);
   });
 }
@@ -243,7 +253,6 @@ async function refresh(immediate = false) {
       allowedCats: resp.stationAllowedCats,
       dirParam: 'both',
     });
-    try { localStorage.setItem('tid:lastStationCode', currentCode); } catch {}
     void syncPushSubscription();
     evaluateAndNotify({
       stations: resp.stations,
@@ -283,7 +292,13 @@ function initControls() {
     carsFilter.checked = !!getSetting('cars.filterEnabled', false);
     carsFilter.addEventListener('change', () => setSetting('cars.filterEnabled', carsFilter.checked));
   }
-  passFilter?.addEventListener('change', () => void refresh(true));
+  if (passFilter) {
+    passFilter.value = getSetting(`lines.${lineScope}.pass`, passFilter.value || 'hide') || 'hide';
+    passFilter.addEventListener('change', () => {
+      try { setSetting(`lines.${lineScope}.pass`, passFilter.value); } catch {}
+      void refresh(true);
+    });
+  }
   document.getElementById('bgNotifyEnable')?.addEventListener('change', () => {
     pushSynced = false;
     setTimeout(() => void syncPushSubscription(), 500);

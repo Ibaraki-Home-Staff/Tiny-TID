@@ -61,6 +61,13 @@
     showBtn.disabled = !(areaSel.value && lineSel.value);
   }
 
+  function restoreStation(stations) {
+    var saved = storageGet('tid:select:station');
+    if (saved && stations.some(function (s) { return s.code === saved; })) {
+      stationSel.value = saved;
+    }
+  }
+
   function fillLines(areaId) {
     reset(lineSel, '路線を選択してください');
     reset(stationSel, '路線を選択してください');
@@ -100,6 +107,7 @@
         stationSel.appendChild(opt(s.code, s.name || s.code));
       });
       stationSel.disabled = false;
+      restoreStation(stations);
       updateShowButton();
     }).catch(function () {
       reset(stationSel, '取得に失敗しました');
@@ -111,12 +119,14 @@
     clearError();
     storageSet('tid:select:area', areaSel.value);
     storageSet('tid:select:line', '');
+    storageSet('tid:select:station', '');
     fillLines(areaSel.value);
   });
 
   lineSel.addEventListener('change', function () {
     clearError();
     storageSet('tid:select:line', lineSel.value);
+    storageSet('tid:select:station', '');
     if (lineSel.value) {
       fillStations(lineSel.value);
     } else {
@@ -125,7 +135,10 @@
     }
   });
 
-  stationSel.addEventListener('change', updateShowButton);
+  stationSel.addEventListener('change', function () {
+    storageSet('tid:select:station', stationSel.value);
+    updateShowButton();
+  });
 
   showBtn.addEventListener('click', function () {
     if (showBtn.disabled) return;
