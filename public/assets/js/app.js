@@ -109,7 +109,6 @@ function trainRow(t, delayThreshold, carsThreshold) {
   const tr = document.createElement('tr');
   const typeCls = t.colorClass || '';
   const typeHtml = typeCls ? `<span class="${esc(typeCls)}">${esc(t.displayType)}</span>` : esc(t.displayType);
-  const viaHtml = t.via ? ` <span class="type-badge">${esc(t.via)}経由</span>` : '';
   const delayHtml = t.delayMinutes > 0
     ? (t.delayMinutes >= delayThreshold
       ? `<span class="delay-bad" style="color:var(--color-danger,#c00);font-weight:700;">${t.delayMinutes}分</span>`
@@ -117,7 +116,7 @@ function trainRow(t, delayThreshold, carsThreshold) {
     : '';
   let carsText = t.cars != null ? String(t.cars) : '';
   if (Number.isFinite(Number(t.cars)) && Number(t.cars) >= carsThreshold) carsText = `<span class="cars-emph">${carsText}</span>`;
-  tr.innerHTML = `<td>${esc(t.no)}</td><td>${typeHtml}${viaHtml}</td><td>${esc(t.nickname)}</td>` +
+  tr.innerHTML = `<td>${esc(t.no)}</td><td>${typeHtml}</td><td>${esc(t.nickname)}</td>` +
     `<td>${carsText}</td><td>${esc(t.destText)}</td><td>${esc(t.posLabel)}</td><td>${delayHtml}</td>`;
   return tr;
 }
