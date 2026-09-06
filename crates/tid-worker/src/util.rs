@@ -135,7 +135,7 @@ pub async fn push_send(
     let req = crate::push::build_request(vapid, endpoint, p256dh, auth, message.as_bytes())
         .map_err(|e| Error::RustError(e.into()))?;
 
-    let mut headers = Headers::new();
+    let headers = Headers::new();
     for (name, value) in req.headers().iter() {
         headers
             .set(name.as_str(), value.to_str().unwrap_or(""))?;

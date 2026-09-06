@@ -1,9 +1,8 @@
 //! HTTP routes: /api/view, /api/areas, /api/stations, /api/push/subscriptions,
 //! static assets fallback.
 use worker::*;
-use tid_core::network::merge_scope;
 use tid_core::view::{build_view, MergedScopeSource, PassSetting, ViewInput};
-use tid_core::vmtypes::{StationRef, TrafficItems, TrainVm, ViewResponse};
+use tid_core::vmtypes::{StationRef, TrainVm, ViewResponse};
 
 use crate::{network_job, util};
 

@@ -325,14 +325,6 @@ fn parse_pos(pos: &str) -> (String, Option<String>, bool) {
     }
 }
 
-fn name_of(merged: &MergedIndex, code: &str) -> String {
-    merged
-        .by_code
-        .get(code)
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| code.to_string())
-}
-
 /// Display-only name lookup across the whole snapshot (not just the scope
 /// merge): own line first (pos codes are line-local), then the unique
 /// match across all lines. Ambiguous codes (shared by several lines) yield

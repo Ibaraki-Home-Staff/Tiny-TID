@@ -462,8 +462,7 @@ pub fn merge_scope(
         root_rep.insert(*root, rep.clone());
     }
 
-    let mut builds: Vec<Build> = pres.into_iter().zip(reps.into_iter()).map(|(mut pre, rep)| {
-        pre.names[0] = pre.names[0].clone();
+    let builds: Vec<Build> = pres.into_iter().zip(reps.into_iter()).map(|(pre, rep)| {
         Build { rep, names: pre.names, stops: pre.stops, members: pre.members }
     }).collect();
 

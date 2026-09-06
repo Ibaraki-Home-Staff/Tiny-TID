@@ -98,15 +98,7 @@ getter!(get_trains_doc, TrainPosDoc, TRAINS_TTL_MS);
 getter!(get_stations_doc, StationsDoc, MASTER_TTL_MS);
 getter!(get_master_doc, MasterDoc, MASTER_TTL_MS);
 
-pub async fn get_traffic_doc(origin: &str, path: &str, kv: Option<&KvStore>) -> Option<TrafficDoc> {
-    let bytes = cached_fetch(origin, path, 30_000).await;
-    if let Some(b) = &bytes {
-        if let Ok(v) = serde_json::from_slice::<TrafficDoc>(b) {
-            return Some(v);
-        }
-    }
-    None
-}
+getter!(get_traffic_doc, TrafficDoc, 30_000);
 
 /// Fetch the given lines' train payloads in one sweep (tagged with line id).
 pub async fn fetch_trains_for(
