@@ -25,28 +25,27 @@ async fn load_or_rebuild(env: &Env) -> Result<std::sync::Arc<tid_core::network::
 async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
     let snapshot = load_or_rebuild(env).await?;
     let query = url.query();
-    // Generic single-line mode (?line=): the scope narrows to that line.
-    // Unknown ids are rejected; absence keeps the fixed scope.
-    let scope = match util::query_param(query, "line").filter(|s| !s.trim().is_empty()) {
-        Some(l) if snapshot.orders.contains_key(l.as_str()) => vec![l],
-        Some(_) => return Response::error("unknown line", 400),
-        None => util::scope_lines(env),
+    // Generic single-line mode (?line=): the worker merges ALL lines it
+    // tracks (snapshot-wide) and returns the trains passing through the
+    // requested line/station. Unknown ids are rejected; absence keeps the
+    // fixed scope untouched.
+    let viewed: Option<String> = util::query_param(query, "line").filter(|s| !s.trim().is_empty());
+    if let Some(l) = &viewed {
+        if !snapshot.orders.contains_key(l.as_str()) {
+            return Response::error("unknown line", 400);
+        }
+    }
+    let (scope, primary, station_line): (Vec<String>, String, Option<String>) = match viewed.clone() {
+        Some(l) => (snapshot.orders.keys().cloned().collect(), l.clone(), Some(l)),
+        None => (util::scope_lines(env), util::primary_line(env), None),
     };
-    let primary = if scope.len() == 1 {
-        scope[0].clone()
-    } else {
-        util::primary_line(env)
-    };
-    // Generic mode (?line=): omitted station means all trains on the line.
+    // Generic mode: omitted station means all trains on the line.
     // Fixed scope: fall back to the fixed station as before.
-    let generic = util::query_param(query, "line")
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
     let station = util::query_param(query, "station")
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| {
-            if generic {
+            if viewed.is_some() {
                 String::new()
             } else {
                 util::fixed_station(env)
@@ -67,7 +66,13 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         kv_ref.as_ref(),
     )
     .await;
-    let line_names: std::collections::BTreeMap<String, String> = scope
+    // Traffic + names follow the requested line in generic mode (the merge
+    // itself stays snapshot-wide so through trains keep working).
+    let traffic_scope: Vec<String> = match station_line.clone() {
+        Some(l) => vec![l],
+        None => scope.clone(),
+    };
+    let line_names: std::collections::BTreeMap<String, String> = traffic_scope
         .iter()
         .map(|l| {
             let name = snapshot
@@ -80,7 +85,7 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         })
         .collect();
     let traffic = traffic_doc
-        .map(|doc| tid_core::traffic::build_traffic_items(&doc, &scope, &line_names))
+        .map(|doc| tid_core::traffic::build_traffic_items(&doc, &traffic_scope, &line_names))
         .unwrap_or_default();
 
     let source = MergedScopeSource { snapshot: &snapshot, lines: &scope, primary_line: &primary };
@@ -90,6 +95,7 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         trains_payloads: &payloads,
         server_time: util::iso_now(),
         color_map: &COLOR_MAP,
+        station_line: station_line.as_deref(),
     };
     let mut resp: ViewResponse = build_view(&source, &input);
     resp.traffic = traffic;
@@ -221,6 +227,7 @@ pub fn view_trains(
         trains_payloads: payloads,
         server_time: String::new(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     resp.up.into_iter().chain(resp.down.into_iter()).collect()

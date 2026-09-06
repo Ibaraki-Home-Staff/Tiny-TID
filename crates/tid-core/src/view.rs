@@ -5,7 +5,7 @@ use crate::category::{
     UNKNOWN,
 };
 use crate::model::{Dest, TrainPosDoc, TrainsItem};
-use crate::network::{merge_scope, normalize_name, MergedIndex};
+use crate::network::{merge_scope_on_line, normalize_name, MergedIndex};
 use crate::vmtypes::{StationIdx, StationRef, TrafficItems, TrainVm, ViewResponse};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -25,6 +25,10 @@ pub struct ViewInput<'a> {
     pub trains_payloads: &'a [(String, TrainPosDoc)],
     pub server_time: String,
     pub color_map: &'a BTreeMap<String, String>,
+    /// When set, the stations list (dropdown + alarm geometry) is limited
+    /// to units containing this line; train filtering still uses the full
+    /// merge so through trains from other payloads keep working.
+    pub station_line: Option<&'a str>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -50,6 +54,9 @@ struct Enhanced {
     nickname: String,
     at_code: String,
     next_code: Option<String>,
+    /// representative unit codes ("" when unresolvable)
+    at_unit: String,
+    next_unit: String,
     stopped: bool,
     pos_index: f64,
     dest_index: Option<f64>,
@@ -67,21 +74,47 @@ pub fn build_view(
     source: &MergedScopeSource<'_>,
     input: &ViewInput<'_>,
 ) -> ViewResponse {
-    let merged = merge_scope(
+    let merged = merge_scope_on_line(
         source.snapshot,
         source.lines,
         source.primary_line,
         input.station,
+        input.station_line,
     );
 
-    let wanted = normalize_name(input.station);
-    let selected_node = merged.by_code.get(input.station).cloned().or_else(|| {
-        merged
-            .by_code
-            .values()
-            .find(|n| normalize_name(&n.name) == wanted)
-            .cloned()
-    });
+    // Anchor resolution prefers the viewed line: numeric codes are reused
+    // across areas (kosei 0614 安曇川 vs 0614 東郡家), so a bare rep lookup
+    // may hit another area's unit in a snapshot-wide merge.
+    let selected_node = (|| {
+        if let Some(l) = input.station_line {
+            if let Some(u) = merged.unit(l, input.station) {
+                return Some(u.clone());
+            }
+        }
+        if let Some(u) = merged.by_code.get(input.station) {
+            return Some(u.clone());
+        }
+        let wanted = normalize_name(input.station);
+        if wanted.is_empty() {
+            return None;
+        }
+        let mut fallback = None;
+        for n in merged.by_code.values() {
+            if normalize_name(&n.name) == wanted {
+                if input
+                    .station_line
+                    .map(|l| merged.unit_has_line(&n.code, l))
+                    .unwrap_or(true)
+                {
+                    return Some(n.clone());
+                }
+                if fallback.is_none() {
+                    fallback = Some(n.clone());
+                }
+            }
+        }
+        fallback
+    })();
     let selected_idx: Option<f64> = selected_node.as_ref().map(|n| n.index);
 
     // stationAllowedCategories port: null when stopTrains absent.
@@ -140,25 +173,47 @@ pub fn build_view(
         let need_graph = list.iter().any(|e| e.dest_index.is_none());
         let graph = need_graph.then(|| build_track_graph(source.snapshot));
         up.retain(|e| {
-            e.pos_index.is_finite()
-                && e.pos_index >= idx
-                && passes_selected(
-                    e.edge_index,
-                    e.touches_anchor,
-                    locate_dest(&e.raw, &merged, source.snapshot, graph.as_ref()),
-                )
+            if !e.pos_index.is_finite() || e.pos_index < idx {
+                return false;
+            }
+            match locate_dest(&e.raw, &merged, source.snapshot, graph.as_ref()) {
+                // Present but resolving nowhere in the national snapshot:
+                // drop, unless a via route marks it as through service.
+                // via trains head for termini outside JR-West coverage
+                // (敦賀 since the Shinkansen extension: isolated node), so
+                // the routing itself is the arrival evidence. Dest-less
+                // trains stay: nothing to judge by.
+                Some(d) => passes_selected(e.edge_index, e.touches_anchor, d),
+                None => {
+                    e.raw.dest.is_none()
+                        || !e.raw.via.as_deref().map(str::trim).unwrap_or_default().is_empty()
+                }
+            }
         });
         down.retain(|e| {
-            e.pos_index.is_finite()
-                && e.pos_index <= idx
-                && passes_selected(
-                    e.edge_index,
-                    e.touches_anchor,
-                    locate_dest(&e.raw, &merged, source.snapshot, graph.as_ref()),
-                )
+            if !e.pos_index.is_finite() || e.pos_index > idx {
+                return false;
+            }
+            match locate_dest(&e.raw, &merged, source.snapshot, graph.as_ref()) {
+                Some(d) => passes_selected(e.edge_index, e.touches_anchor, d),
+                None => {
+                    e.raw.dest.is_none()
+                        || !e.raw.via.as_deref().map(str::trim).unwrap_or_default().is_empty()
+                }
+            }
         });
+    } else if input.station.trim().is_empty() {
+        // All-trains mode over a wider merge: keep only trains currently on
+        // the requested line (either segment endpoint carries the line).
+        // Without this the station-less path keeps every fetched payload.
+        if let Some(l) = input.station_line {
+            let on_line = |e: &&Enhanced| {
+                merged.unit_has_line(&e.at_unit, l) || merged.unit_has_line(&e.next_unit, l)
+            };
+            up.retain(on_line);
+            down.retain(on_line);
+        }
     }
-
     // posPart port: stopped→atName / up→nextName → atName / down→atName → nextName
     let to_vm = |e: &Enhanced| -> TrainVm {
         let uname = |code: &str| -> String {
@@ -224,6 +279,10 @@ pub fn build_view(
         stations: merged
             .order
             .iter()
+            .filter(|c| match input.station_line {
+                Some(l) => merged.unit_has_line(c, l),
+                None => true,
+            })
             .filter_map(|c| {
                 merged.by_code.get(c).map(|n| StationIdx {
                     code: n.code.clone(),
@@ -303,6 +362,8 @@ fn enhance(
         nickname,
         at_code,
         next_code,
+        at_unit: at_unit.map(|u| u.code.clone()).unwrap_or_default(),
+        next_unit: next_unit.map(|u| u.code.clone()).unwrap_or_default(),
         stopped,
         pos_index,
         dest_index: resolve_dest_index(raw, merged),
@@ -382,7 +443,9 @@ fn dest_text(e: &Enhanced, merged: &MergedIndex, snapshot: &NetworkSnapshot) -> 
     }
 }
 
-#[allow(dead_code)]
+/// Destination anchor-relative index. Units unreachable from the anchor
+/// (index 9999, ex-isolated 敦賀) resolve as None: their placeholder index
+/// would otherwise read as same-side-farther and kill through trains.
 fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
     let dest = raw.dest.as_ref()?;
     let code: Option<String> = match dest {
@@ -394,7 +457,9 @@ fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
             merged.by_code.get(*r).map(|u| u.code == code).unwrap_or(false)
         }) {
             if let Some(u) = merged.by_code.get(rep) {
-                return Some(u.index);
+                if u.index < 9999.0 {
+                    return Some(u.index);
+                }
             }
         }
     }
@@ -414,6 +479,7 @@ fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
     merged
         .by_code
         .values()
+        .filter(|n| n.index < 9999.0)
         .find(|n| normalize_name(&n.name) == name)
         .map(|n| n.index)
 }
@@ -421,18 +487,13 @@ fn resolve_dest_index(raw: &TrainsItem, merged: &MergedIndex) -> Option<f64> {
 /// Pass-through rule (user spec): with anchor-relative signed distances, a
 /// train passes the selected station iff its position and destination lie
 /// on opposite sides: |p + d| < max(|p|, |d|). Touching or straddling the
-/// anchor, a destination AT the anchor, or an unresolvable destination keeps
-/// the train. On side-filtered lists this coincides with ver1's keep rule;
-/// it additionally judges out-of-scope destinations via projection instead
-/// of keeping them blindly.
-fn passes_selected(edge_index: f64, touches_anchor: bool, dest_index: Option<f64>) -> bool {
-    let Some(d) = dest_index else {
-        return true;
-    };
-    if touches_anchor || d == 0.0 {
+/// anchor, or a destination AT the anchor, keeps the train. Callers decide
+/// the unresolvable case (absent dest keeps, present-but-nowhere drops).
+fn passes_selected(edge_index: f64, touches_anchor: bool, dest_index: f64) -> bool {
+    if touches_anchor || dest_index == 0.0 {
         return true;
     }
-    (edge_index + d).abs() < edge_index.abs().max(d.abs())
+    (edge_index + dest_index).abs() < edge_index.abs().max(dest_index.abs())
 }
 
 /// Destination anchor-relative index: merged-frame index when resolvable

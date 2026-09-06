@@ -334,6 +334,14 @@ impl MergedIndex {
         let rep = self.unit_of.get(&(line.to_string(), code.to_string()))?;
         self.by_code.get(rep)
     }
+
+    /// True when the unit contains a station of `line` (dropdown filter for
+    /// single-line views over a wider merge).
+    pub fn unit_has_line(&self, rep: &str, line: &str) -> bool {
+        self.unit_of
+            .iter()
+            .any(|((l, _), r)| l == line && r == rep)
+    }
 }
 
 fn norm(v: &str) -> String {
@@ -366,6 +374,20 @@ pub fn merge_scope(
     scope_lines: &[String],
     primary_line: &str,
     selected: &str,
+) -> MergedIndex {
+    merge_scope_on_line(snapshot, scope_lines, primary_line, selected, None)
+}
+
+/// Snapshot-wide merges need the viewed line: numeric codes are reused
+/// across areas (kosei 0614 安曇川 vs imbi1 0614 東郡家), so the anchor
+/// search must prefer the (line, code) member or the whole frame lands on
+/// another area's station.
+pub fn merge_scope_on_line(
+    snapshot: &NetworkSnapshot,
+    scope_lines: &[String],
+    primary_line: &str,
+    selected: &str,
+    anchor_line: Option<&str>,
 ) -> MergedIndex {
     // -- collect scope nodes ---------------------------------------------------
     let mut id_of: HashMap<(String, String), usize> = HashMap::new();
@@ -511,17 +533,30 @@ pub fn merge_scope(
     }
 
     // -- anchor ------------------------------------------------------------------
-    // Ranked match: exact rep code wins immediately; otherwise the best
-    // candidate across all units wins (member code > name on primary line >
-    // name elsewhere). The old first-hit order depended on component layout.
+    // Ranked match: the viewed line's own (line, code) member wins
+    // immediately; then exact rep code; otherwise the best candidate across
+    // all units (member code > name on primary line > name elsewhere).
     let wanted = norm(selected);
     let mut anchor_ui: Option<usize> = None;
     let mut anchor_rank = u8::MAX;
-    for (ui, b) in builds.iter().enumerate() {
-        if b.rep == selected {
-            anchor_ui = Some(ui);
-            break;
+    // Pass 1: the viewed line's own (line, code) member outranks everything.
+    // (A single pass can't work: imbi1's "0614" rep would break first and
+    // steal the anchor before kosei's unit is even visited.)
+    if let Some(al) = anchor_line {
+        for (ui, b) in builds.iter().enumerate() {
+            if b.members.iter().any(|(ml, mc)| ml == al && mc == selected) {
+                anchor_ui = Some(ui);
+                break;
+            }
         }
+    }
+    // Pass 2: legacy ranking (exact rep, then member code, then names).
+    if anchor_ui.is_none() {
+        for (ui, b) in builds.iter().enumerate() {
+            if b.rep == selected {
+                anchor_ui = Some(ui);
+                break;
+            }
         let mut rank: Option<u8> = None;
         if b.members.iter().any(|(_, mc)| mc == selected) {
             rank = Some(1);
@@ -546,6 +581,7 @@ pub fn merge_scope(
                 anchor_ui = Some(ui);
             }
         }
+    }
     }
 
     // -- fallback when not found: line order, not alphabetical ---------------

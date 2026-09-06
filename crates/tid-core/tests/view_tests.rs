@@ -17,6 +17,7 @@ fn view_input<'a>(
         trains_payloads: payload_pairs,
         server_time: "2026-08-25T03:00:00+09:00".to_string(),
         color_map: cmap,
+        station_line: None,
     }
 }
 
@@ -161,6 +162,7 @@ fn pass_through_rule_keeps_arriving_trains() {
         trains_payloads: &pairs,
         server_time: "2026-08-25T03:00:00+09:00".to_string(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     let up_nos: Vec<&str> = resp.up.iter().map(|t| t.no.as_str()).collect();
@@ -211,6 +213,7 @@ fn snapshot_name_fallback_labels_foreign_code() {
         trains_payloads: &pairs,
         server_time: String::new(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     assert_eq!(resp.up.len(), 1);
@@ -254,6 +257,7 @@ fn unresolvable_position_drops_from_both_lists() {
         trains_payloads: &pairs,
         server_time: String::new(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     assert!(resp.up.is_empty());
@@ -313,6 +317,7 @@ fn diverging_branch_destination_is_excluded() {
         trains_payloads: &pairs,
         server_time: String::new(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     let up_nos: Vec<&str> = resp.up.iter().map(|t| t.no.as_str()).collect();
@@ -361,6 +366,7 @@ fn empty_station_shows_all_trains_in_line_order() {
         trains_payloads: &pairs,
         server_time: String::new(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     assert!(resp.station.code.is_empty());
@@ -375,9 +381,9 @@ fn empty_station_shows_all_trains_in_line_order() {
 }
 
 #[test]
-fn via_route_flows_to_view_and_alarm() {
-    // Upstream `via` (湖西線/琵琶湖線) must survive to the view model and
-    // the push message: fixture kyoto 3438M-class trains carry it.
+fn via_route_survives_to_view_model() {
+    // Upstream `via` (湖西線/琵琶湖線) rides the view model for future use;
+    // display is intentionally off. Fixture kyoto 3438M-class trains carry it.
     let pa = support::stations_doc(vec![
         support::plain_item("A0", "A-Zero"),
         support::plain_item("A1", "A-One"),
@@ -414,6 +420,7 @@ fn via_route_flows_to_view_and_alarm() {
         trains_payloads: &pairs,
         server_time: String::new(),
         color_map: &cmap,
+        station_line: None,
     };
     let resp = build_view(&source, &input);
     assert_eq!(resp.up.len(), 1);
@@ -425,5 +432,197 @@ fn via_route_flows_to_view_and_alarm() {
     };
     let events = evaluate(&merged, &resp.up, "A1", "kinki", "scope", &prefs, &Prefs::default());
     assert_eq!(events.len(), 1);
-    assert!(events[0].message.contains("湖西線経由"), "{}", events[0].message);
+    assert!(!events[0].message.contains("経由"), "{}", events[0].message);
+}
+
+#[test]
+fn stations_list_filters_to_viewed_line() {
+    // Single-line view over a wider merge: the dropdown shows only the
+    // requested line's units, with merged indices intact for alarm math.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+    ]);
+    let qb = support::stations_doc(vec![support::plain_item("Q0", "Queue")]);
+    let snap = tid_core::network::build_snapshot(
+        "t",
+        &[("pa".to_string(), pa), ("qb".to_string(), qb)],
+    );
+    let scope = vec!["pa".to_string(), "qb".to_string()];
+    let pairs: Vec<(String, tid_core::model::TrainPosDoc)> = vec![];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "A0",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+        station_line: Some("pa"),
+    };
+    let resp = build_view(&source, &input);
+    let codes: Vec<&str> = resp.stations.iter().map(|s| s.code.as_str()).collect();
+    assert_eq!(codes, vec!["A0", "A1"]);
+}
+
+#[test]
+fn empty_station_with_line_keeps_only_on_line_trains() {
+    // All-trains mode over a wider merge (generic ?line=pa): trains
+    // physically on other lines drop even though no station filters.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+    ]);
+    let qb = support::stations_doc(vec![support::plain_item("Q0", "Queue")]);
+    let snap = tid_core::network::build_snapshot(
+        "t",
+        &[("pa".to_string(), pa), ("qb".to_string(), qb)],
+    );
+    let scope = vec!["pa".to_string(), "qb".to_string()];
+    let mk = |no: &str, pos: &str| tid_core::model::TrainsItem {
+        no: no.to_string(),
+        pos: pos.to_string(),
+        direction: 0,
+        display_type: "普通".to_string(),
+        ..Default::default()
+    };
+    let payload_pa = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![mk("T-here", "A0")],
+    };
+    let payload_qb = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![mk("T-away", "Q0")],
+    };
+    let pairs = vec![
+        ("pa".to_string(), payload_pa),
+        ("qb".to_string(), payload_qb),
+    ];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+        station_line: Some("pa"),
+    };
+    let resp = build_view(&source, &input);
+    let up_nos: Vec<&str> = resp.up.iter().map(|t| t.no.as_str()).collect();
+    assert_eq!(up_nos, vec!["T-here"]);
+    assert!(resp.down.is_empty());
+}
+
+#[test]
+fn anchor_prefers_viewed_line_on_code_collision() {
+    // Live 0614: kosei 安曇川 vs another area's 東郡家 share the code.
+    // In a snapshot-wide merge the viewed line must win the anchor.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("C0", "PaPlace"),
+    ]);
+    let qb = support::stations_doc(vec![support::plain_item("C0", "QbPlace")]);
+    let snap = tid_core::network::build_snapshot(
+        "t",
+        &[("pa".to_string(), pa), ("qb".to_string(), qb)],
+    );
+    let scope = vec!["pa".to_string(), "qb".to_string()];
+    let pairs: Vec<(String, tid_core::model::TrainPosDoc)> = vec![];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let view_as = |station_line: Option<&str>| {
+        let input = ViewInput {
+            station: "C0",
+            pass: PassSetting::Hide,
+            trains_payloads: &pairs,
+            server_time: String::new(),
+            color_map: &cmap,
+            station_line,
+        };
+        build_view(&source, &input).station.name.clone()
+    };
+    assert_eq!(view_as(Some("pa")), "PaPlace");
+    assert_eq!(view_as(Some("qb")), "QbPlace");
+}
+
+#[test]
+fn present_but_unresolvable_dest_drops() {
+    // Station specified + dest naming nothing in the national snapshot:
+    // evidence the train never comes (ex-Shikoku bounds at a Kinki anchor).
+    // A dest-less train in the same spot stays: nothing to judge by.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+        support::plain_item("A2", "A-Two"),
+        support::plain_item("A3", "A-Three"),
+    ]);
+    // QX is in-snapshot but unreachable from the anchor (live isolated 敦賀):
+    // its 9999 placeholder must not count as a same-side-farther terminus.
+    let qb = support::stations_doc(vec![support::plain_item("QX", "Queue")]);
+    let snap = tid_core::network::build_snapshot(
+        "t",
+        &[("pa".to_string(), pa), ("qb".to_string(), qb)],
+    );
+    let scope = vec!["pa".to_string(), "qb".to_string()];
+    let mk = |no: &str, dest: Option<tid_core::model::Dest>| tid_core::model::TrainsItem {
+        no: no.to_string(),
+        pos: "A2".to_string(),
+        direction: 0,
+        display_type: "普通".to_string(),
+        dest,
+        ..Default::default()
+    };
+    let nowhere = Some(tid_core::model::Dest::Obj(tid_core::model::DestInfo {
+        text: Some("Nowhere".to_string()),
+        code: Some("QX".to_string()),
+        ..Default::default()
+    }));
+    let payload = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![
+            mk("T-nowhere", nowhere.clone()),
+            mk("T-nodest", None),
+            tid_core::model::TrainsItem {
+                no: "T-viakeep".to_string(),
+                pos: "A2".to_string(),
+                direction: 0,
+                display_type: "新快速".to_string(),
+                dest: nowhere,
+                via: Some("湖西線".to_string()),
+                ..Default::default()
+            },
+        ],
+    };
+    let pairs = vec![("pa".to_string(), payload)];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "A1",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+        station_line: None,
+    };
+    let resp = build_view(&source, &input);
+    let up_nos: Vec<&str> = resp.up.iter().map(|t| t.no.as_str()).collect();
+    // Nowhere-bound drops; dest-less stays; via-routed nowhere stays.
+    assert_eq!(up_nos, vec!["T-nodest", "T-viakeep"]);
 }
