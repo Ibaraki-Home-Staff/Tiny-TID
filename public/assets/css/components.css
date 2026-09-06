@@ -9,9 +9,11 @@
 
 .trains-grid{display:grid; grid-template-columns: 1fr 1fr; gap:1rem}
 .trains-grid.single{grid-template-columns: 1fr}
-@media (max-width: 900px){ .trains-grid{grid-template-columns: 1fr} }
+.trains-grid > section{min-width:0}
+/* Phones stack; tablets keep up/down side-by-side (compact tables below) */
+@media (max-width: 720px){ .trains-grid{grid-template-columns: 1fr} }
 .train-list h3{margin:.25rem 0 .5rem 0}
-.train-items{display:block}
+.train-items{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch}
 
 /* Table layout for trains */
 .train-table{width:100%; border-collapse:collapse; table-layout:auto}
@@ -59,3 +61,17 @@
 .traffic-item--line{ border-left:6px solid #f59e0b; background:rgba(245,158,11,.12); background:color-mix(in oklab, #f59e0b 12%, transparent); }
 .traffic-item--express{ border-left:6px solid #ef4444; background:rgba(239,68,68,.12); background:color-mix(in oklab, #ef4444 12%, transparent); }
 .traffic-item a{ color:inherit; text-decoration:underline; font-weight:600; }
+
+/* Tablet (iPad portrait/landscape): same 2-column layout, tighter sizing */
+@media (min-width: 721px) and (max-width: 1199px){
+  .trains-grid{gap:.75rem}
+  .train-table{font-size:.85rem}
+  .train-table thead th{padding:.4rem .35rem; font-size:.8rem}
+  .train-table tbody td{padding:.4rem .35rem}
+  .train-table col:nth-child(1){width:11%}
+  .train-table col:nth-child(2){width:14%}
+  .train-table col:nth-child(3){width:11%}
+  .train-table col:nth-child(4){width:9%}
+  .train-table col:nth-child(5){width:21%}
+  .train-table col:nth-child(7){width:11%}
+}
