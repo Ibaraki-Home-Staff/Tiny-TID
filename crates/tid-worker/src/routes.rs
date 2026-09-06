@@ -38,8 +38,21 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
     } else {
         util::primary_line(env)
     };
+    // Generic mode (?line=): omitted station means all trains on the line.
+    // Fixed scope: fall back to the fixed station as before.
+    let generic = util::query_param(query, "line")
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
     let station = util::query_param(query, "station")
-        .unwrap_or_else(|| util::fixed_station(env));
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if generic {
+                String::new()
+            } else {
+                util::fixed_station(env)
+            }
+        });
     let pass = PassSetting::parse(&util::query_param(query, "pass").unwrap_or_else(|| "hide".into()));
     let area = util::query_param(query, "area")
         .filter(|s| !s.trim().is_empty())

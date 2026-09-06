@@ -549,10 +549,26 @@ pub fn merge_scope(
         }
     }
 
-    // -- fallback when not found: deterministic sorted order ----------------------
+    // -- fallback when not found: line order, not alphabetical ---------------
+    // No selected station (all-trains mode) has no anchor: keep each line's
+    // listing order so single-line scopes stay geographic. Units take the
+    // position of their first appearance across the scope lines.
     let Some(anchor_ui) = anchor_ui else {
+        let mut first_seen: HashMap<String, (usize, usize)> = HashMap::new();
+        for (li, (lid, order)) in orders_by_line.iter().enumerate() {
+            for (pos, code) in order.iter().enumerate() {
+                if let Some(rep) = unit_of.get(&(lid.clone(), code.clone())) {
+                    first_seen.entry(rep.clone()).or_insert((li, pos));
+                }
+            }
+        }
         let mut reps: Vec<String> = builds.iter().map(|b| b.rep.clone()).collect();
-        reps.sort();
+        reps.sort_by(|a, b| {
+            first_seen
+                .get(a)
+                .cmp(&first_seen.get(b))
+                .then_with(|| a.cmp(b))
+        });
         let mut by_code = BTreeMap::new();
         let mut order = Vec::new();
         for (i, rep) in reps.iter().enumerate() {

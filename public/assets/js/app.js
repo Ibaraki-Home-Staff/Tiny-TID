@@ -34,6 +34,7 @@ const passFilter = document.getElementById('passFilter');
 paramsView.textContent = '読み込み中…';
 
 let currentCode = '';
+let stationsReady = false;
 let refreshing = false;
 
 function esc(v) {
@@ -49,6 +50,10 @@ function renderStations(stations) {
   if (stationFilter.dataset.bound === '1') return;
   stationFilter.dataset.bound = '1';
   stationFilter.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = '指定なし（全列車）';
+  stationFilter.appendChild(all);
   for (const s of stations || []) {
     const opt = document.createElement('option');
     opt.value = s.code;
@@ -192,14 +197,16 @@ function formatJST(iso) {
 
 async function refresh(immediate = false) {
   if (refreshing) return;
-  if (!fixedMode && (!lineIds.length || !stationName)) {
-    paramsView.innerHTML = '駅が未指定です。<a href="/select.html">エリア選択</a>から選んでください。';
+  if (!fixedMode && !lineIds.length) {
+    paramsView.innerHTML = '路線が未指定です。<a href="/select.html">エリア選択</a>から選んでください。';
     return;
   }
   refreshing = true;
   try {
     const pass = passFilter?.value || 'hide';
-    const q = new URLSearchParams({ station: currentCode || stationName, pass });
+    const q = new URLSearchParams({ pass });
+    const st = currentCode || stationName;
+    if (st) q.set('station', st);
     if (!fixedMode) {
       if (line) q.set('line', line);
       if (area) q.set('area', area);
@@ -207,18 +214,25 @@ async function refresh(immediate = false) {
     const res = await fetch(`/api/view?${q}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`API ${res.status}`);
     const resp = await res.json();
-    if (!currentCode) {
-      currentCode = resp.station.code;
+    if (!stationsReady) {
+      stationsReady = true;
+      if (resp.station.code) currentCode = resp.station.code;
       renderStations(resp.stations);
     }
     const areaName = resp.areaName || area;
     const lineNames = resp.lineNames || {};
-    const viewStation = (resp.station && resp.station.name) || stationName;
+    const hasStation = !!(resp.station && resp.station.code);
+    const viewStation = (resp.station && resp.station.name) || stationName || '指定なし（全列車）';
     paramsView.textContent = `エリア: ${areaName} / 路線: ${lineIds.map((id) => lineNames[id] || id).join(', ')} / 駅: ${viewStation}`;
     if (!fixedMode) {
-      document.title = `Tiny-TID - ${viewStation}駅`;
       const pageTitle = document.getElementById('pageTitle');
-      if (pageTitle) pageTitle.textContent = `${viewStation}駅 列車走行位置`;
+      if (hasStation) {
+        document.title = `Tiny-TID - ${viewStation}駅`;
+        if (pageTitle) pageTitle.textContent = `${viewStation}駅 列車走行位置`;
+      } else {
+        document.title = 'Tiny-TID - 全列車';
+        if (pageTitle) pageTitle.textContent = '全列車 走行位置';
+      }
     }
     updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
     renderTraffic(resp.traffic);

@@ -319,3 +319,56 @@ fn diverging_branch_destination_is_excluded() {
     assert!(up_nos.contains(&"T-thru"), "through train must stay: {up_nos:?}");
     assert!(up_nos.contains(&"T-here"), "train at anchor must stay: {up_nos:?}");
 }
+
+#[test]
+fn empty_station_shows_all_trains_in_line_order() {
+    // view?line=pa with no station: no filtering, stations follow the
+    // listing, up asc / down desc by line position.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+        support::plain_item("A2", "A-Two"),
+        support::plain_item("A3", "A-Three"),
+    ]);
+    let snap = tid_core::network::build_snapshot("t", &[("pa".to_string(), pa)]);
+    let scope = vec!["pa".to_string()];
+    let mk = |no: &str, pos: &str, dir: i64| tid_core::model::TrainsItem {
+        no: no.to_string(),
+        pos: pos.to_string(),
+        direction: dir,
+        display_type: "普通".to_string(),
+        ..Default::default()
+    };
+    let payload = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![
+            mk("U1", "A0_A1", 0),
+            mk("U2", "A2_A3", 0),
+            mk("D1", "A1_A2", 1),
+        ],
+    };
+    let pairs = vec![("pa".to_string(), payload)];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+    };
+    let resp = build_view(&source, &input);
+    assert!(resp.station.code.is_empty());
+    assert_eq!(
+        resp.stations.iter().map(|s| s.code.as_str()).collect::<Vec<_>>(),
+        vec!["A0", "A1", "A2", "A3"]
+    );
+    assert_eq!(resp.up.len(), 2);
+    assert_eq!(resp.down.len(), 1);
+    assert!(resp.up[0].pos_index <= resp.up[1].pos_index);
+    assert_eq!(resp.down[0].no, "D1");
+}

@@ -1042,6 +1042,7 @@
   var passFilter = document.getElementById("passFilter");
   paramsView.textContent = "\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026";
   var currentCode = "";
+  var stationsReady = false;
   var refreshing = false;
   function esc(v) {
     return String(v != null ? v : "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -1055,6 +1056,10 @@
     if (stationFilter.dataset.bound === "1") return;
     stationFilter.dataset.bound = "1";
     stationFilter.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = "\u6307\u5B9A\u306A\u3057\uFF08\u5168\u5217\u8ECA\uFF09";
+    stationFilter.appendChild(all);
     for (const s of stations || []) {
       const opt = document.createElement("option");
       opt.value = s.code;
@@ -1203,14 +1208,16 @@ ${prefsJson}`;
   function refresh(immediate = false) {
     return __async(this, null, function* () {
       if (refreshing) return;
-      if (!fixedMode && (!lineIds.length || !stationName)) {
-        paramsView.innerHTML = '\u99C5\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002<a href="/select.html">\u30A8\u30EA\u30A2\u9078\u629E</a>\u304B\u3089\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002';
+      if (!fixedMode && !lineIds.length) {
+        paramsView.innerHTML = '\u8DEF\u7DDA\u304C\u672A\u6307\u5B9A\u3067\u3059\u3002<a href="/select.html">\u30A8\u30EA\u30A2\u9078\u629E</a>\u304B\u3089\u9078\u3093\u3067\u304F\u3060\u3055\u3044\u3002';
         return;
       }
       refreshing = true;
       try {
         const pass = (passFilter == null ? void 0 : passFilter.value) || "hide";
-        const q = new URLSearchParams({ station: currentCode || stationName, pass });
+        const q = new URLSearchParams({ pass });
+        const st = currentCode || stationName;
+        if (st) q.set("station", st);
         if (!fixedMode) {
           if (line2) q.set("line", line2);
           if (area2) q.set("area", area2);
@@ -1218,18 +1225,25 @@ ${prefsJson}`;
         const res = yield fetch(`/api/view?${q}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`API ${res.status}`);
         const resp = yield res.json();
-        if (!currentCode) {
-          currentCode = resp.station.code;
+        if (!stationsReady) {
+          stationsReady = true;
+          if (resp.station.code) currentCode = resp.station.code;
           renderStations(resp.stations);
         }
         const areaName = resp.areaName || area2;
         const lineNames = resp.lineNames || {};
-        const viewStation = resp.station && resp.station.name || stationName;
+        const hasStation = !!(resp.station && resp.station.code);
+        const viewStation = resp.station && resp.station.name || stationName || "\u6307\u5B9A\u306A\u3057\uFF08\u5168\u5217\u8ECA\uFF09";
         paramsView.textContent = `\u30A8\u30EA\u30A2: ${areaName} / \u8DEF\u7DDA: ${lineIds.map((id) => lineNames[id] || id).join(", ")} / \u99C5: ${viewStation}`;
         if (!fixedMode) {
-          document.title = `Tiny-TID - ${viewStation}\u99C5`;
           const pageTitle = document.getElementById("pageTitle");
-          if (pageTitle) pageTitle.textContent = `${viewStation}\u99C5 \u5217\u8ECA\u8D70\u884C\u4F4D\u7F6E`;
+          if (hasStation) {
+            document.title = `Tiny-TID - ${viewStation}\u99C5`;
+            if (pageTitle) pageTitle.textContent = `${viewStation}\u99C5 \u5217\u8ECA\u8D70\u884C\u4F4D\u7F6E`;
+          } else {
+            document.title = "Tiny-TID - \u5168\u5217\u8ECA";
+            if (pageTitle) pageTitle.textContent = "\u5168\u5217\u8ECA \u8D70\u884C\u4F4D\u7F6E";
+          }
         }
         updatedAtEl.textContent = formatJST(resp.update || resp.serverTime);
         renderTraffic(resp.traffic);

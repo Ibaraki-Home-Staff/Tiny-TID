@@ -221,3 +221,20 @@ fn design_links_are_adjacency_not_identity() {
     assert!(!merged.by_code["Q0"].signed);
     assert!(merged.by_code["A1"].signed);
 }
+
+#[test]
+fn fallback_preserves_line_order() {
+    // No anchor (all-trains mode): alphabetical would give A0,B0,C0 but the
+    // listing runs C0,A0,B0 and must stay geographic for single-line scopes.
+    let pa = tid_core::model::StationsDoc {
+        stations: vec![
+            support::plain_item("C0", "See"),
+            support::plain_item("A0", "Ay"),
+            support::plain_item("B0", "Bee"),
+        ],
+    };
+    let snap = tid_core::network::build_snapshot("t", &[("pa".to_string(), pa)]);
+    let merged = merge_scope(&snap, &["pa".to_string()], "pa", "ZZZ-missing");
+    let order: Vec<&str> = merged.order.iter().map(|s| s.as_str()).collect();
+    assert_eq!(order, vec!["C0", "A0", "B0"]);
+}

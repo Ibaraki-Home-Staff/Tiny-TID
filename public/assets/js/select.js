@@ -58,7 +58,7 @@
   }
 
   function updateShowButton() {
-    showBtn.disabled = !(areaSel.value && lineSel.value && stationSel.value);
+    showBtn.disabled = !(areaSel.value && lineSel.value);
   }
 
   function fillLines(areaId) {
@@ -95,7 +95,7 @@
         reset(stationSel, '駅がありません');
         return;
       }
-      stationSel.appendChild(opt('', '選択してください'));
+      stationSel.appendChild(opt('', '指定なし（全列車）'));
       stations.forEach(function (s) {
         stationSel.appendChild(opt(s.code, s.name || s.code));
       });
@@ -130,8 +130,8 @@
   showBtn.addEventListener('click', function () {
     if (showBtn.disabled) return;
     var q = 'area=' + encodeURIComponent(areaSel.value)
-      + '&line=' + encodeURIComponent(lineSel.value)
-      + '&station=' + encodeURIComponent(stationSel.value);
+      + '&line=' + encodeURIComponent(lineSel.value);
+    if (stationSel.value) q += '&station=' + encodeURIComponent(stationSel.value);
     window.location.href = '/view.html?' + q;
   });
 
