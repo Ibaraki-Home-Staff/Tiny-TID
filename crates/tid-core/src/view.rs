@@ -190,6 +190,7 @@ pub fn build_view(
             direction: e.raw.direction,
             display_type: e.display_type.clone(),
             nickname: e.nickname.clone(),
+            via: e.raw.via.clone().unwrap_or_default().trim().to_string(),
             cars: e.raw.number_of_cars,
             delay_minutes: e.raw.delay_minutes,
             at_code: e.at_code.clone(),

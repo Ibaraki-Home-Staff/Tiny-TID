@@ -24,6 +24,7 @@ fn train_between(s1: &str, s2: &str, pos_index: f64, display_type: &str, categor
         direction: 0,
         display_type: display_type.to_string(),
         nickname: String::new(),
+        via: String::new(),
         cars: Some(8),
         delay_minutes: 0,
         // Raw codes deliberately differ from unit reps: matching must use

@@ -106,6 +106,7 @@ fn alarm_fires_on_synthetic_geometry() {
         next_unit: String::new(),
         display_type: "快速".to_string(),
         nickname: String::new(),
+        via: String::new(),
         cars: Some(8),
         delay_minutes: 0,
         at_code: target.clone(),
@@ -371,4 +372,58 @@ fn empty_station_shows_all_trains_in_line_order() {
     assert_eq!(resp.down.len(), 1);
     assert!(resp.up[0].pos_index <= resp.up[1].pos_index);
     assert_eq!(resp.down[0].no, "D1");
+}
+
+#[test]
+fn via_route_flows_to_view_and_alarm() {
+    // Upstream `via` (湖西線/琵琶湖線) must survive to the view model and
+    // the push message: fixture kyoto 3438M-class trains carry it.
+    let pa = support::stations_doc(vec![
+        support::plain_item("A0", "A-Zero"),
+        support::plain_item("A1", "A-One"),
+        support::plain_item("A2", "A-Two"),
+        support::plain_item("A3", "A-Three"),
+    ]);
+    let snap = tid_core::network::build_snapshot("t", &[("pa".to_string(), pa)]);
+    let scope = vec!["pa".to_string()];
+    let payload = tid_core::model::TrainPosDoc {
+        update: String::new(),
+        trains: vec![tid_core::model::TrainsItem {
+            no: "T-via".to_string(),
+            pos: "A2".to_string(),
+            direction: 0,
+            display_type: "新快速".to_string(),
+            dest: Some(tid_core::model::Dest::Obj(tid_core::model::DestInfo {
+                code: Some("A0".to_string()),
+                ..Default::default()
+            })),
+            via: Some("湖西線".to_string()),
+            ..Default::default()
+        }],
+    };
+    let pairs = vec![("pa".to_string(), payload)];
+    let cmap = support::parse_color_text("");
+    let source = MergedScopeSource {
+        snapshot: &snap,
+        lines: &scope,
+        primary_line: "pa",
+    };
+    let input = ViewInput {
+        station: "A1",
+        pass: PassSetting::Hide,
+        trains_payloads: &pairs,
+        server_time: String::new(),
+        color_map: &cmap,
+    };
+    let resp = build_view(&source, &input);
+    assert_eq!(resp.up.len(), 1);
+    assert_eq!(resp.up[0].via, "湖西線");
+    let merged = tid_core::network::merge_scope(&snap, &scope, "pa", "A1");
+    let prefs = Prefs {
+        cats: vec![1],
+        ..Prefs::default()
+    };
+    let events = evaluate(&merged, &resp.up, "A1", "kinki", "scope", &prefs, &Prefs::default());
+    assert_eq!(events.len(), 1);
+    assert!(events[0].message.contains("湖西線経由"), "{}", events[0].message);
 }

@@ -458,10 +458,9 @@
       if (el) el.textContent = text || "-";
     };
     set("[data-alert-no]", meta2.no);
-    set("[data-alert-dest]", meta2.destText);
+    set("[data-alert-dest]", meta2.destText + (meta2.via ? `\uFF08${meta2.via}\u7D4C\u7531\uFF09` : ""));
     set("[data-alert-type]", meta2.displayType);
     set("[data-alert-nick]", meta2.nickname);
-    set("[data-alert-delay]", meta2.delayMinutes > 0 ? `${meta2.delayMinutes}\u5206` : "\u306A\u3057");
     wrap.classList.remove("is-hidden");
     clearTimeout(showAlarmModal._t);
     showAlarmModal._t = setTimeout(hide, 1e4);
@@ -1126,10 +1125,11 @@
     const tr = document.createElement("tr");
     const typeCls = t.colorClass || "";
     const typeHtml = typeCls ? `<span class="${esc(typeCls)}">${esc(t.displayType)}</span>` : esc(t.displayType);
+    const viaHtml = t.via ? ` <span class="type-badge">${esc(t.via)}\u7D4C\u7531</span>` : "";
     const delayHtml = t.delayMinutes > 0 ? t.delayMinutes >= delayThreshold ? `<span class="delay-bad" style="color:var(--color-danger,#c00);font-weight:700;">${t.delayMinutes}\u5206</span>` : `${t.delayMinutes}\u5206` : "";
     let carsText = t.cars != null ? String(t.cars) : "";
     if (Number.isFinite(Number(t.cars)) && Number(t.cars) >= carsThreshold) carsText = `<span class="cars-emph">${carsText}</span>`;
-    tr.innerHTML = `<td>${esc(t.no)}</td><td>${typeHtml}</td><td>${esc(t.nickname)}</td><td>${carsText}</td><td>${esc(t.destText)}</td><td>${esc(t.posLabel)}</td><td>${delayHtml}</td>`;
+    tr.innerHTML = `<td>${esc(t.no)}</td><td>${typeHtml}${viaHtml}</td><td>${esc(t.nickname)}</td><td>${carsText}</td><td>${esc(t.destText)}</td><td>${esc(t.posLabel)}</td><td>${delayHtml}</td>`;
     return tr;
   }
   function renderTrains(resp) {

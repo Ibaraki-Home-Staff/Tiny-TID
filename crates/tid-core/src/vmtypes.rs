@@ -28,6 +28,8 @@ pub struct TrainVm {
     pub direction: i64,
     pub display_type: String,
     pub nickname: String,
+    /// route annotation from upstream (`湖西線`, `琵琶湖線`, else empty)
+    pub via: String,
     pub cars: Option<i64>,
     pub delay_minutes: i64,
     pub at_code: String,

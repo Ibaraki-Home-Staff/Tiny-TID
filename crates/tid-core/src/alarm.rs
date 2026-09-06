@@ -216,6 +216,10 @@ fn push_event(
             parts.push(format!("{}行き", t.dest_text));
         }
     }
+    let via = t.via.trim();
+    if !via.is_empty() {
+        parts.push(format!("{via}経由"));
+    }
     parts.push(format!("{target_name}に接近"));
     if t.delay_minutes > 0 {
         parts.push(format!("約{}分遅延", t.delay_minutes));

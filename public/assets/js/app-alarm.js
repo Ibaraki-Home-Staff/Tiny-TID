@@ -134,9 +134,9 @@ function showAlarmModal(meta) {
   const titleEl = wrap.querySelector('#tidAlertTitle');
   if (titleEl) titleEl.textContent = meta.direction === 0 ? '上り列車接近' : meta.direction === 1 ? '下り列車接近' : '列車接近';
   const set = (sel, text) => { const el = wrap.querySelector(sel); if (el) el.textContent = text || '-'; };
-  set('[data-alert-no]', meta.no); set('[data-alert-dest]', meta.destText);
+  set('[data-alert-no]', meta.no);
+  set('[data-alert-dest]', meta.destText + (meta.via ? `（${meta.via}経由）` : ''));
   set('[data-alert-type]', meta.displayType); set('[data-alert-nick]', meta.nickname);
-  set('[data-alert-delay]', meta.delayMinutes > 0 ? `${meta.delayMinutes}分` : 'なし');
   wrap.classList.remove('is-hidden');
   clearTimeout(showAlarmModal._t);
   showAlarmModal._t = setTimeout(hide, 10000);
