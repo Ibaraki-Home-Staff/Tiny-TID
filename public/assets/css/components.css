@@ -10,10 +10,14 @@
 .trains-grid{display:grid; grid-template-columns: 1fr 1fr; gap:1rem}
 .trains-grid.single{grid-template-columns: 1fr}
 .trains-grid > section{min-width:0}
-/* Phones stack; tablets keep up/down side-by-side (compact tables below) */
-@media (max-width: 720px){ .trains-grid{grid-template-columns: 1fr} }
 .train-list h3{margin:.25rem 0 .5rem 0}
-.train-items{display:block; overflow-x:auto; -webkit-overflow-scrolling:touch}
+.train-items{display:block; overflow-x:clip}
+/* Phones stack; tablets keep up/down side-by-side (compact tables below) */
+@media (max-width: 720px){
+  .trains-grid{grid-template-columns: 1fr}
+  /* Phones genuinely overflow: internal scroll (may keep edge swipes here) */
+  .train-items{overflow-x:auto; -webkit-overflow-scrolling:touch}
+}
 
 /* Table layout for trains */
 .train-table{width:100%; border-collapse:collapse; table-layout:auto}
