@@ -158,7 +158,7 @@ async fn handle_stations(env: &Env, url: &Url) -> Result<Response> {
         return Response::error("missing line", 400);
     }
     let (Some(order), Some(stations)) =
-        (snapshot.orders.get(line.as_str()), snapshot.lines.get(line.as_string()))
+        (snapshot.orders.get(line.as_str()), snapshot.lines.get(line.as_str()))
     else {
         return Response::error("unknown line", 400);
     };
