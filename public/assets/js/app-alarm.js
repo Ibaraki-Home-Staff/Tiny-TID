@@ -1,6 +1,6 @@
 // Client approach-alarm engine (display-only app).
 // Port of tid-alarm.js trigger rules; geometry inputs come from /api/view.
-import { getSetting, setSetting } from './tid-settings.js';
+import { getSetting, setSetting } from './tid-settings.js?ver=__ASSET_VERSION__';
 
 const SUPPRESS_MS = 3 * 60 * 1000;
 const STORE_KEY = 'tid:v1:alarm:approachSuppression';

@@ -1,8 +1,11 @@
 #!/usr/bin/env pwsh
 $ErrorActionPreference = "Stop"
 
-Write-Host "Building legacy bundles..."
+Write-Host "Versioning static assets..."
+node scripts/version-assets.mjs
+if($LASTEXITCODE -ne 0){ throw "Failed to version assets" }
 
+Write-Host "Building legacy bundles..."
 bunx esbuild assets/js/legacy-entry-index.js --bundle --format=iife --target=es2015 --outfile=assets/js/legacy-index.js --log-level=error
 if($LASTEXITCODE -ne 0){ throw "Failed to build legacy-index.js" }
 

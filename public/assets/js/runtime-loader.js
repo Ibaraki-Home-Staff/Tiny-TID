@@ -73,14 +73,14 @@
   var modern = supportsModule() && supportsModernSyntax();
 
   var legacyMap = {
-    index: '/assets/js/legacy-index.js?v=5',
-    tid: '/assets/js/legacy-tid.js?v=6',
-    app: '/assets/js/legacy-app.js?v=1'
+    index: '/assets/js/legacy-index.js?ver=__ASSET_VERSION__',
+    tid: '/assets/js/legacy-tid.js?ver=__ASSET_VERSION__',
+    app: '/assets/js/legacy-app.js?ver=__ASSET_VERSION__'
   };
   var modernMap = {
-    index: ['/assets/js/pwa.js?v=4', '/assets/js/main.js?v=42'],
-    tid: ['/assets/js/pwa.js?v=4', '/assets/js/tid.js?v=43'],
-    app: ['/assets/js/pwa.js?v=4', '/assets/js/app.js?v=1']
+    index: ['/assets/js/pwa.js?ver=__ASSET_VERSION__', '/assets/js/main.js?ver=__ASSET_VERSION__'],
+    tid: ['/assets/js/pwa.js?ver=__ASSET_VERSION__', '/assets/js/tid.js?ver=__ASSET_VERSION__'],
+    app: ['/assets/js/pwa.js?ver=__ASSET_VERSION__', '/assets/js/app.js?ver=__ASSET_VERSION__']
   };
 
   if(modern && modernMap[page]){

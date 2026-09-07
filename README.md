@@ -92,6 +92,7 @@ workers.dev のみ。前提: そのゾーンが同一アカウントで有効、
 ```bash
 pwsh ./build-wasm.ps1   # tid-core 変更時のみ再生成 (要 wasm-bindgen-cli 0.2.127、Cargo.lock に合わせること)
 cd server && npm install
+node ../scripts/version-assets.mjs  # public/ に ?ver=<hash> を打刻(sorahost deploy 前にも実行)
 PORT=8787 DATA_DIR=../data node src/server.js  # リポジトリ直下で実行する場合は node server/src/server.js
 # 動作確認: /api/areas, /api/view?station=茨木, /api/stations?line=kyoto
 ```

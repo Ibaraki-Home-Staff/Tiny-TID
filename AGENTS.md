@@ -17,6 +17,7 @@
   Serves static files only. API-backed screens will fail without a proxy.
 - `pwsh ./build-legacy.ps1`
   Rebuilds the legacy JS bundle after changing browser-facing scripts.
+  Runs `node scripts/version-assets.mjs` first, stamping `?ver=<hash>` over `public/`.
 
 ## Coding Style & Naming Conventions
 - Use ES modules and keep logic split into focused files in `assets/js/`.

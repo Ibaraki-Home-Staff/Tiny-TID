@@ -1,9 +1,9 @@
 // Tiny-TID display-only client for the Cloudflare Worker backend.
-import { loadComponents } from './components.js';
-import { migrateLegacySettings, getSetting, setSetting, getLineConfig } from './tid-settings.js';
-import { initAlarm, requestUnlock, evaluateAndNotify, bindLineConfig, renderAlarmOptions, bindAlarmControls } from './app-alarm.js';
-import { subscribePush } from './pwa.js';
-import { initBackgroundControls } from './tid-background.js';
+import { loadComponents } from './components.js?ver=__ASSET_VERSION__';
+import { migrateLegacySettings, getSetting, setSetting, getLineConfig } from './tid-settings.js?ver=__ASSET_VERSION__';
+import { initAlarm, requestUnlock, evaluateAndNotify, bindLineConfig, renderAlarmOptions, bindAlarmControls } from './app-alarm.js?ver=__ASSET_VERSION__';
+import { subscribePush } from './pwa.js?ver=__ASSET_VERSION__';
+import { initBackgroundControls } from './tid-background.js?ver=__ASSET_VERSION__';
 
 loadComponents();
 migrateLegacySettings();
