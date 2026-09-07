@@ -42,7 +42,7 @@ deploy は理由付き skip される。トークン類は一度しか表示さ�
 | Secret | 用途 | 権限・形式 |
 |---|---|---|
 | `CLOUDFLARE_ACCOUNT_ID` | 対象アカウント | 32桁hex。dash の Workers & Pages 概要や URL で確認([公式手順](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/)) |
-| `CLOUDFLARE_API_TOKEN` | deploy・D1発行・migrate・secrets登録 | Account 権限4つのみ: `D1: Read` (list/解決)・`D1: Write` (create/migrate)・`Workers Scripts: Read`・`Workers Scripts: Write` (deploy/secret put)。対象アカウントに範囲指定すること([公式手順](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/))。Zone 権限は不要(workers.dev のみ)。初回だけ workers.dev サブドメインが無効なら dash で有効化すること |
+| `CLOUDFLARE_API_TOKEN` | deploy・D1発行・migrate・secrets登録 | Account 権限: `D1: Read` (list/解決)・`D1: Write` (create/migrate)・`Workers Scripts: Read`・`Workers Scripts: Write` (deploy/secret put)。対象アカウントに範囲指定すること([公式手順](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/))。独自ドメインを使う場合のみ追加で Zone 権限 `Workers Routes: Edit` を対象ゾーンに付与すること(routes 登録の list/create に必要)。初回だけ workers.dev サブドメインが無効なら dash で有効化すること |
 | `VAPID_PRIVATE_KEY` (任意) | 背景Pushの署名鍵 | base64url 43文字(32B無填充)。`bunx web-push generate-vapid-keys` の privateKey をそのまま登録 |
 | `VAPID_SUBJECT` (任意) | Push送信元表示 | `mailto:連絡先` 形式。JWT の sub クレームに入り、通知の送信者として使われる |
 
