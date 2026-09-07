@@ -126,6 +126,10 @@ jobs:
               routes = f"  \"routes\": [ {entries} ],"
           else:
               routes = ""
+          if marker not in rendered:
+              raise SystemExit("routes marker missing in wrangler.jsonc")
+          rendered = rendered.replace(marker, routes)
+          Path("wrangler.ci.jsonc").write_text(rendered, encoding="utf-8")
           PY
       - name: Apply D1 migrations
         if: env.SKIP != 'true'
