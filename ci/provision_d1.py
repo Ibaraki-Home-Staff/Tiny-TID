@@ -52,7 +52,7 @@ def record_id(record: dict) -> str | None:
     return None
 
 
-def ensure_database(name: str) -> str:
+def find_database(name: str) -> str | None:
     payload = parse_json(run_wrangler("d1", "list", "--json"))
     records = payload if isinstance(payload, list) else []
     for record in records:
@@ -60,11 +60,18 @@ def ensure_database(name: str) -> str:
             found = record_id(record)
             if found:
                 return found
-    created = parse_json(run_wrangler("d1", "create", name, "--json"))
-    if isinstance(created, dict):
-        found = record_id(created)
-        if found:
-            return found
+    return None
+
+
+def ensure_database(name: str) -> str:
+    found = find_database(name)
+    if found:
+        return found
+    # `d1 create` takes no --json flag: create, then resolve via re-list.
+    run_wrangler("d1", "create", name)
+    found = find_database(name)
+    if found:
+        return found
     fail(f"could not create or resolve D1 database {name!r}")
 
 
