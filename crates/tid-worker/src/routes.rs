@@ -58,12 +58,10 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         .unwrap_or_else(|| "kinki".to_string());
 
     let origin = util::origin(env);
-    let payloads = crate::upstream::fetch_trains_for(env, &origin, &scope).await;
-    let kv_ref = env.kv("SNAPSHOTS").ok();
+    let payloads = crate::upstream::fetch_trains_for(&origin, &scope).await;
     let traffic_doc = crate::upstream::get_traffic_doc(
         &origin,
         &format!("area_{area}_trafficinfo.json"),
-        kv_ref.as_ref(),
     )
     .await;
     // Traffic + names follow the requested line in generic mode (the merge

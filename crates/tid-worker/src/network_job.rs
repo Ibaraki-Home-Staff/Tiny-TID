@@ -21,7 +21,7 @@ pub async fn rebuild_network(env: &Env, origin: &str) -> Result<String> {
 
     for area in AREAS {
         let path = format!("area_{area}_master.json");
-        if let Some(m) = crate::upstream::get_master_doc(origin, &path, None).await {
+        if let Some(m) = crate::upstream::get_master_doc(origin, &path).await {
             masters.push((area.to_string(), m));
         }
     }
@@ -29,7 +29,7 @@ pub async fn rebuild_network(env: &Env, origin: &str) -> Result<String> {
         for line_id in m.lines.keys() {
             let path = format!("{line_id}_st.json");
             fetched += 1;
-            if let Some(doc) = crate::upstream::get_stations_doc(origin, &path, None).await {
+            if let Some(doc) = crate::upstream::get_stations_doc(origin, &path).await {
                 st_docs.push((line_id.clone(), doc));
             }
         }

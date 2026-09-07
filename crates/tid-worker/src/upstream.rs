@@ -1,24 +1,62 @@
-//! Upstream fetching: isolate micro-cache + KV stale fallback.
+//! Upstream fetching: isolate memory cache with expired-entry fallback.
+//! Payloads are tiny (~50KB for all 6 lines, ~140KB for all 45), so
+//! everything stays in memory and KV is gone: on fetch failure the expired
+//! entry still serves (stale while revalidate, same isolate). Only a cold
+//! isolate + simultaneous upstream outage yields empty data — rare and brief.
+//! Failures arm a 30s per-key cooldown so an outage doesn't turn into a
+//! sustained per-TTL hammering from every active isolate.
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use tid_core::model::{MasterDoc, StationsDoc, TrafficDoc, TrainPosDoc};
 use worker::*;
 
 const TRAINS_TTL_MS: u64 = 5_000;
 const MASTER_TTL_MS: u64 = 24 * 60 * 60 * 1000;
+const COOLDOWN_MS: u64 = 30_000;
 
 pub fn now_ms() -> u64 {
     coarsetime::Clock::now_since_epoch().as_u64()
 }
 
+static CACHE: LazyLock<Mutex<HashMap<String, (u64, Vec<u8>)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static COOLDOWN: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 fn cache() -> &'static Mutex<HashMap<String, (u64, Vec<u8>)>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, (u64, Vec<u8>)>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    &CACHE
 }
 
-async fn fetch_upstream(origin: &str, path: &str) -> Result<Vec<u8>> {
+fn cooldown() -> &'static Mutex<HashMap<String, u64>> {
+    &COOLDOWN
+}
+
+fn expired_entry(key: &str) -> Option<Vec<u8>> {
+    if let Ok(map) = cache().lock() {
+        if let Some((_, bytes)) = map.get(key) {
+            return Some(bytes.clone());
+        }
+    }
+    None
+}
+
+async fn fetch_upstream(origin: &str, path: &str, edge_ttl_secs: i32) -> Result<Vec<u8>> {
+    // Edge-shared cache: isolates in the same PoP reuse one upstream fetch.
+    // Memory (per isolate) stays L1; this collapses N isolates to ~1 fetch
+    // per PoP per TTL instead of N.
     let url = format!("{origin}/api/v3/{path}");
-    let req = Request::new(&url, Method::Get)?;
+    let req = Request::new_with_init(
+        &url,
+        &RequestInit {
+            method: Method::Get,
+            cf: CfProperties {
+                cache_ttl: Some(edge_ttl_secs),
+                cache_everything: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )?;
     let mut resp = Fetch::Request(req).send().await?;
     if resp.status_code() >= 400 {
         return Err(Error::RustError(
@@ -28,8 +66,6 @@ async fn fetch_upstream(origin: &str, path: &str) -> Result<Vec<u8>> {
     let bytes = resp.bytes().await?;
     Ok(bytes)
 }
-
-/// Memory-cached fetch; on miss+failure returns None (caller may use KV).
 async fn cached_fetch(origin: &str, path: &str, ttl_ms: u64) -> Option<Vec<u8>> {
     let key = path.to_string();
     if let Ok(map) = cache().lock() {
@@ -39,57 +75,35 @@ async fn cached_fetch(origin: &str, path: &str, ttl_ms: u64) -> Option<Vec<u8>> 
             }
         }
     }
-    match fetch_upstream(origin, path).await {
+    if let Ok(cd) = cooldown().lock() {
+        if let Some(until) = cd.get(&key) {
+            if now_ms() < *until {
+                drop(cd);
+                return expired_entry(&key);
+            }
+        }
+    }
+    match fetch_upstream(origin, path, (ttl_ms / 1000).max(1) as i32).await {
         Ok(bytes) => {
             if let Ok(mut map) = cache().lock() {
                 map.insert(key, (now_ms(), bytes.clone()));
             }
             Some(bytes)
         }
-        Err(_) => None,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Typed getters with KV stale-if-error fallback
-// ---------------------------------------------------------------------------
-
-async fn kv_get(kv: &KvStore, key: &str) -> Option<Vec<u8>> {
-    kv.get(key).bytes().await.ok().flatten()
-}
-
-async fn kv_put(kv: &KvStore, key: &str, val: &[u8]) {
-    if let Ok(builder) = kv.put(key, val) {
-        let _ = builder.execute().await;
+        Err(_) => {
+            if let Ok(mut cd) = cooldown().lock() {
+                cd.insert(key.clone(), now_ms() + COOLDOWN_MS);
+            }
+            expired_entry(&key)
+        }
     }
 }
 
 macro_rules! getter {
     ($name:ident, $ty:ty, $ttl:expr) => {
-        pub async fn $name(
-            origin: &str,
-            path: &str,
-            kv: Option<&KvStore>,
-        ) -> Option<$ty> {
-            let ttl = $ttl;
-            let bytes = cached_fetch(origin, path, ttl).await;
-            if let Some(b) = &bytes {
-                if let Ok(v) = serde_json::from_slice::<$ty>(b) {
-                    if let Some(kv) = kv {
-                        kv_put(kv, &format!("stale:{path}"), b).await;
-                    }
-                    return Some(v);
-                }
-            }
-            // stale fallback from KV
-            if let Some(kv) = kv {
-                if let Some(b) = kv_get(kv, &format!("stale:{path}")).await {
-                    if let Ok(v) = serde_json::from_slice::<$ty>(&b) {
-                        return Some(v);
-                    }
-                }
-            }
-            None
+        pub async fn $name(origin: &str, path: &str) -> Option<$ty> {
+            let bytes = cached_fetch(origin, path, $ttl).await?;
+            serde_json::from_slice::<$ty>(&bytes).ok()
         }
     };
 }
@@ -101,20 +115,21 @@ getter!(get_master_doc, MasterDoc, MASTER_TTL_MS);
 getter!(get_traffic_doc, TrafficDoc, 30_000);
 
 /// Fetch the given lines' train payloads in one sweep (tagged with line id).
+/// Lines fetch concurrently: sequential RTTs used to stack into every cache miss.
 pub async fn fetch_trains_for(
-    env: &Env,
     origin: &str,
     lines: &[String],
 ) -> Vec<(String, tid_core::model::TrainPosDoc)> {
-    let kv = env.kv("SNAPSHOTS").ok();
-    let mut out = Vec::with_capacity(lines.len());
-    for line in lines {
-        let path = format!("{line}.json");
-        if let Some(doc) = crate::upstream::get_trains_doc(origin, &path, kv.as_ref()).await {
-            out.push((line.clone(), doc));
+    let jobs = lines.iter().map(|line| {
+        let origin = origin.to_string();
+        let line = line.clone();
+        async move {
+            let path = format!("{line}.json");
+            let doc = crate::upstream::get_trains_doc(&origin, &path).await;
+            doc.map(|d| (line, d))
         }
-    }
-    out
+    });
+    futures::future::join_all(jobs).await.into_iter().flatten().collect()
 }
 
 /// Fetch every scope line's train payload in one sweep (tagged with line id).
@@ -123,5 +138,5 @@ pub async fn fetch_all_trains(
     origin: &str,
 ) -> Vec<(String, tid_core::model::TrainPosDoc)> {
     let scope = crate::util::scope_lines(env);
-    fetch_trains_for(env, origin, &scope).await
+    fetch_trains_for(origin, &scope).await
 }
