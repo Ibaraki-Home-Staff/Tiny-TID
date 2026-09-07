@@ -1,0 +1,130 @@
+name: prod-probe
+
+on:
+  push:
+    branches:
+      - chatgpt-prod-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Tiny-TID production APIs
+        shell: bash
+        run: |
+          set +e
+          for base in https://tid.rumia-ch.uk https://tid.is-hs.org; do
+            echo "===== $base ====="
+            for target in "/api/health" "/api/areas" "/api/stations?line=kyoto"; do
+              echo "--- GET $target"
+              rm -f /tmp/probe-body /tmp/probe-headers
+              code=$(curl -L --connect-timeout 10 --max-time 30 -sS \
+                -D /tmp/probe-headers -o /tmp/probe-body -w '%{http_code}' \
+                "$base$target")
+              rc=$?
+              echo "curl_rc=$rc status=$code"
+              sed -n '1,20p' /tmp/probe-headers 2>/dev/null || true
+              echo "body:"
+              head -c 2000 /tmp/probe-body 2>/dev/null || true
+              echo
+            done
+          done
+
+      - name: Probe JR West masters and referenced station documents
+        shell: python
+        run: |
+          import json
+          import ssl
+          import urllib.error
+          import urllib.request
+
+          origin = "https://www.train-guide.westjr.co.jp/api/v3/"
+          areas = ["hokuriku", "kinki", "okayama", "hiroshima", "sanin"]
+          ctx = ssl.create_default_context()
+
+          def get(path, timeout=20):
+              url = origin + path
+              req = urllib.request.Request(url, headers={"User-Agent": "Tiny-TID-production-probe/1.0"})
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+                      body = r.read()
+                      return r.status, body, None
+              except urllib.error.HTTPError as e:
+                  try:
+                      body = e.read()
+                  except Exception:
+                      body = b""
+                  return e.code, body, repr(e)
+              except Exception as e:
+                  return None, b"", repr(e)
+
+          masters = {}
+          station_sources = {}
+          print("===== AREA MASTERS =====")
+          for area in areas:
+              path = f"area_{area}_master.json"
+              status, body, err = get(path)
+              print(f"{path}: status={status} bytes={len(body)} err={err}")
+              if status != 200:
+                  print(body[:500].decode("utf-8", "replace"))
+                  continue
+              try:
+                  doc = json.loads(body)
+              except Exception as e:
+                  print(f"  JSON parse failed: {e!r}; head={body[:500]!r}")
+                  continue
+              masters[area] = doc
+              lines = doc.get("lines") or {}
+              print(f"  lines={len(lines)}")
+              for line_id, meta in lines.items():
+                  raw = meta.get("st") if isinstance(meta, dict) else None
+                  if isinstance(raw, str) and raw.strip():
+                      if "/api/v3/" in raw:
+                          path = raw.split("/api/v3/", 1)[1]
+                      else:
+                          path = raw.lstrip("/")
+                  else:
+                      path = f"{line_id}_st.json"
+                  old = station_sources.get(line_id)
+                  if old and old != path:
+                      print(f"  CONFLICT line={line_id}: {old} vs {path}")
+                  station_sources[line_id] = path
+
+          print(f"masters_ok={len(masters)}/{len(areas)} unique_station_sources={len(station_sources)}")
+          print("===== STATION DOCUMENTS =====")
+          ok = 0
+          failures = []
+          parse_failures = []
+          empty = []
+          for i, (line_id, path) in enumerate(sorted(station_sources.items()), 1):
+              status, body, err = get(path)
+              if status != 200:
+                  failures.append((line_id, path, status, err, body[:160].decode("utf-8", "replace")))
+                  print(f"FAIL {line_id} {path}: status={status} err={err}")
+                  continue
+              try:
+                  doc = json.loads(body)
+              except Exception as e:
+                  parse_failures.append((line_id, path, repr(e)))
+                  print(f"JSON_FAIL {line_id} {path}: {e!r}")
+                  continue
+              # Rust StationsDoc must deserialize, and a useful graph source must contain station-ish data.
+              if not doc:
+                  empty.append((line_id, path))
+                  print(f"EMPTY {line_id} {path}")
+              ok += 1
+
+          print("===== SUMMARY =====")
+          print(f"master_ok={len(masters)}/{len(areas)}")
+          print(f"station_http_json_ok={ok}/{len(station_sources)}")
+          print(f"station_http_failures={len(failures)} parse_failures={len(parse_failures)} empty_docs={len(empty)}")
+          for row in failures:
+              print("HTTP_FAILURE", row)
+          for row in parse_failures:
+              print("PARSE_FAILURE", row)
+          for row in empty:
+              print("EMPTY_DOC", row)
