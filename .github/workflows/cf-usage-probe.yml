@@ -1,0 +1,45 @@
+name: cf-usage-probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/cf-usage-probe.yml
+
+jobs:
+  usage:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Query Cloudflare usage
+        shell: bash
+        run: |
+          set +e
+          echo '===== BILLABLE USAGE ====='
+          code=$(curl -sS -o /tmp/billing.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H 'Accept: application/json' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/billable/usage")
+          echo "status=$code"
+          jq '{success, errors, result: (.result // [] | map(select(((.ProductName // .Product // .ChargeDescription // "") | tostring | ascii_downcase) | contains("worker"))) | map({ProductName, ChargeDescription, ConsumedQuantity, ConsumedUnit, CumulatedPricingQuantity, ChargePeriodStart, ChargePeriodEnd}))}' /tmp/billing.json 2>/dev/null || head -c 4000 /tmp/billing.json
+          echo
+
+          echo '===== WORKER ANALYTICS SINCE BASELINE ====='
+          START='2026-09-07T21:18:00Z'
+          END=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          jq -n \
+            --arg account "$CLOUDFLARE_ACCOUNT_ID" \
+            --arg start "$START" \
+            --arg end "$END" \
+            --arg script 'tiny-tid' \
+            '{query:"query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) { viewer { accounts(filter: {accountTag: $accountTag}) { workersInvocationsAdaptive(limit: 10000, filter: {scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd}) { sum { subrequests requests errors } quantiles { cpuTimeP50 cpuTimeP99 } dimensions { datetime scriptName status } } } } }", variables:{accountTag:$account, datetimeStart:$start, datetimeEnd:$end, scriptName:$script}}' >/tmp/query.json
+          code=$(curl -sS -o /tmp/graphql.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/query.json \
+            https://api.cloudflare.com/client/v4/graphql)
+          echo "range=$START..$END status=$code"
+          jq '{errors, groups: (.data.viewer.accounts[0].workersInvocationsAdaptive // [] | length), requests: ([.data.viewer.accounts[0].workersInvocationsAdaptive[]?.sum.requests // 0] | add // 0), subrequests: ([.data.viewer.accounts[0].workersInvocationsAdaptive[]?.sum.subrequests // 0] | add // 0), errors_count: ([.data.viewer.accounts[0].workersInvocationsAdaptive[]?.sum.errors // 0] | add // 0), cpu_p50_ms: ([.data.viewer.accounts[0].workersInvocationsAdaptive[]?.quantiles.cpuTimeP50 // empty] | if length > 0 then (add/length) else null end), cpu_p99_ms: ([.data.viewer.accounts[0].workersInvocationsAdaptive[]?.quantiles.cpuTimeP99 // empty] | if length > 0 then (max) else null end)}' /tmp/graphql.json 2>/dev/null || head -c 4000 /tmp/graphql.json
