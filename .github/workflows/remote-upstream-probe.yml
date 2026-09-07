@@ -1,0 +1,87 @@
+name: remote-upstream-probe
+
+on:
+  push:
+    branches:
+      - chatgpt-prod-probe
+
+permissions:
+  contents: read
+
+jobs:
+  remote-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: Cloudflare
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Probe JR West from Cloudflare remote Worker
+        shell: bash
+        run: |
+          cat >/tmp/probe.js <<'JS'
+          export default {
+            async fetch(request) {
+              const u = new URL(request.url);
+              const mode = u.searchParams.get('mode') || 'plain';
+              const stamp = Date.now();
+              let target = 'https://www.train-guide.westjr.co.jp/api/v3/area_kinki_master.json';
+              if (mode.includes('bust')) target += '?tid_probe=' + stamp;
+
+              const headers = {};
+              if (mode.includes('ua')) {
+                headers['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36';
+                headers['accept'] = 'application/json,text/plain,*/*';
+              }
+              if (mode.includes('ref')) {
+                headers['referer'] = 'https://www.train-guide.westjr.co.jp/';
+              }
+
+              const init = { method: 'GET', headers };
+              if (mode.includes('cf')) {
+                init.cf = { cacheEverything: true, cacheTtl: 86400 };
+              }
+
+              try {
+                const r = await fetch(target, init);
+                const text = await r.text();
+                return Response.json({
+                  mode,
+                  target,
+                  status: r.status,
+                  redirected: r.redirected,
+                  responseUrl: r.url,
+                  contentType: r.headers.get('content-type'),
+                  cfCacheStatus: r.headers.get('cf-cache-status'),
+                  server: r.headers.get('server'),
+                  bodyHead: text.slice(0, 300),
+                });
+              } catch (e) {
+                return Response.json({ mode, target, error: String(e) }, { status: 500 });
+              }
+            }
+          };
+          JS
+
+          set -x
+          bunx wrangler@4.125.0 dev /tmp/probe.js --remote --port 8787 >/tmp/wrangler-dev.log 2>&1 &
+          pid=$!
+          set +x
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8787/?mode=plain >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+
+          for mode in plain cf bust ua ua-ref ua-bust ua-ref-bust ua-ref-cf; do
+            echo "===== mode=$mode ====="
+            curl -sS --max-time 30 "http://127.0.0.1:8787/?mode=$mode" || true
+            echo
+          done
+
+          kill $pid 2>/dev/null || true
+          wait $pid 2>/dev/null || true
+          echo "===== wrangler dev log tail ====="
+          tail -80 /tmp/wrangler-dev.log || true
