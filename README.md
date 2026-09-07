@@ -51,17 +51,6 @@ Secrets を更新し、workflow を再実行する(手動なら `secret put` の
 
 手動デプロイは従来通り `bunx wrangler deploy`。
 
-### 独自ドメイン(任意)
-
-ホスト名は公開情報のため Secrets ではなく Environment `Cloudflare` の Variables
-`CUSTOM_DOMAIN` に置く(例 `example.com,www.example.com`、カンマ区切り複数可、
-スキーム・パスなし)。CI が routes(`custom_domain: true`)付きで deploy し、空なら
-workers.dev のみ。前提: そのゾーンが同一アカウントで有効、対象ホストに既存 CNAME
-なし(DNS・証明書は自動)。ホスト名は完全一致のため apex+www は両方書くこと。
-複数ゾーンに跨る場合(例 `tid.rumia-ch.uk,tid.is-hs.org`)は両ゾーンが同一アカウント
-配下にあり、トークンのリソース範囲に両方含まれること。
-独自ドメインを使う場合は Zone 権限 `Workers Routes: Edit` を対象ゾーン(複数可)に
-付与すること(routes の list/create に必要。`Zone: Read/Write` 全体は過剰)。
 ## API
 
 - `GET /api/view?station=<コード|駅名>&pass=hide|show` — 統合・正規化済みビューモデル
