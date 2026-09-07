@@ -16,16 +16,15 @@
     "binding": "ASSETS"
   },
 
-  // Fill IDs after `bunx wrangler d1 create tiny-tid` / `kv namespace create SNAPSHOTS`
+  // Fill ID after `bunx wrangler d1 create tiny-tid`
   "d1_databases": [
     { "binding": "DB", "database_name": "tiny-tid", "database_id": "REPLACE_WITH_D1_ID" }
-  ],
-  "kv_namespaces": [
-    { "binding": "SNAPSHOTS", "id": "snapshots_local_dev" }
   ],
 
   // daily network rebuild (03:00 JST) + minutely push evaluation
   "triggers": { "crons": ["0 18 * * *", "* * * * *"] },
+
+  // __CUSTOM_DOMAIN_ROUTES__ (CI renders routes here when vars.CUSTOM_DOMAIN is set)
 
   "vars": {
     "UPSTREAM_ORIGIN": "https://www.train-guide.westjr.co.jp",
