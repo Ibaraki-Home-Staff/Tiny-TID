@@ -1,8 +1,9 @@
 //! Upstream fetching: isolate memory cache with expired-entry fallback.
-//! Payloads are tiny (~50KB for all 6 lines, ~140KB for all 45), so
-//! everything stays in memory and KV is gone. Failures are logged; expired
-//! entries are served when available so transient upstream outages do not
-//! masquerade as valid empty data.
+//! Payloads are tiny (~50KB for all 6 lines, ~140KB for all 45). A named
+//! Cloudflare Cache API cache is shared by isolates in the same PoP, while an
+//! in-isolate L1 avoids even Cache API work on hot paths. Failures are logged;
+//! expired L1 entries are served when available so transient upstream outages
+//! do not masquerade as valid empty data.
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use tid_core::model::{MasterDoc, StationsDoc, TrafficDoc, TrainPosDoc};
@@ -11,6 +12,7 @@ use worker::*;
 const TRAINS_TTL_MS: u64 = 5_000;
 const MASTER_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 const COOLDOWN_MS: u64 = 30_000;
+const UPSTREAM_CACHE_NAME: &str = "tiny-tid-jrwest-v1";
 
 // JR-West currently returns its HTML 404 page to Cloudflare Worker subrequests
 // that use the runtime-default request headers. A normal browser-like request
@@ -44,18 +46,41 @@ fn expired_entry(key: &str) -> Option<Vec<u8>> {
     None
 }
 
-async fn fetch_upstream(origin: &str, path: &str, _edge_ttl_secs: i32) -> Result<Vec<u8>> {
+/// Read through a named Cache API cache and populate it only from successful
+/// JR-West responses. This deliberately avoids `cf.cache_everything`: that
+/// mechanism previously cached JR-West's synthetic HTML 404 and poisoned the
+/// Worker for the full master TTL. A separate named cache also keeps these
+/// entries isolated from Cloudflare's normal fetch/CDN cache namespace.
+async fn fetch_upstream(origin: &str, path: &str, edge_ttl_secs: i32) -> Result<Vec<u8>> {
     let url = format!("{origin}/api/v3/{path}");
+    let shared_cache = Cache::open(UPSTREAM_CACHE_NAME.to_string()).await;
+
+    match shared_cache.get(&url, true).await {
+        Ok(Some(mut cached)) => {
+            let status = cached.status_code();
+            if (200..300).contains(&status) {
+                return Ok(cached.bytes().await?);
+            }
+            // Defensive cleanup. This namespace only writes 2xx responses, so
+            // a non-2xx entry should never survive here even if runtime/cache
+            // behavior changes in the future.
+            if let Err(e) = shared_cache.delete(&url, true).await {
+                console_warn!("upstream shared cache cleanup failed path={path}: {e}");
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            // Cache API failure must not make the upstream unavailable. Fall
+            // through to the origin request and keep the isolate L1 behavior.
+            console_warn!("upstream shared cache read failed path={path}: {e}");
+        }
+    }
 
     let headers = Headers::new();
     headers.set("user-agent", UPSTREAM_USER_AGENT)?;
     headers.set("accept", "application/json,text/plain,*/*")?;
     headers.set("referer", "https://www.train-guide.westjr.co.jp/")?;
 
-    // Do not use `cf.cache_everything` here. A previous 404 from JR-West can
-    // otherwise be cached at the Cloudflare edge for the master TTL and keep
-    // poisoning rebuilds even after the request headers are corrected. The
-    // isolate cache below already provides the TTL behavior we need.
     let req = Request::new_with_init(
         &url,
         &RequestInit {
@@ -67,11 +92,30 @@ async fn fetch_upstream(origin: &str, path: &str, _edge_ttl_secs: i32) -> Result
     let mut resp = Fetch::Request(req).send().await?;
     let status = resp.status_code();
     if !(200..300).contains(&status) {
+        // Never write 404/5xx/etc. to the shared cache.
         return Err(Error::RustError(
             format!("upstream {path} -> {status}").into(),
         ));
     }
-    Ok(resp.bytes().await?)
+
+    let bytes = resp.bytes().await?;
+
+    // Cache API put() honors Cache-Control. Build our own clean 200 response
+    // from the validated bytes so origin cache headers/cookies cannot cause an
+    // unexpected negative/private cache entry.
+    let mut cache_resp = Response::from_bytes(bytes.clone())?;
+    let cache_control = format!("public, max-age={}", edge_ttl_secs.max(1));
+    cache_resp
+        .headers_mut()
+        .set("cache-control", &cache_control)?;
+    cache_resp
+        .headers_mut()
+        .set("content-type", "application/json")?;
+    if let Err(e) = shared_cache.put(&url, cache_resp).await {
+        console_warn!("upstream shared cache write failed path={path}: {e}");
+    }
+
+    Ok(bytes)
 }
 
 async fn cached_fetch(origin: &str, path: &str, ttl_ms: u64) -> Option<Vec<u8>> {
