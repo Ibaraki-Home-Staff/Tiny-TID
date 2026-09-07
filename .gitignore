@@ -16,3 +16,4 @@ node_modules/
 /data
 /.sorahost.json
 /wrangler.ci.jsonc
+__pycache__/
