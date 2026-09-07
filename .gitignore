@@ -11,3 +11,8 @@ node_modules/
 
 # secrets
 /.dev.vars
+
+# SORAHOST backend runtime + credentials (never commit the token file)
+/data
+/.sorahost.json
+/wrangler.ci.jsonc

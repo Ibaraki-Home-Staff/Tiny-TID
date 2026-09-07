@@ -15,6 +15,7 @@ pub mod network;
 pub mod traffic;
 pub mod view;
 pub mod vmtypes;
+pub mod wasm_api;
 
 /// Global station-name fallback extracted from the westjr reference library
 /// (40 lines / 843 stations). Used when a code is absent from the built

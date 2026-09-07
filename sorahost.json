@@ -1,0 +1,14 @@
+{
+  "mode": "node",
+  "framework": null,
+  "start": "node server/src/server.js",
+  "include": [
+    "server/src",
+    "server/vendor",
+    "server/package.json",
+    "server/package-lock.json",
+    "server/node_modules",
+    "public",
+    "assets/color.txt"
+  ]
+}
