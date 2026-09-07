@@ -1,0 +1,35 @@
+name: view-probe
+
+on:
+  push:
+    branches:
+      - chatgpt-prod-probe
+
+permissions:
+  contents: read
+
+jobs:
+  view:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe production view payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          for base in https://tid.rumia-ch.uk https://tid.is-hs.org; do
+            echo "===== $base ====="
+            for qs in 'station=%E8%8C%A8%E6%9C%A8' 'area=kinki&line=kyoto&station=0410'; do
+              echo "--- /api/view?$qs"
+              code=$(curl -sS --max-time 30 -o /tmp/view.json -w '%{http_code}' "$base/api/view?$qs")
+              echo "status=$code bytes=$(wc -c </tmp/view.json)"
+              if [ "$code" != 200 ]; then
+                head -c 2000 /tmp/view.json || true
+                echo
+                continue
+              fi
+              jq '{station, areaName, lineNames, stations:(.stations|length), up:(.up|length), down:(.down|length), update}' /tmp/view.json
+              echo "train sample:"
+              jq '[.up[], .down[]] | .[:5] | map({no,line,direction,atCode,nextCode,posLabel,destText,delayMinutes})' /tmp/view.json
+            done
+          done
