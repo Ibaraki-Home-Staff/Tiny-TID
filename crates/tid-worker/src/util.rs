@@ -46,7 +46,9 @@ pub struct StoredPrefs {
     pub cats: Vec<i8>,
     #[serde(default)]
     pub pass: bool,
-    #[serde(default)]
+    /// Client sends `carsMin`; accept it (legacy `cars_min` still parses).
+    /// Without this the push path silently ran with threshold 0.
+    #[serde(default, alias = "carsMin")]
     pub cars_min: f64,
     #[serde(default, rename = "carsFilter")]
     pub cars_filter: bool,
