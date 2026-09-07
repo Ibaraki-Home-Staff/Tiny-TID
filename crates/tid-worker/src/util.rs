@@ -34,9 +34,7 @@ pub fn fixed_station(env: &Env) -> String {
 pub fn vapid_from_env(env: &Env) -> Result<Vapid> {
     Ok(Vapid {
         private_b64: env.secret("VAPID_PRIVATE_KEY")?.to_string(),
-        subject: env
-            .secret("VAPID_SUBJECT")?
-            .to_string(),
+        subject: env.secret("VAPID_SUBJECT")?.to_string(),
     })
 }
 
@@ -123,7 +121,11 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    ((if m <= 2 { y + 1 } else { y }) as i64, m as u32, d as u32)
+    (
+        (if m <= 2 { y + 1 } else { y }) as i64,
+        m as u32,
+        d as u32,
+    )
 }
 
 /// Send one push; Ok(true)=delivered, Ok(false)=endpoint gone (delete row).
@@ -139,8 +141,7 @@ pub async fn push_send(
 
     let headers = Headers::new();
     for (name, value) in req.headers().iter() {
-        headers
-            .set(name.as_str(), value.to_str().unwrap_or(""))?;
+        headers.set(name.as_str(), value.to_str().unwrap_or(""))?;
     }
     let init = RequestInit {
         method: Method::Post,
@@ -164,7 +165,10 @@ pub async fn push_send(
     }
 }
 
-pub const NETWORK_CRON: &str = "0 18 * * *";
+/// Daily full network rebuild at 05:05 JST (20:05 UTC), inside JR-West's
+/// published service window. The minutely cron still self-heals missing/old
+/// snapshots immediately after deploy.
+pub const NETWORK_CRON: &str = "5 20 * * *";
 
 /// Stable short id from the endpoint URL (sha256 hex, first 32 chars).
 pub fn hash_id(endpoint: &str) -> String {

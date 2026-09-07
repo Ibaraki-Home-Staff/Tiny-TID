@@ -21,8 +21,8 @@
     { "binding": "DB", "database_name": "tiny-tid", "database_id": "REPLACE_WITH_D1_ID" }
   ],
 
-  // daily network rebuild (03:00 JST) + minutely push evaluation
-  "triggers": { "crons": ["0 18 * * *", "* * * * *"] },
+  // daily network rebuild (05:05 JST) + minutely push/bootstrap evaluation
+  "triggers": { "crons": ["5 20 * * *", "* * * * *"] },
 
   // __CUSTOM_DOMAIN_ROUTES__ (CI renders routes here when vars.CUSTOM_DOMAIN is set)
 

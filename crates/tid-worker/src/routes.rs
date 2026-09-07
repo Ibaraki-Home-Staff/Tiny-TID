@@ -1,34 +1,31 @@
-//! HTTP routes: /api/view, /api/areas, /api/stations, /api/push/subscriptions,
-//! static assets fallback.
+//! HTTP routes: /api/view, /api/areas, /api/stations, /api/health,
+//! /api/push/subscriptions, static assets fallback.
 use worker::*;
 use tid_core::view::{build_view, MergedScopeSource, PassSetting, ViewInput};
 use tid_core::vmtypes::{StationRef, TrainVm, ViewResponse};
 
 use crate::{network_job, util};
 
-/// Snapshot with lazy first build (covers fresh deploys before the daily cron).
-async fn load_or_rebuild(env: &Env) -> Result<std::sync::Arc<tid_core::network::NetworkSnapshot>> {
+async fn load_ready_snapshot(
+    env: &Env,
+) -> Result<Option<std::sync::Arc<tid_core::network::NetworkSnapshot>>> {
     let db = env.d1("DB")?;
-    match network_job::load_network(&db).await {
-        Some(s) => Ok(s),
-        None => {
-            network_job::rebuild_network(env, &util::origin(env))
-                .await
-                .map_err(|e| Error::RustError(format!("snapshot build failed: {e}").into()))?;
-            network_job::load_network(&db)
-                .await
-                .ok_or_else(|| Error::RustError("network snapshot not available".into()))
-        }
-    }
+    Ok(network_job::load_network(&db).await)
+}
+
+fn warming_response() -> Result<Response> {
+    Response::error("network snapshot unavailable; retry shortly", 503)
 }
 
 async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
-    let snapshot = load_or_rebuild(env).await?;
+    let Some(snapshot) = load_ready_snapshot(env).await? else {
+        return warming_response();
+    };
     let query = url.query();
-    // Generic single-line mode (?line=): the worker merges ALL lines it
-    // tracks (snapshot-wide) and returns the trains passing through the
-    // requested line/station. Unknown ids are rejected; absence keeps the
-    // fixed scope untouched.
+    // Generic single-line mode (?line=): geometry remains snapshot-wide so
+    // destinations/through services can be projected across connected lines,
+    // but live position fetches are limited to the viewed line (+ its
+    // upstream `relatelines`) rather than every line in the national graph.
     let viewed: Option<String> = util::query_param(query, "line").filter(|s| !s.trim().is_empty());
     if let Some(l) = &viewed {
         if !snapshot.orders.contains_key(l.as_str()) {
@@ -57,8 +54,36 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         .or_else(|| env.var("FIXED_AREA").map(|v| v.to_string()).ok())
         .unwrap_or_else(|| "kinki".to_string());
 
+    if !snapshot.areas.contains_key(&area) {
+        return Response::error("unknown area", 400);
+    }
+
     let origin = util::origin(env);
-    let payloads = crate::upstream::fetch_trains_for(&origin, &scope).await;
+    let master_path = format!("area_{area}_master.json");
+    let Some(master) = crate::upstream::get_master_doc(&origin, &master_path).await else {
+        return Response::error("upstream area master unavailable", 502);
+    };
+    if let Some(line) = &viewed {
+        if !master.lines.contains_key(line) {
+            return Response::error("line does not belong to requested area", 400);
+        }
+    }
+
+    let live_lines: Vec<String> = match viewed.clone() {
+        Some(line) => vec![line],
+        None => scope.clone(),
+    };
+    let batch =
+        crate::upstream::fetch_trains_for_with_master(&origin, &live_lines, Some(&master)).await;
+    if !batch.missing_sources.is_empty() {
+        console_error!(
+            "view train fetch incomplete area={area}: {}",
+            batch.missing_sources.join(",")
+        );
+        return Response::error("upstream train data incomplete", 502);
+    }
+    let payloads = batch.payloads;
+
     let traffic_doc = crate::upstream::get_traffic_doc(
         &origin,
         &format!("area_{area}_trafficinfo.json"),
@@ -86,7 +111,11 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         .map(|doc| tid_core::traffic::build_traffic_items(&doc, &traffic_scope, &line_names))
         .unwrap_or_default();
 
-    let source = MergedScopeSource { snapshot: &snapshot, lines: &scope, primary_line: &primary };
+    let source = MergedScopeSource {
+        snapshot: &snapshot,
+        lines: &scope,
+        primary_line: &primary,
+    };
     let input = ViewInput {
         station: &station,
         pass,
@@ -104,19 +133,24 @@ async fn handle_view(env: &Env, url: &Url) -> Result<Response> {
         .map_err(|e| Error::RustError(e.to_string().into()))?;
     let mut r = Response::from_bytes(body)?;
     let _ = r.headers_mut().set("cache-control", "no-store");
+    let _ = r.headers_mut().set("x-tid-snapshot-built-at", &snapshot.built_at);
     Ok(r)
 }
 
 use std::sync::LazyLock;
 /// Area selector index for select.html: { area_id: { name, lines: [{id, name}] } }.
 async fn handle_areas(env: &Env) -> Result<Response> {
-    let snapshot = load_or_rebuild(env).await?;
+    let Some(snapshot) = load_ready_snapshot(env).await? else {
+        return warming_response();
+    };
     Response::from_json(&snapshot.areas)
 }
 
 /// Station list of one line in listing order (selector + generic viewer).
 async fn handle_stations(env: &Env, url: &Url) -> Result<Response> {
-    let snapshot = load_or_rebuild(env).await?;
+    let Some(snapshot) = load_ready_snapshot(env).await? else {
+        return warming_response();
+    };
     let line = util::query_param(url.query(), "line")
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
@@ -124,7 +158,7 @@ async fn handle_stations(env: &Env, url: &Url) -> Result<Response> {
         return Response::error("missing line", 400);
     }
     let (Some(order), Some(stations)) =
-        (snapshot.orders.get(line.as_str()), snapshot.lines.get(line.as_str()))
+        (snapshot.orders.get(line.as_str()), snapshot.lines.get(line.as_string()))
     else {
         return Response::error("unknown line", 400);
     };
@@ -142,6 +176,22 @@ async fn handle_stations(env: &Env, url: &Url) -> Result<Response> {
         })
         .collect();
     Response::from_json(&serde_json::json!({ "line": line, "stations": list }))
+}
+
+/// Lightweight production diagnostic that never triggers a rebuild.
+async fn handle_health(env: &Env) -> Result<Response> {
+    let Some(snapshot) = load_ready_snapshot(env).await? else {
+        return warming_response();
+    };
+    let nodes = snapshot.lines.values().map(|m| m.len()).sum::<usize>();
+    Response::from_json(&serde_json::json!({
+        "ok": true,
+        "snapshotVersion": snapshot.version,
+        "builtAt": snapshot.built_at.clone(),
+        "areas": snapshot.areas.len(),
+        "lines": snapshot.lines.len(),
+        "nodes": nodes,
+    }))
 }
 
 static COLOR_MAP: LazyLock<std::collections::BTreeMap<String, String>> = LazyLock::new(|| {
@@ -228,7 +278,7 @@ pub fn view_trains(
         station_line: None,
     };
     let resp = build_view(&source, &input);
-    resp.up.into_iter().chain(resp.down.into_iter()).collect()
+    resp.up.into_iter().chain(resp.down).collect()
 }
 
 pub async fn handle_fetch(req: Request, env: Env) -> Result<Response> {
@@ -239,6 +289,7 @@ pub async fn handle_fetch(req: Request, env: Env) -> Result<Response> {
         (_, p) if p == "/api/view" => handle_view(&env, &url).await,
         (_, p) if p == "/api/areas" => handle_areas(&env).await,
         (_, p) if p == "/api/stations" => handle_stations(&env, &url).await,
+        (_, p) if p == "/api/health" => handle_health(&env).await,
         (_, p) if p == "/api/push/subscriptions" => handle_subscribe(req, env).await,
         _ => {
             let assets = env.assets("ASSETS")?;
