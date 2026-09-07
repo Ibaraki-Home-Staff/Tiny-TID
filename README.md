@@ -58,9 +58,10 @@ Secrets を更新し、workflow を再実行する(手動なら `secret put` の
 スキーム・パスなし)。CI が routes(`custom_domain: true`)付きで deploy し、空なら
 workers.dev のみ。前提: そのゾーンが同一アカウントで有効、対象ホストに既存 CNAME
 なし(DNS・証明書は自動)。ホスト名は完全一致のため apex+www は両方書くこと。
-権限の追加も不要: Custom Domains API は Account スコープで `Workers Scripts
-Read/Write` のみ要求のため、既存4権限で足りる。
-
+複数ゾーンに跨る場合(例 `tid.rumia-ch.uk,tid.is-hs.org`)は両ゾーンが同一アカウント
+配下にあり、トークンのリソース範囲に両方含まれること。
+独自ドメインを使う場合は Zone 権限 `Workers Routes: Edit` を対象ゾーン(複数可)に
+付与すること(routes の list/create に必要。`Zone: Read/Write` 全体は過剰)。
 ## API
 
 - `GET /api/view?station=<コード|駅名>&pass=hide|show` — 統合・正規化済みビューモデル
