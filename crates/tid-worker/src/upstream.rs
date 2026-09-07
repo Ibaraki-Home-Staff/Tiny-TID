@@ -12,6 +12,12 @@ const TRAINS_TTL_MS: u64 = 5_000;
 const MASTER_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 const COOLDOWN_MS: u64 = 30_000;
 
+// JR-West currently returns its HTML 404 page to Cloudflare Worker subrequests
+// that use the runtime-default request headers. A normal browser-like request
+// returns the JSON API correctly. Keep the headers explicit and stable.
+const UPSTREAM_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36";
+
 pub fn now_ms() -> u64 {
     coarsetime::Clock::now_since_epoch().as_u64()
 }
@@ -38,20 +44,23 @@ fn expired_entry(key: &str) -> Option<Vec<u8>> {
     None
 }
 
-async fn fetch_upstream(origin: &str, path: &str, edge_ttl_secs: i32) -> Result<Vec<u8>> {
-    // Edge-shared cache: isolates in the same PoP reuse one upstream fetch.
-    // Memory (per isolate) stays L1; this collapses N isolates to ~1 fetch
-    // per PoP per TTL instead of N.
+async fn fetch_upstream(origin: &str, path: &str, _edge_ttl_secs: i32) -> Result<Vec<u8>> {
     let url = format!("{origin}/api/v3/{path}");
+
+    let headers = Headers::new();
+    headers.set("user-agent", UPSTREAM_USER_AGENT)?;
+    headers.set("accept", "application/json,text/plain,*/*")?;
+    headers.set("referer", "https://www.train-guide.westjr.co.jp/")?;
+
+    // Do not use `cf.cache_everything` here. A previous 404 from JR-West can
+    // otherwise be cached at the Cloudflare edge for the master TTL and keep
+    // poisoning rebuilds even after the request headers are corrected. The
+    // isolate cache below already provides the TTL behavior we need.
     let req = Request::new_with_init(
         &url,
         &RequestInit {
             method: Method::Get,
-            cf: CfProperties {
-                cache_ttl: Some(edge_ttl_secs),
-                cache_everything: Some(true),
-                ..Default::default()
-            },
+            headers,
             ..Default::default()
         },
     )?;
