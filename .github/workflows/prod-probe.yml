@@ -112,7 +112,6 @@ jobs:
                   parse_failures.append((line_id, path, repr(e)))
                   print(f"JSON_FAIL {line_id} {path}: {e!r}")
                   continue
-              # Rust StationsDoc must deserialize, and a useful graph source must contain station-ish data.
               if not doc:
                   empty.append((line_id, path))
                   print(f"EMPTY {line_id} {path}")
@@ -128,3 +127,26 @@ jobs:
               print("PARSE_FAILURE", row)
           for row in empty:
               print("EMPTY_DOC", row)
+
+  tail:
+    name: Tail production scheduled rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: Cloudflare
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Capture next scheduled invocation
+        shell: bash
+        run: |
+          echo "Capturing production Worker logs for ~90 seconds..."
+          set +e
+          timeout 95s bunx wrangler@4.125.0 tail tiny-tid --format json 2>&1 | tee /tmp/tail.log
+          rc=${PIPESTATUS[0]}
+          echo "wrangler_tail_rc=$rc"
+          echo "===== captured error/rebuild lines ====="
+          grep -Ei 'network|snapshot|upstream|error|exception|scheduled|cron' /tmp/tail.log || true
+          exit 0
