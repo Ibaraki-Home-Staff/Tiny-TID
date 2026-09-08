@@ -14,12 +14,12 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Query Cloudflare morning work window
+      - name: Query Cloudflare evening work window
         shell: bash
         run: |
           set +e
-          START='2026-09-07T22:25:00Z'
-          END='2026-09-08T00:25:00Z'
+          START='2026-09-08T09:00:00Z'
+          END='2026-09-08T11:00:00Z'
 
           echo '===== WORKER ANALYTICS EXACT WINDOW ====='
           jq -n \
