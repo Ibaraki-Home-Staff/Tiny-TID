@@ -27,7 +27,7 @@ jobs:
             --arg start "$START" \
             --arg end "$END" \
             --arg script 'tiny-tid' \
-            '{query:"query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) { viewer { accounts(filter: {accountTag: $accountTag}) { workersInvocationsAdaptive(limit: 100, filter: {scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_lt: $datetimeEnd}) { sum { subrequests requests errors } quantiles { cpuTimeP50 cpuTimeP99 } } } } }", variables:{accountTag:$account, datetimeStart:$start, datetimeEnd:$end, scriptName:$script}}' >/tmp/query.json
+            '{query:"query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) { viewer { accounts(filter: {accountTag: $accountTag}) { workersInvocationsAdaptive(limit: 100, filter: {scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_lt: $datetimeEnd}) { sum { subrequests requests errors cpuTimeUs } quantiles { cpuTimeP50 cpuTimeP99 } } } } }", variables:{accountTag:$account, datetimeStart:$start, datetimeEnd:$end, scriptName:$script}}' >/tmp/query.json
           code=$(curl -sS -o /tmp/graphql.json -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H 'Accept: application/json' \
@@ -35,22 +35,5 @@ jobs:
             --data @/tmp/query.json \
             https://api.cloudflare.com/client/v4/graphql)
           echo "range=$START..$END status=$code"
-          jq '{errors, rows: (.data.viewer.accounts[0].workersInvocationsAdaptive // [] | length), data: (.data.viewer.accounts[0].workersInvocationsAdaptive // [])}' /tmp/graphql.json 2>/dev/null || cat /tmp/graphql.json
-          echo
-
-          echo '===== PROBE EXACT CPU SUM FIELD ====='
-          jq -n \
-            --arg account "$CLOUDFLARE_ACCOUNT_ID" \
-            --arg start "$START" \
-            --arg end "$END" \
-            --arg script 'tiny-tid' \
-            '{query:"query GetWorkersCpu($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) { viewer { accounts(filter: {accountTag: $accountTag}) { workersInvocationsAdaptive(limit: 10, filter: {scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_lt: $datetimeEnd}) { sum { cpuTime requests } } } } }", variables:{accountTag:$account, datetimeStart:$start, datetimeEnd:$end, scriptName:$script}}' >/tmp/cpu.json
-          code=$(curl -sS -o /tmp/cpuout.json -w '%{http_code}' \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H 'Accept: application/json' \
-            -H 'Content-Type: application/json' \
-            --data @/tmp/cpu.json \
-            https://api.cloudflare.com/client/v4/graphql)
-          echo "status=$code"
-          cat /tmp/cpuout.json
+          cat /tmp/graphql.json
           echo
