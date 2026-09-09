@@ -1,0 +1,43 @@
+name: thunderbird-probe
+
+on:
+  push:
+    branches:
+      - chatgpt-prod-probe
+    paths:
+      - .github/workflows/thunderbird-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe current JR West Thunderbird/diversion payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          BASE='https://www.train-guide.westjr.co.jp/api/v3'
+          echo "probe_utc=$(date -u +%FT%TZ)"
+          curl -fsS -H "User-Agent: $UA" -H 'Accept: application/json,text/plain,*/*' -H 'Referer: https://www.train-guide.westjr.co.jp/' "$BASE/currenttime.txt" -o /tmp/currenttime.txt || true
+          echo -n 'jr_currenttime='; cat /tmp/currenttime.txt 2>/dev/null || true; echo
+
+          for name in hokurikubiwako kosei koseihokurikubiwako trainmonitorinfo; do
+            echo "===== $name ====="
+            url="$BASE/$name.json"
+            code=$(curl -sS --max-time 30 -o "/tmp/$name.json" -w '%{http_code}' -H "User-Agent: $UA" -H 'Accept: application/json,text/plain,*/*' -H 'Referer: https://www.train-guide.westjr.co.jp/' "$url")
+            echo "status=$code bytes=$(wc -c < /tmp/$name.json)"
+            if [ "$code" != 200 ]; then head -c 1000 "/tmp/$name.json"; echo; continue; fi
+            echo 'top-level keys:'
+            jq -c 'keys' "/tmp/$name.json" || true
+            echo 'objects with likely train number/name fields:'
+            jq -c '.. | objects | select(has("no") or has("trainNo") or has("train_no") or has("trainName") or has("name")) | select(([.[]? | strings | select(test("サンダ|Thunderbird|(^|[^0-9])[ぁ-んァ-ヶ一-龥]?[0-9]{3,5}M($|[^A-Za-z])"))] | length) > 0)' "/tmp/$name.json" || true
+            echo 'all distinct keys used by train-like objects:'
+            jq -r '.. | objects | select(has("no") or has("trainNo") or has("train_no")) | keys[]' "/tmp/$name.json" | sort -u | tr '\n' ' '; echo
+            echo 'all train-like objects whose number contains M or Japanese prefix:'
+            jq -c '.. | objects | select(has("no") or has("trainNo") or has("train_no")) | select(((.no // .trainNo // .train_no // "")|tostring|test("M|^[^0-9]")))' "/tmp/$name.json" || true
+          done
