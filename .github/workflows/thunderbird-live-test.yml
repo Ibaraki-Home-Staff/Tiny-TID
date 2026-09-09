@@ -1,0 +1,89 @@
+name: thunderbird-live-test
+
+on:
+  push:
+    branches: [feature/thunderbird-diversion]
+    paths:
+      - .github/workflows/thunderbird-live-test.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare JR upstream with Tiny-TID production
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          UP='https://www.train-guide.westjr.co.jp/api/v3/hokurikubiwako.json'
+          PROD='https://tid.rumia-ch.uk/api/view?area=kinki&line=hokurikubiwako&pass=show'
+
+          echo "probe_utc=$(date -u +%FT%TZ)"
+          curl -fsS --max-time 30 \
+            -H "User-Agent: $UA" \
+            -H 'Accept: application/json,text/plain,*/*' \
+            -H 'Referer: https://www.train-guide.westjr.co.jp/' \
+            "$UP" -o /tmp/up.json
+          curl -fsS --max-time 30 "$PROD" -o /tmp/prod.json
+
+          echo '===== upstream diversion/special-limited-express ====='
+          jq -c '.trains[]
+            | select(.type == "01")
+            | select((.nickname // "" | contains("サンダーバード")) or (.no // "" | startswith("う")) or ((.via // "") != ""))
+            | {no,canonicalNo:(.no | if startswith("う") then ltrimstr("う") else . end),nickname,displayType,via,dest,delayMinutes,numberOfCars,pos}' /tmp/up.json
+
+          diverted=$(jq '[.trains[] | select(.type == "01" and (.via // "") == "琵琶湖線")] | length' /tmp/up.json)
+          if [ "$diverted" -lt 1 ]; then
+            echo 'ERROR: no limited express with via=琵琶湖線 is present upstream right now'
+            exit 1
+          fi
+
+          echo '===== Tiny-TID production special trains ====='
+          jq -c '[.up[], .down[]]
+            | .[]
+            | select((.displayType // "") == "特急")
+            | select((.nickname // "" | contains("サンダーバード")) or (.no // "" | startswith("う")) or ((.via // "") != ""))
+            | {no,canonicalNo:(.no | if startswith("う") then ltrimstr("う") else . end),nickname,displayType,via,destText,delayMinutes,cars,posLabel,line}' /tmp/prod.json
+
+          echo '===== upstream -> production canonical-number join ====='
+          jq -n --slurpfile up /tmp/up.json --slurpfile prod /tmp/prod.json '
+            def canon: if startswith("う") then ltrimstr("う") else . end;
+            ($prod[0].up + $prod[0].down) as $pt
+            | [$up[0].trains[]
+                | select(.type == "01")
+                | select((.nickname // "" | contains("サンダーバード")) or (.no // "" | startswith("う")) or ((.via // "") != ""))
+                | . as $u
+                | ($u.no | canon) as $c
+                | {upstreamNo:$u.no, canonicalNo:$c, upstreamVia:($u.via // ""), upstreamNickname:($u.nickname // ""), matches:[$pt[] | select(((.no // "") | canon) == $c) | {no,via,nickname,posLabel,delayMinutes}]}]'
+
+          missing=$(jq -n --slurpfile up /tmp/up.json --slurpfile prod /tmp/prod.json '
+            def canon: if startswith("う") then ltrimstr("う") else . end;
+            ($prod[0].up + $prod[0].down) as $pt
+            | [$up[0].trains[]
+                | select(.type == "01")
+                | select((.nickname // "" | contains("サンダーバード")) or (.no // "" | startswith("う")) or ((.via // "") != ""))
+                | (.no | canon) as $c
+                | select(([$pt[] | select(((.no // "") | canon) == $c)] | length) == 0)]
+            | length')
+          if [ "$missing" -gt 0 ]; then
+            echo "ERROR: $missing upstream Thunderbird/special trains are missing from Tiny-TID by canonical train number"
+            exit 1
+          fi
+
+          echo '===== duplicate canonical numbers in Tiny-TID response ====='
+          duplicates=$(jq '[.up[], .down[]]
+            | map(. + {canonicalNo:(.no | if startswith("う") then ltrimstr("う") else . end)})
+            | sort_by(.canonicalNo)
+            | group_by(.canonicalNo)
+            | map(select(length > 1) | {canonicalNo:.[0].canonicalNo,count:length,items:map({no,posLabel,via,line,direction})})' /tmp/prod.json)
+          echo "$duplicates" | jq .
+
+          echo '===== nickname-empty diversion records ====='
+          jq -c '.trains[] | select(.type == "01" and (.via // "") == "琵琶湖線" and (.nickname // "") == "") | {no,nickname,displayType,via,dest,delayMinutes,numberOfCars,pos}' /tmp/up.json
+
+          echo 'PASS: live upstream data is represented by Tiny-TID by canonical train number'
