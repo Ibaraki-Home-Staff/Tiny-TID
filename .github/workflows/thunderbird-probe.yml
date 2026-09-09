@@ -16,28 +16,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe current JR West Thunderbird/diversion payloads
+      - name: Probe current JR West Thunderbird/diversion metadata
         shell: bash
         run: |
           set -euo pipefail
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
           BASE='https://www.train-guide.westjr.co.jp/api/v3'
+          fetch() {
+            local name="$1"
+            curl -fsS --max-time 30 -H "User-Agent: $UA" -H 'Accept: application/json,text/plain,*/*' -H 'Referer: https://www.train-guide.westjr.co.jp/' "$BASE/$name" -o "/tmp/${name//\//_}"
+          }
           echo "probe_utc=$(date -u +%FT%TZ)"
-          curl -fsS -H "User-Agent: $UA" -H 'Accept: application/json,text/plain,*/*' -H 'Referer: https://www.train-guide.westjr.co.jp/' "$BASE/currenttime.txt" -o /tmp/currenttime.txt || true
+          fetch currenttime.txt || true
           echo -n 'jr_currenttime='; cat /tmp/currenttime.txt 2>/dev/null || true; echo
 
-          for name in hokurikubiwako kosei koseihokurikubiwako trainmonitorinfo; do
-            echo "===== $name ====="
-            url="$BASE/$name.json"
-            code=$(curl -sS --max-time 30 -o "/tmp/$name.json" -w '%{http_code}' -H "User-Agent: $UA" -H 'Accept: application/json,text/plain,*/*' -H 'Referer: https://www.train-guide.westjr.co.jp/' "$url")
-            echo "status=$code bytes=$(wc -c < /tmp/$name.json)"
-            if [ "$code" != 200 ]; then head -c 1000 "/tmp/$name.json"; echo; continue; fi
-            echo 'top-level keys:'
-            jq -c 'keys' "/tmp/$name.json" || true
-            echo 'objects with likely train number/name fields:'
-            jq -c '.. | objects | select(has("no") or has("trainNo") or has("train_no") or has("trainName") or has("name")) | select(([.[]? | strings | select(test("サンダ|Thunderbird|(^|[^0-9])[ぁ-んァ-ヶ一-龥]?[0-9]{3,5}M($|[^A-Za-z])"))] | length) > 0)' "/tmp/$name.json" || true
-            echo 'all distinct keys used by train-like objects:'
-            jq -r '.. | objects | select(has("no") or has("trainNo") or has("train_no")) | keys[]' "/tmp/$name.json" | sort -u | tr '\n' ' '; echo
-            echo 'all train-like objects whose number contains M or Japanese prefix:'
-            jq -c '.. | objects | select(has("no") or has("trainNo") or has("train_no")) | select(((.no // .trainNo // .train_no // "")|tostring|test("M|^[^0-9]")))' "/tmp/$name.json" || true
+          for file in hokurikubiwako.json kosei.json koseihokurikubiwako.json trainmonitorinfo.json area_kinki_trafficinfo.json; do
+            echo "===== $file ====="
+            fetch "$file"
+            p="/tmp/$file"
+            echo "bytes=$(wc -c < "$p")"
+            jq -c 'keys' "$p" 2>/dev/null || true
+            echo '-- matching raw text --'
+            grep -Eo '.{0,100}(う40[0-9]{2}M|40[0-9]{2}M|サンダーバード|琵琶湖線|湖西線).{0,180}' "$p" | head -80 || true
+
+            if [ "$file" = 'hokurikubiwako.json' ] || [ "$file" = 'koseihokurikubiwako.json' ]; then
+              echo '-- Thunderbird/special train records --'
+              jq -c '.trains[] | select((.nickname // "" | contains("サンダーバード")) or (.no // "" | startswith("う")) or (.via // "" != ""))' "$p" || true
+              echo '-- nonempty special metadata values --'
+              jq -c '.trains[] | select((.via // "") != "" or (.typeChange // "") != "" or (.aSeatInfo // "") != "" or (.iconId // "") != "") | {no,nickname,displayType,via,typeChange,aSeatInfo,iconId,dest,delayMinutes,numberOfCars,pos}' "$p" || true
+            fi
+
+            if [ "$file" = 'trainmonitorinfo.json' ]; then
+              echo '-- trainmonitorinfo trains shape --'
+              jq -c '.trains | {type:type, length:length}' "$p" || true
+              jq -c '.trains | if type=="array" then .[:8] else to_entries[:8] end' "$p" || true
+              echo '-- all object keys in trainmonitorinfo --'
+              jq -r '.. | objects | keys[]' "$p" | sort -u | tr '\n' ' '; echo
+            fi
           done
